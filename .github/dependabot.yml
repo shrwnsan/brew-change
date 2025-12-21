@@ -4,7 +4,7 @@ updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
       day: "monday"
       time: "09:00"
     open-pull-requests-limit: 10
@@ -20,7 +20,7 @@ updates:
   - package-ecosystem: "npm"
     directory: "/tests/docker"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
       day: "monday"
       time: "09:00"
     open-pull-requests-limit: 5
@@ -31,12 +31,20 @@ updates:
     commit-message:
       prefix: "deps"
       include: "scope"
+    groups:
+      test-dev-deps:
+        patterns:
+          - "prettier"
+          - "eslint"
+          - "typescript"
+          - "rollup"
+          - "nodemon"
 
   # Enable version updates for GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
       day: "monday"
       time: "09:00"
     open-pull-requests-limit: 5
@@ -52,7 +60,7 @@ updates:
   - package-ecosystem: "docker"
     directory: "/tests/docker"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
       day: "monday"
       time: "09:00"
     open-pull-requests-limit: 5
