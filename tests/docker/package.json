@@ -6,7 +6,7 @@
   "dependencies": {
     "prettier": "2.8.8",
     "eslint": "8.57.0",
-    "typescript": "4.9.5",
+    "typescript": "5.9.3",
     "webpack": "5.89.0",
     "vite": "4.5.0",
     "nodemon": "2.0.22",
