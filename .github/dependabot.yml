@@ -16,9 +16,41 @@ updates:
       prefix: "deps"
       include: "scope"
 
+  # Enable version updates for npm in tests
+  - package-ecosystem: "npm"
+    directory: "/tests/docker"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "shrwnsan"
+    assignees:
+      - "shrwnsan"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+
   # Enable version updates for GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "shrwnsan"
+    assignees:
+      - "shrwnsan"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+
+  # Enable version updates for Docker Compose
+  - package-ecosystem: "docker"
+    directory: "/tests/docker"
     schedule:
       interval: "weekly"
       day: "monday"
