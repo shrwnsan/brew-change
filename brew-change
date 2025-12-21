@@ -1,0 +1,249 @@
+#!/usr/bin/env bash
+# Enhanced brew-changelog with actual release content display
+# Shows changelog information for Homebrew packages with formatted output
+# Refactored for better maintainability and parallel processing
+
+set -euo pipefail
+
+# Set UTF-8 locale to handle emojis and special characters
+# This must be set before any text processing
+if locale -a 2>/dev/null | grep -q "^en_US.UTF-8"; then
+    export LC_ALL=en_US.UTF-8
+    export LANG=en_US.UTF-8
+elif locale -a 2>/dev/null | grep -q "^C.UTF-8"; then
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+fi
+
+# Source library functions
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/brew-change-config.sh"
+source "$SCRIPT_DIR/lib/brew-change-utils.sh"
+source "$SCRIPT_DIR/lib/brew-change-github.sh"
+source "$SCRIPT_DIR/lib/brew-change-npm.sh"
+source "$SCRIPT_DIR/lib/brew-change-brew.sh"
+source "$SCRIPT_DIR/lib/brew-change-non-github.sh"
+source "$SCRIPT_DIR/lib/brew-change-display.sh"
+source "$SCRIPT_DIR/lib/brew-change-parallel.sh"
+
+# Verify dependencies
+if ! verify_dependencies; then
+    exit 1
+fi
+
+# Function to show usage
+usage() {
+    cat << 'EOF'
+Usage: brew-change [OPTIONS] [PACKAGE]
+
+Shows changelog information for Homebrew packages.
+
+Arguments:
+  PACKAGE    Show changelog for specific package only
+
+Options:
+  -a, --all     Show detailed changelog for all outdated packages (parallel)
+  -v, --verbose Show outdated packages with version numbers (like 'brew outdated -v')
+  -h, --help    Show this help message
+
+If no PACKAGE is specified and no flags, shows simple list like 'brew outdated'.
+
+Examples:
+  brew-change node              # Show changelog for node package
+  brew-change -a               # Show detailed changelogs for all outdated packages
+  brew-change -v               # Show outdated packages with versions
+  brew-change                  # Show simple outdated list (package names only)
+
+EOF
+}
+
+# Parse command line arguments
+SHOW_ALL="false"
+SHOW_VERSIONS="false"
+PACKAGE=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -a|--all)
+            SHOW_ALL="true"
+            shift
+            ;;
+        -v|--verbose)
+            SHOW_VERSIONS="true"
+            shift
+            ;;
+        -h|--help|help)
+            usage
+            exit 0
+            ;;
+        -*)
+            echo "Error: Unknown option: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+        *)
+            PACKAGE="$1"
+            shift
+            ;;
+    esac
+done
+
+# Main execution logic
+if [ -n "$PACKAGE" ]; then
+    # Show changelog for specific package
+    # First check if package exists to provide appropriate feedback
+    if check_package_exists "$PACKAGE"; then
+        echo "Processing changelog for 1 package..."
+        echo ""
+        show_package_changelog "$PACKAGE"
+    else
+        # Package doesn't exist, check for naming conflicts
+        conflicting_packages=""
+        if command -v jq >/dev/null 2>&1; then
+            # Look for packages that contain the searched name using grep
+            conflicting_packages=$(brew outdated --json=v2 2>/dev/null | jq -r '.formulae[] | .name' 2>/dev/null | grep "$PACKAGE" | sort | uniq)
+
+            # Also check for exact matches with word boundaries
+            exact_matches=$(brew outdated --json=v2 2>/dev/null | jq -r '.formulae[] | .name' 2>/dev/null | grep -w "$PACKAGE" | sort | uniq)
+
+            if [[ -n "$exact_matches" ]]; then
+                # Prefer exact matches over partial matches
+                conflicting_packages="$exact_matches"
+            fi
+        fi
+
+        # If we found packages with similar names, present a choice
+        if [[ -n "$conflicting_packages" ]]; then
+            package_count=$(echo "$conflicting_packages" | wc -l | tr -d ' ')
+            if [[ "$package_count" -gt 1 ]]; then
+                echo "Multiple packages found matching '$PACKAGE':"
+                echo ""
+                echo "$conflicting_packages" | while read -r pkg; do
+                    echo "  • $pkg"
+                done
+                echo ""
+
+                # Check if the original package name is in the list
+                exact_match=""
+                if echo "$conflicting_packages" | grep -q "^${PACKAGE}$"; then
+                    exact_match="$PACKAGE"
+                fi
+
+                # If exact match exists, use it; otherwise show interactive prompt
+                if [[ -n "$exact_match" ]]; then
+                    echo "Using exact match: $exact_match"
+                    PACKAGE="$exact_match"
+                    echo "Processing changelog for 1 package..."
+                    echo ""
+                    show_package_changelog "$PACKAGE"
+                else
+                    echo "Please specify which package you want:"
+                    echo "$conflicting_packages" | paste -sd "," -
+                    echo ""
+                    exit 1
+                fi
+            elif [[ "$package_count" -eq 1 ]]; then
+                # Use the single found package
+                PACKAGE="$conflicting_packages"
+                echo "Using package: $PACKAGE"
+                echo "Processing changelog for 1 package..."
+                echo ""
+                show_package_changelog "$PACKAGE"
+            fi
+        else
+            # No conflicts found, show standard error message
+            echo "Error: Package '$PACKAGE' not found in Homebrew"
+            echo ""
+            # Check for similar packages if package is long enough
+            if command -v jq >/dev/null 2>&1; then
+                best_suggestion=""
+                if best_suggestion=$(get_best_suggestion "$PACKAGE" 2>/dev/null); then
+                    echo "Similar installed packages:"
+                    find_similar_packages "$PACKAGE"
+                    echo ""
+                    echo "Continue with '$best_suggestion'? (y/N): "
+                    read -r response
+                    if [[ "$response" =~ ^[Yy]$ ]]; then
+                        echo ""
+                        echo "Processing changelog for 1 package..."
+                        echo ""
+                        show_package_changelog "$best_suggestion"
+                    fi
+                else
+                    echo "To search installed packages, try: brew list | grep $PACKAGE"
+                fi
+            else
+                echo "To search installed packages, try: brew list | grep $PACKAGE"
+            fi
+        fi
+    fi
+else
+    # Get outdated packages
+    outdated_packages=""
+    if ! outdated_packages=$(brew outdated --json=v2 2>/dev/null | grep -v '✔︎ JSON API'); then
+        echo "Error: Unable to check for outdated packages"
+        exit 1
+    fi
+
+    # Check if there are any outdated packages
+    formulae_empty=""
+    casks_empty=""
+
+    if formulae_empty=$(echo "$outdated_packages" | jq -r '.formulae | length' 2>/dev/null); then
+        if [[ "$formulae_empty" == "0" ]]; then
+            if casks_empty=$(echo "$outdated_packages" | jq -r '.casks | length' 2>/dev/null); then
+                if [[ "$casks_empty" == "0" ]]; then
+                    echo "No outdated packages found."
+                    exit 0
+                fi
+            else
+                # If casks check fails, just check formulae
+                if [[ "$formulae_empty" == "0" ]]; then
+                    echo "No outdated packages found."
+                    exit 0
+                fi
+            fi
+        fi
+    fi
+    
+    if [ "$SHOW_ALL" = "true" ]; then
+        # Count total outdated packages
+        total_packages=0
+        if formulae_count=$(echo "$outdated_packages" | jq -r '.formulae | length' 2>/dev/null); then
+            total_packages=$((total_packages + formulae_count))
+        fi
+        if casks_count=$(echo "$outdated_packages" | jq -r '.casks | length' 2>/dev/null); then
+            total_packages=$((total_packages + casks_count))
+        fi
+
+        # First show the outdated packages list like brew outdated -v
+        echo "Outdated packages:"
+        brew outdated -v
+
+        # Ask for confirmation before showing detailed changelogs (skip for single package)
+        echo ""
+        if [[ $total_packages -eq 1 ]]; then
+            echo ""
+            echo "Processing changelog for 1 outdated package..."
+        else
+            echo "Found $total_packages outdated packages. Would you like to see detailed changelog information? (y/N)"
+            read -r response
+            if [[ ! "$response" =~ ^[Yy]$ ]]; then
+                echo "Run 'brew upgrade' to upgrade all packages, or 'brew upgrade <package>' for individual packages."
+                exit 0
+            fi
+        fi
+        echo ""
+        # Process packages in parallel
+        export outdated_packages  # Make available to subprocesses
+        process_packages_parallel "$outdated_packages" "$PARALLEL_JOBS"
+        
+        echo "Run 'brew upgrade' to upgrade all packages, or 'brew upgrade <package>' for individual packages."
+    elif [ "$SHOW_VERSIONS" = "true" ]; then
+        # Show list with versions like brew outdated -v
+        show_outdated_with_versions
+    else
+        # Show simple list like brew outdated (package names only)
+        show_outdated_simple_names
+    fi
+fi
