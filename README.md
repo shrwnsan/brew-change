@@ -83,6 +83,7 @@ brew-change intelligently handles different package sources:
 - **Modern CLI tools**: Documentation-repository pattern (alpha)
 
 → **See detailed package type examples**: [Package Types Documentation](docs/package-types.md)
+→ **Full documentation index**: [All Documentation](docs/README.md)
 
 ## 🐛 Troubleshooting
 
@@ -131,4 +132,4 @@ MIT License - see [LICENSE](LICENSE) file for details.
 ---
 
 **Looking for more?**
-- [Full Documentation](docs/) | [Performance Benchmarks](docs/performance.md) | [Configuration Guide](docs/configuration.md) | [Testing Suite](tests/README.md) | [Contributing](CONTRIBUTING.md)
+- [📚 All Documentation](docs/README.md) | [🎯 Quick Start](#-quick-start) | [Testing Suite](tests/README.md) | [Contributing](CONTRIBUTING.md)

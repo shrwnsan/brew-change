@@ -308,6 +308,48 @@ BREW_CHANGE_JOBS=4 brew-change -a
 BREW_CHANGE_DEBUG=1 brew-change package-name
 ```
 
+## 🎯 Use Cases
+
+### Security Updates
+```bash
+# Focus on security patches before updating
+brew-change openssl curl wget | grep -i "security"
+
+# Generate security report for review
+brew-change -a | grep -E "(security|cve|fix)"
+```
+Quickly identify security-related updates and understand vulnerability patches before applying them.
+
+### Major Version Planning
+```bash
+# Review breaking changes before major updates
+brew-change --verbose node
+
+# Check for potential issues
+brew-change python@3.12 | grep -E "(breaking|deprecated|removed)"
+```
+Make informed decisions about version upgrades and identify potential breaking changes.
+
+### Team Coordination
+```bash
+# Share update information with team
+brew-change -a > updates-review-$(date +%Y-%m-%d).txt
+
+# Check shared development tools
+brew-change git vscode docker-compose
+```
+Document changes for audit trails, sprint planning, and team coordination.
+
+### Package Evaluation
+```bash
+# Research before updating critical packages
+brew-change nginx postgresql redis
+
+# Focus on specific packages of interest
+brew-change kubernetes-cli terraform awscli
+```
+Review changes for critical infrastructure packages before updating production environments.
+
 ## 🔧 Configuration
 
 ### Environment Variables
