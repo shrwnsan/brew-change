@@ -17,14 +17,24 @@ fi
 
 # Source library functions
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/lib/brew-change-config.sh"
-source "$SCRIPT_DIR/lib/brew-change-utils.sh"
-source "$SCRIPT_DIR/lib/brew-change-github.sh"
-source "$SCRIPT_DIR/lib/brew-change-npm.sh"
-source "$SCRIPT_DIR/lib/brew-change-brew.sh"
-source "$SCRIPT_DIR/lib/brew-change-non-github.sh"
-source "$SCRIPT_DIR/lib/brew-change-display.sh"
-source "$SCRIPT_DIR/lib/brew-change-parallel.sh"
+
+# Handle Homebrew installation paths
+if [[ "$SCRIPT_DIR" == "/opt/homebrew/bin" || "$SCRIPT_DIR" == "/usr/local/bin" ]]; then
+    # Installed via Homebrew, lib files are in the Cellar/opt path
+    readonly LIB_DIR="$(brew --prefix brew-change)/lib"
+else
+    # Local installation, lib files are relative to script
+    readonly LIB_DIR="$SCRIPT_DIR/lib"
+fi
+
+source "$LIB_DIR/brew-change-config.sh"
+source "$LIB_DIR/brew-change-utils.sh"
+source "$LIB_DIR/brew-change-github.sh"
+source "$LIB_DIR/brew-change-npm.sh"
+source "$LIB_DIR/brew-change-brew.sh"
+source "$LIB_DIR/brew-change-non-github.sh"
+source "$LIB_DIR/brew-change-display.sh"
+source "$LIB_DIR/brew-change-parallel.sh"
 
 # Verify dependencies
 if ! verify_dependencies; then
