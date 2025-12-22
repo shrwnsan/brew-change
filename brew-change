@@ -5,6 +5,9 @@
 
 set -euo pipefail
 
+# Version information
+readonly VERSION="1.4.1"
+
 # Set UTF-8 locale to handle emojis and special characters
 # This must be set before any text processing
 if locale -a 2>/dev/null | grep -q "^en_US.UTF-8"; then
@@ -41,6 +44,11 @@ if ! verify_dependencies; then
     exit 1
 fi
 
+# Function to show version
+show_version() {
+    echo "brew-change version $VERSION"
+}
+
 # Function to show usage
 usage() {
     cat << 'EOF'
@@ -55,6 +63,7 @@ Options:
   -a, --all     Show detailed changelog for all outdated packages (parallel)
   -v, --verbose Show outdated packages with version numbers (like 'brew outdated -v')
   -h, --help    Show this help message
+      --version Show version information
 
 If no PACKAGE is specified and no flags, shows simple list like 'brew outdated'.
 
@@ -63,6 +72,7 @@ Examples:
   brew-change -a               # Show detailed changelogs for all outdated packages
   brew-change -v               # Show outdated packages with versions
   brew-change                  # Show simple outdated list (package names only)
+  brew-change --version        # Show version information
 
 EOF
 }
@@ -84,6 +94,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -h|--help|help)
             usage
+            exit 0
+            ;;
+        --version)
+            show_version
             exit 0
             ;;
         -*)

@@ -5,9 +5,6 @@ Make informed updates - see what changed in your Homebrew packages
 ## 🚀 Quick Start
 
 ```bash
-# Add to your PATH (if using from standalone repo)
-export PATH="$HOME/path-to/brew-change:$PATH"
-
 # Show simple outdated list (like brew outdated)
 brew-change
 
@@ -19,6 +16,9 @@ brew-change node
 
 # Show detailed changelogs for all outdated packages in parallel
 brew-change -a
+
+# Show version information
+brew-change --version
 
 # Show help
 brew-change --help
@@ -44,27 +44,11 @@ brew-change --help
 
 ### Quick Install
 ```bash
-# Download the script
-curl -o /usr/local/bin/brew-change https://raw.githubusercontent.com/shrwnsan/brew-change/main/brew-change
-
-# Make executable
-chmod +x /usr/local/bin/brew-change
-
-# Install dependencies
-brew install jq curl
-```
-
-### Standalone Repository
-```bash
-# Clone the repository
-git clone https://github.com/shrwnsan/brew-change ~/.brew-change
-
-# Add to PATH
-echo 'export PATH="$HOME/path-to/brew-change:$PATH"' >> ~/.zshrc
-source ~/.zshrc
+# Install directly via Homebrew tap (dependencies included)
+brew install shrwnsan/tap/brew-change
 
 # Verify installation
-brew-change --help
+brew-change --version
 ```
 
 ### Dependencies
@@ -111,6 +95,7 @@ rm -rf ~/.cache/brew-change/*
 
 ## 📈 Recent Updates
 
+- **v1.4.1**: Homebrew installation path detection, --version flag support
 - **v1.4.0**: Auto-discovery system for documentation repositories, revision number support
 - **v1.3.0**: Fixed parallel processing race conditions, npm+GitHub hybrid support
 - **v1.2.0**: Added npm registry integration

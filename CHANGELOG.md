@@ -16,6 +16,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved error messages and user feedback
 - Enhanced debugging capabilities with environment variables
 
+## [1.4.1] - 2025-12-22
+
+### Fixed
+- **Critical**: Homebrew installation path detection for lib files
+- Script now properly locates library files when installed via brew install
+- Maintains backward compatibility for local script usage
+
+### Added
+- Support for `--version` flag to display version information
+- Enhanced help text with version flag documentation
+
 ## [1.3.0] - 2025-11-26
 
 ### Fixed
