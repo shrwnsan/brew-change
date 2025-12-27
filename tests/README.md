@@ -318,6 +318,9 @@ docker info
 - **Docker not running**: Start Docker Desktop/daemon
 - **Network issues**: Check internet connectivity for API calls
 
+### Known Limitations
+- **macOS timeout command**: The `timeout` command is not available on macOS by default (requires `brew install coreutils`). Parallel processing tests will skip timeout protection on macOS. This is documented behavior - tests will still run, just without the timeout safeguard.
+
 ## 🔄 Continuous Integration
 
 ### GitHub Actions Example
@@ -413,8 +416,8 @@ These testing tools follow the same license as the brew-change utility.
 
 ---
 
-**Last Updated**: 2025-11-26
-**Version**: 1.1.0 (Optimized Docker Environment)
+**Last Updated**: 2025-12-27
+**Version**: 1.4.1
 **Compatibility**: macOS 10.15+, Linux, Docker 20.10+
 **Build Time**: ~7 minutes (422.6s)
 **Image Size**: ~216.5MB
