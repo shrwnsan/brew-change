@@ -7,7 +7,9 @@ This directory contains comprehensive testing tools for the `brew-change` utilit
 ```
 tests/
 ├── README.md                           # This file
-├── test-brew-change-local.sh           # Local testing menu (macOS/Linux)
+├── lib/
+│   └── test-utils.sh                   # Shared test utilities and assertions
+├── test-brew-change-local.sh           # Local testing menu (macOS/Linux) + CI mode
 ├── test-brew-change-docker.sh          # Docker testing menu (sandboxed)
 ├── docker/                             # Docker environment
 │   ├── Dockerfile.test-ubuntu          # Ubuntu 24.04 optimized testing environment
@@ -24,6 +26,19 @@ tests/
 # Run interactive menu on your host system
 ./tests/test-brew-change-local.sh
 ```
+
+### CI/Automated Testing (Non-Interactive)
+```bash
+# Run comprehensive test suite in CI mode
+./tests/test-brew-change-local.sh --ci
+```
+
+CI mode features:
+- ✅ **Non-interactive**: No prompts or user input required
+- ✅ **Structured output**: `[PASS]`/`[FAIL]`/`[INFO]` format
+- ✅ **Exit codes**: Returns 0 on success, non-zero on failure
+- ✅ **Summary report**: Test statistics at the end
+- ✅ **CI-friendly**: Perfect for GitHub Actions, GitLab CI, etc.
 
 ### Docker Testing (Sandboxed Environment)
 ```bash
@@ -183,6 +198,90 @@ export BREW_CHANGE_IMAGE_NAME="custom-test"
 export BREW_CHANGE_RESULTS_DIR="./custom-results"
 ```
 
+## 📦 Shared Test Utilities
+
+The `lib/test-utils.sh` library provides reusable testing functions used across all test scripts.
+
+### Key Features
+- **Command detection**: Automatically finds `brew-change` command
+- **Assertions**: Validate command success, failures, and output
+- **Test tracking**: Count passed/failed tests automatically
+- **Mode awareness**: Adapts output for interactive vs CI mode
+- **Exit codes**: Proper return codes for CI integration
+
+### Common Functions
+
+#### Command Detection
+```bash
+# Automatically find brew-change command
+brew_change_cmd=$(get_brew_change_cmd)
+```
+
+#### Assertions
+```bash
+# Assert command succeeds
+assert_command_success "Test name" $brew_change_cmd --help
+
+# Assert command fails
+assert_command_fails "Invalid option" $brew_change_cmd --invalid
+
+# Assert output contains string
+assert_command_output_contains "Version check" "version" $brew_change_cmd --version
+
+# Assert output doesn't contain string
+assert_command_output_not_contains "No errors" "error" $brew_change_cmd
+```
+
+#### Logging
+```bash
+log_info "Informational message"
+log_success "Success message"
+log_error "Error message"
+log_warning "Warning message"
+```
+
+#### Test Results
+```bash
+# Record test results
+log_test_result "Test name" "pass"
+log_test_result "Another test" "fail" "Optional message"
+
+# Print summary at end
+print_test_summary
+
+# Get appropriate exit code
+get_test_exit_code
+```
+
+### Adding New Tests
+
+To add new tests using the shared utilities:
+
+```bash
+test_my_feature() {
+    local brew_change_cmd="$1"
+    
+    log_info "Testing my feature..."
+    
+    # Use assertions
+    assert_command_success "Feature flag" $brew_change_cmd --my-feature
+    
+    # Or manual testing
+    run_command_capture_output $brew_change_cmd --complex
+    if [[ $COMMAND_EXIT_CODE -eq 0 ]]; then
+        log_test_result "Complex test" "pass"
+    else
+        log_test_result "Complex test" "fail" "Exit: $COMMAND_EXIT_CODE"
+    fi
+}
+
+# Call from comprehensive_test_suite()
+comprehensive_test_suite() {
+    # ... existing tests ...
+    test_my_feature "$brew_change_cmd"
+}
+```
+
 ## 🐛 Troubleshooting
 
 ### Local Testing Issues
@@ -219,6 +318,9 @@ docker info
 - **Docker not running**: Start Docker Desktop/daemon
 - **Network issues**: Check internet connectivity for API calls
 
+### Known Limitations
+- **macOS timeout command**: The `timeout` command is not available on macOS by default (requires `brew install coreutils`). Parallel processing tests will skip timeout protection on macOS. This is documented behavior - tests will still run, just without the timeout safeguard.
+
 ## 🔄 Continuous Integration
 
 ### GitHub Actions Example
@@ -228,12 +330,21 @@ name: brew-change Tests
 on: [push, pull_request]
 
 jobs:
-  local-tests:
-    runs-on: macos-latest
+  test:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Run local tests
-        run: ./tests/test-brew-change-local.sh
+      
+      - name: Set up Homebrew
+        run: |
+          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          echo '/home/linuxbrew/.linuxbrew/bin' >> $GITHUB_PATH
+      
+      - name: Make brew-change executable
+        run: chmod +x brew-change
+      
+      - name: Run test suite in CI mode
+        run: ./tests/test-brew-change-local.sh --ci
 
   docker-tests:
     runs-on: ubuntu-latest
@@ -305,8 +416,8 @@ These testing tools follow the same license as the brew-change utility.
 
 ---
 
-**Last Updated**: 2025-11-26
-**Version**: 1.1.0 (Optimized Docker Environment)
+**Last Updated**: 2025-12-27
+**Version**: 1.4.1
 **Compatibility**: macOS 10.15+, Linux, Docker 20.10+
 **Build Time**: ~7 minutes (422.6s)
 **Image Size**: ~216.5MB
