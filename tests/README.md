@@ -9,6 +9,7 @@ tests/
 ├── README.md                           # This file
 ├── lib/
 │   └── test-utils.sh                   # Shared test utilities and assertions
+├── test-breaking-changes.sh            # Breaking changes detection tests (24 tests)
 ├── test-brew-change-local.sh           # Local testing menu (macOS/Linux) + CI mode
 ├── test-brew-change-docker.sh          # Docker testing menu (sandboxed)
 ├── docker/                             # Docker environment
@@ -31,6 +32,9 @@ tests/
 ```bash
 # Run comprehensive test suite in CI mode
 ./tests/test-brew-change-local.sh --ci
+
+# Run breaking changes detection tests
+./tests/test-breaking-changes.sh --ci
 ```
 
 CI mode features:
@@ -104,6 +108,7 @@ Both testing environments provide:
 - ✅ Simple and verbose listing
 - ✅ Single package processing
 - ✅ Multiple package handling
+- ✅ Breaking changes detection (24 tests)
 
 ### Performance Tests
 - ⏱️ Execution timing
@@ -116,6 +121,19 @@ Both testing environments provide:
 - 📦 Package type detection
 - 🔧 API endpoint validation
 - 🏥 Environment health checks
+
+### Breaking Changes Detection Tests
+The `test-breaking-changes.sh` suite provides comprehensive testing for breaking changes pattern detection:
+
+- ✅ Pattern matching (40+ breaking change keywords)
+- ✅ Case-insensitive detection
+- ✅ Markdown header recognition
+- ✅ False positive prevention
+- ✅ Multi-line release notes
+- ✅ Empty input handling
+- ✅ Emoji indicator formatting
+
+Run with: `./tests/test-breaking-changes.sh --ci`
 
 ### Debug Tools
 - 🔍 Detailed error reporting

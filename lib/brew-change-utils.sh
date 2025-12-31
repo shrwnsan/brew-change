@@ -761,6 +761,7 @@ create_package_header() {
     local latest_version="$3"
     local release_date="$4"
     local package_info="$5"
+    local has_breaking="${6:-false}"  # Optional breaking changes flag
 
     # Skip if versions are the same
     if [[ "$current_version" == "$latest_version" ]]; then
@@ -799,7 +800,12 @@ create_package_header() {
         fi
     fi
 
-    echo "📦 $package: $current_version → $latest_version ($time_context)"
+    # Build package header with optional breaking changes indicator
+    local breaking_indicator=""
+    if [[ "$IDENTIFY_BREAKING" == "true" && "$has_breaking" == "true" ]]; then
+        breaking_indicator=" ⚠️"
+    fi
+    echo "📦 $package: $current_version → $latest_version ($time_context)$breaking_indicator"
 }
 
 # Function to display non-GitHub package fallback (shared between display and utils)

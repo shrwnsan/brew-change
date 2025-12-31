@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Breaking Changes Detection**: New `-b` / `--identify-breaking` flag to highlight packages with breaking changes
+  - Detects common patterns: "BREAKING", "deprecated", "removed", "incompatible", "not backward compatible"
+  - Shows ⚠️ emoji indicator next to packages with breaking changes
+  - Comprehensive test suite with 24 test cases covering various release note formats
 - Comprehensive documentation with examples and architecture overview
 - Performance benchmarks and optimization details
 - Docker testing environment design (planned)

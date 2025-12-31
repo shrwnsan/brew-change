@@ -454,7 +454,6 @@ show_package_changelog_full() {
 
     # If GitHub detection failed (no releases found), handle as non-GitHub package
     if [[ "$should_use_github" == "false" ]]; then
-        # Non-GitHub package - try to fetch release notes from other sources
         local domain=""
         if [[ -n "$source_url" && "$source_url" != "null" && "$source_url" != "" ]]; then
             domain=$(echo "$source_url" | sed -E 's|^https?://([^/]+).*$|\1|' | sed 's|^www\.||')
@@ -517,8 +516,20 @@ show_package_changelog_full() {
         return 0
     fi
 
+    # Detect breaking changes if flag is set
+    local has_breaking="false"
+    if [[ "$IDENTIFY_BREAKING" == "true" && -n "$release_json" && "$release_json" != "null" ]]; then
+        local body
+        body=$(echo "$release_json" | jq -r '.body // empty' 2>/dev/null)
+        if [[ -n "$body" && "$body" != "null" ]]; then
+            if detect_breaking_changes "$body"; then
+                has_breaking="true"
+            fi
+        fi
+    fi
+
     # Create package header using shared function
-    create_package_header "$package" "$current_version" "$latest_version" "$relative_date" "$package_info"
+    create_package_header "$package" "$current_version" "$latest_version" "$relative_date" "$package_info" "$has_breaking"
     echo ""
 
     # Process and display release notes using shared function

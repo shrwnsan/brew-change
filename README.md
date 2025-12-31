@@ -17,6 +17,9 @@ brew-change node
 # Show detailed changelogs for all outdated packages in parallel
 brew-change -a
 
+# Highlight packages with breaking changes (-b implies -a)
+brew-change -b
+
 # Show version information
 brew-change --version
 
@@ -36,6 +39,7 @@ brew-change --help
 
 - **Smart Package Detection**: GitHub, npm, third-party taps, hybrid packages, and more
 - **Parallel Processing**: Handles multiple packages simultaneously (45-50s for 13 packages)
+- **Breaking Changes Detection**: Automatically highlights packages with breaking changes using `-b` flag
 - **Rich Release Info**: Full changelogs, commit history, and helpful links
 - **Revision Support**: Advanced handling of Homebrew revision numbers
 - **Performance Optimized**: 75% faster than original with intelligent caching
