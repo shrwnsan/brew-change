@@ -19,11 +19,25 @@ brew-change node
 # 🔗 Release: https://github.com/nodejs/node/releases/tag/v26.1.0
 ```
 
+### With Breaking Changes Detection
+```bash
+brew-change -b node
+# 📦 node: 25.2.1 → 26.1.0 (5 days ago) ⚠️
+# 📋 Release 26.1.0
+# ## Breaking Changes
+# - NODE_MODULE_VERSION: updated 135 (requires native modules recompilation)
+# - deps: V8 updated to 13.4.114.21
+#
+# → Full Changelog: https://github.com/nodejs/node/compare/v25.2.1...v26.1.0
+# 🔗 Release: https://github.com/nodejs/node/releases/tag/v26.1.0
+```
+
 ### Features:
 - Full release notes with commit history
 - Direct links to releases and comparisons
 - Contributor information and commit details
 - Comprehensive changelog generation
+- Breaking changes detection with ⚠️ indicator (when using `-b` flag)
 
 ## npm Registry Packages
 

@@ -8,6 +8,7 @@ brew-change/
 └── lib/
     ├── brew-change-config.sh    # Configuration and constants
     ├── brew-change-utils.sh     # Utility functions
+    ├── brew-change-breaking.sh  # Breaking changes detection
     ├── brew-change-github.sh    # GitHub API integration
     ├── brew-change-npm.sh       # npm registry integration
     ├── brew-change-brew.sh      # Homebrew integration
@@ -21,8 +22,9 @@ brew-change/
 1. **Package Detection**: Identify outdated packages
 2. **Type Classification**: Determine GitHub/npm/Non-GitHub
 3. **Information Gathering**: Fetch release data from appropriate sources
-4. **Parallel Processing**: Handle multiple packages simultaneously
-5. **Output Formatting**: Display clean, consistent results
+4. **Breaking Changes Detection** (optional): Analyze release notes for breaking patterns
+5. **Parallel Processing**: Handle multiple packages simultaneously
+6. **Output Formatting**: Display clean, consistent results
 
 ## Security Features
 
@@ -45,6 +47,10 @@ brew-change/
 - **brew-change-npm.sh**: npm registry integration for package metadata
 - **brew-change-non-github.sh**: Fallback handling for non-GitHub packages
 
+### Analysis
+
+- **brew-change-breaking.sh**: Breaking changes pattern detection and highlighting
+
 ### User Interface
 
 - **brew-change-display.sh**: Output formatting and presentation
@@ -57,9 +63,11 @@ Homebrew API → Package Detection → Type Classification
                                      ↓
 GitHub API ──────────────────────→ Information Gathering
                                      ↓
-npm API ────────────────────────→ Parallel Processing
+npm API ────────────────────────→ Breaking Detection (optional)
                                      ↓
-Display Module ← Result Formatting ← Output
+Parallel Processing ──────────────→ Result Formatting
+                                     ↓
+Display Module ← ────────────────── Output
 ```
 
 ## Design Principles

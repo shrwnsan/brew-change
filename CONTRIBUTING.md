@@ -39,6 +39,9 @@ chmod +x brew-change
 # Test parallel processing
 ./brew-change -a
 
+# Test breaking changes detection
+./brew-change -b
+
 # Performance testing
 time ./brew-change -a
 ```
@@ -81,6 +84,26 @@ shellcheck lib/brew-change-github.sh
 4. Update `brew-change-utils.sh` for type detection
 5. Add tests in the testing section
 
+### Adding Breaking Change Patterns
+The breaking changes detection system (`lib/brew-change-breaking.sh`) uses pattern matching to identify potential breaking changes in release notes. To add new patterns:
+
+1. Edit `lib/brew-change-breaking.sh`
+2. Add new pattern to the `breaking_patterns` array in `detect_breaking_changes()`:
+   ```bash
+   local breaking_patterns=(
+       # ... existing patterns ...
+       "your new pattern here"    # Add descriptive comment
+   )
+   ```
+3. Run tests: `./tests/test-breaking-changes.sh --ci`
+4. Add test case to `tests/test-breaking-changes.sh` if appropriate
+
+**Pattern Guidelines**:
+- Use lowercase for case-insensitive matching
+- Include common variations (e.g., "removed:" and "removed ")
+- Test against real-world release notes
+- Consider false positives when adding broad patterns
+
 ### Adding Configuration Options
 1. Add to `lib/brew-change-config.sh`
 2. Update configuration loading in main script
@@ -121,20 +144,31 @@ shellcheck lib/brew-change-github.sh
 
 ```
 brew-change/
-├── brew-change              # Main entry point
-├── CONTRIBUTING.md         # This file
-├── LICENSE                 # MIT License
-├── README.md               # Main documentation
-├── CHANGELOG.md            # Version history
-└── lib/                    # Library modules
-    ├── brew-change-config.sh      # Configuration
-    ├── brew-change-utils.sh       # Utilities
-    ├── brew-change-github.sh      # GitHub integration
-    ├── brew-change-npm.sh         # npm integration
-    ├── brew-change-brew.sh        # Homebrew integration
-    ├── brew-change-non-github.sh  # Non-GitHub handling
-    ├── brew-change-display.sh     # Output formatting
-    └── brew-change-parallel.sh    # Parallel processing
+├── brew-change                   # Main entry point
+├── CONTRIBUTING.md              # This file
+├── LICENSE                      # MIT License
+├── README.md                    # Main documentation
+├── CHANGELOG.md                 # Version history
+├── docs/                        # Additional documentation
+│   ├── architecture.md          # Architecture overview
+│   ├── configuration.md         # Configuration guide
+│   └── technical-documentation.md  # Technical details
+├── tests/                       # Test suite
+│   ├── test-breaking-changes.sh # Breaking changes tests
+│   ├── test-brew-change-local.sh # Local testing
+│   ├── test-brew-change-docker.sh # Docker testing
+│   └── lib/
+│       └── test-utils.sh        # Test utilities
+└── lib/                         # Library modules
+    ├── brew-change-config.sh    # Configuration
+    ├── brew-change-utils.sh     # Utilities
+    ├── brew-change-breaking.sh  # Breaking changes detection
+    ├── brew-change-github.sh    # GitHub integration
+    ├── brew-change-npm.sh       # npm integration
+    ├── brew-change-brew.sh      # Homebrew integration
+    ├── brew-change-non-github.sh # Non-GitHub handling
+    ├── brew-change-display.sh   # Output formatting
+    └── brew-change-parallel.sh  # Parallel processing
 ```
 
 ## Bug Reports

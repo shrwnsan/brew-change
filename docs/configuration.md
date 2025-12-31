@@ -54,6 +54,12 @@ export BREW_CHANGE_DEBUG=1
 export BREW_CHANGE_DOCS_REPO=1
 ```
 
+### Internal Variables
+
+The following variables are used internally by brew-change and are not intended for direct user configuration:
+
+- `IDENTIFY_BREAKING`: Set when using the `-b` flag, exported to subprocesses during parallel processing to coordinate breaking changes detection across parallel jobs. This is an implementation detail for ensuring consistent behavior when processing multiple packages concurrently.
+
 ## Default Configuration
 
 ### Parallel Job Calculation

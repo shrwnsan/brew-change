@@ -32,6 +32,7 @@ fi
 
 source "$LIB_DIR/brew-change-config.sh"
 source "$LIB_DIR/brew-change-utils.sh"
+source "$LIB_DIR/brew-change-breaking.sh"
 source "$LIB_DIR/brew-change-github.sh"
 source "$LIB_DIR/brew-change-npm.sh"
 source "$LIB_DIR/brew-change-brew.sh"
@@ -60,10 +61,11 @@ Arguments:
   PACKAGE    Show changelog for specific package only
 
 Options:
-  -a, --all     Show detailed changelog for all outdated packages (parallel)
-  -v, --verbose Show outdated packages with version numbers (like 'brew outdated -v')
-  -h, --help    Show this help message
-      --version Show version information
+  -a, --all            Show detailed changelog for all outdated packages (parallel)
+  -v, --verbose        Show outdated packages with version numbers (like 'brew outdated -v')
+  -b, --id-breaking    Highlight packages with breaking changes (implies -a)
+  -h, --help           Show this help message
+      --version        Show version information
 
 If no PACKAGE is specified and no flags, shows simple list like 'brew outdated'.
 
@@ -71,6 +73,9 @@ Examples:
   brew-change node              # Show changelog for node package
   brew-change -a               # Show detailed changelogs for all outdated packages
   brew-change -v               # Show outdated packages with versions
+  brew-change -a -b            # Show changelogs with breaking changes highlighted
+  brew-change -b               # Same as -a -b (shorthand)
+  brew-change --id-breaking    # Same as -a -b (long form)
   brew-change                  # Show simple outdated list (package names only)
   brew-change --version        # Show version information
 
@@ -80,12 +85,17 @@ EOF
 # Parse command line arguments
 SHOW_ALL="false"
 SHOW_VERSIONS="false"
+IDENTIFY_BREAKING="false"
 PACKAGE=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         -a|--all)
             SHOW_ALL="true"
+            shift
+            ;;
+        -b|--id-breaking)
+            IDENTIFY_BREAKING="true"
             shift
             ;;
         -v|--verbose)
@@ -229,7 +239,12 @@ else
             fi
         fi
     fi
-    
+
+    # If -b is used without -a, implicitly enable -a
+    if [ "$IDENTIFY_BREAKING" = "true" ] && [ "$SHOW_ALL" = "false" ]; then
+        SHOW_ALL="true"
+    fi
+
     if [ "$SHOW_ALL" = "true" ]; then
         # Count total outdated packages
         total_packages=0
@@ -260,6 +275,7 @@ else
         echo ""
         # Process packages in parallel
         export outdated_packages  # Make available to subprocesses
+        export IDENTIFY_BREAKING  # Make breaking flag available to subprocesses
         process_packages_parallel "$outdated_packages" "$PARALLEL_JOBS"
         
         echo "Run 'brew upgrade' to upgrade all packages, or 'brew upgrade <package>' for individual packages."

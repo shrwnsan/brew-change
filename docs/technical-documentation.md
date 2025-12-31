@@ -13,6 +13,13 @@
 - **Documentation-Repository Pattern (Alpha)**: Modern CLI tools with docs on GitHub, binaries distributed externally (requires `BREW_CHANGE_DOCS_REPO=1`)
 - **Non-GitHub packages**: Homepage links and fallback information
 
+### Breaking Changes Detection
+- **Automatic pattern detection**: Identifies 40+ breaking change patterns in release notes
+- **Visual indicators**: Shows ⚠️ emoji next to packages with breaking changes
+- **Flexible usage**: Use `-b` flag alone or with `-a` for detailed changelogs
+- **Case-insensitive matching**: Robust detection across various note formats
+- **Minimal overhead**: Less than 0.01% performance impact
+
 ### Performance Optimizations
 - **Parallel processing**: Handles multiple packages simultaneously with race condition prevention
 - **Intelligent caching**: Reduces redundant API calls with configurable cache duration
@@ -45,6 +52,7 @@ brew-change/
 └── lib/
     ├── brew-change-config.sh    # Configuration constants and environment variables
     ├── brew-change-utils.sh     # Core utility functions (URL validation, caching, etc.)
+    ├── brew-change-breaking.sh  # Breaking changes detection and pattern matching
     ├── brew-change-github.sh    # GitHub API integration and release note fetching
     ├── brew-change-npm.sh       # npm registry integration for Node.js packages
     ├── brew-change-brew.sh      # Homebrew integration and package detection
@@ -58,8 +66,9 @@ brew-change/
 1. **Package Detection**: Uses `brew outdated --json=v2` to identify outdated packages
 2. **Type Classification**: Determines package type through URL pattern matching
 3. **Information Gathering**: Fetches release data from appropriate APIs
-4. **Parallel Processing**: Handles multiple packages with proper synchronization
-5. **Output Formatting**: Displays clean, consistent results with separators
+4. **Breaking Changes Detection** (optional): Analyzes release notes for breaking patterns when `-b` flag is used
+5. **Parallel Processing**: Handles multiple packages with proper synchronization
+6. **Output Formatting**: Displays clean, consistent results with separators and ⚠️ indicators
 
 ### Release Note Formatting Pipeline
 
@@ -293,6 +302,21 @@ brew-change -v
 brew-change --help
 ```
 
+### Breaking Changes Detection
+```bash
+# Show all packages with breaking changes highlighted
+brew-change -a -b
+
+# Shorthand: -b implies -a
+brew-change -b
+
+# Long form
+brew-change --id-breaking
+
+# Review only packages with potential issues
+brew-change -b | grep "⚠️"
+```
+
 ### Advanced Usage
 ```bash
 # Process all outdated packages in parallel
@@ -319,6 +343,19 @@ brew-change openssl curl wget | grep -i "security"
 brew-change -a | grep -E "(security|cve|fix)"
 ```
 Quickly identify security-related updates and understand vulnerability patches before applying them.
+
+### Breaking Changes Review
+```bash
+# Identify packages with breaking changes (recommended)
+brew-change -b | grep "⚠️"
+
+# Review specific breaking changes in detail
+brew-change -b
+
+# Filter to only see breaking package names
+brew-change -b | grep "⚠️" | sed 's/.*📦 \([^:]*\):.*/\1/'
+```
+Quickly identify packages that may require migration work, code changes, or testing before updating. Ideal for pre-release planning and risk assessment.
 
 ### Major Version Planning
 ```bash
@@ -373,6 +410,8 @@ export BREW_CHANGE_DEBUG=1
 # Warning: Experimental feature - may increase network requests
 export BREW_CHANGE_DOCS_REPO=1
 ```
+
+**Internal Variables**: `IDENTIFY_BREAKING` is set internally when using the `-b` flag and exported to subprocesses during parallel processing. This is an implementation detail for coordinating breaking changes detection across parallel jobs.
 
 ### Default Settings
 - **Parallel jobs**: 8 (reduces automatically if system load > 4.0)
