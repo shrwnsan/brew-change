@@ -539,7 +539,9 @@ detect_package_tap() {
 
     # Check all installed taps for the package
     for tap in $(brew tap); do
-        # Convert tap name to directory name (handle charmbracelet/tap -> charmbracelet/homebrew-tap)
+        # Convert tap name to directory name
+        # Homebrew stores taps as: user/repo -> user/homebrew-repo
+        # But there are special cases and the "tap" suffix pattern
         local tap_path=""
         if [[ "$tap" == "charmbracelet/tap" ]]; then
             tap_path="$(brew --repository)/Library/Taps/charmbracelet/homebrew-tap"
@@ -547,6 +549,10 @@ detect_package_tap() {
             tap_path="$(brew --repository)/Library/Taps/oven-sh/homebrew-bun"
         elif [[ "$tap" == "sst/tap" ]]; then
             tap_path="$(brew --repository)/Library/Taps/sst/homebrew-tap"
+        elif [[ "$tap" =~ ^[^/]+/tap$ ]]; then
+            # Handle the "*/tap" pattern generically (e.g., shrwnsan/tap -> shrwnsan/homebrew-tap)
+            local user="${tap%/*}"
+            tap_path="$(brew --repository)/Library/Taps/${user}/homebrew-tap"
         else
             # Default conversion: replace / with nothing
             tap_path="$(brew --repository)/Library/Taps/${tap//\//}"
@@ -644,7 +650,7 @@ find_package_file() {
             package_file=$(find "$brew_repo/Formula" -name "$package.rb" -type f -maxdepth 2 2>/dev/null | head -1)
         fi
     else
-        # Convert tap name to directory name (handle charmbracelet/tap -> charmbracelet/homebrew-tap)
+        # Convert tap name to directory name (same logic as detect_package_tap)
         local tap_path=""
         if [[ "$tap" == "charmbracelet/tap" ]]; then
             tap_path="$(brew --repository)/Library/Taps/charmbracelet/homebrew-tap"
@@ -652,6 +658,10 @@ find_package_file() {
             tap_path="$(brew --repository)/Library/Taps/oven-sh/homebrew-bun"
         elif [[ "$tap" == "sst/tap" ]]; then
             tap_path="$(brew --repository)/Library/Taps/sst/homebrew-tap"
+        elif [[ "$tap" =~ ^[^/]+/tap$ ]]; then
+            # Handle the "*/tap" pattern generically (e.g., shrwnsan/tap -> shrwnsan/homebrew-tap)
+            local user="${tap%/*}"
+            tap_path="$(brew --repository)/Library/Taps/${user}/homebrew-tap"
         else
             # Default conversion: replace / with nothing
             tap_path="$(brew --repository)/Library/Taps/${tap//\//}"
