@@ -217,10 +217,17 @@ show_package_changelog() {
                     show_package_changelog_full "$package" "$current_version" "$latest_version" "$minimal_package_info"
                     return 0
                 else
-                    echo "📦 $package: $current_version → $latest_version"
-                    echo ""
-                    echo "No new releases or version information unavailable."
-                    return 0
+                    if [[ -n "$current_version" && "$current_version" != "null" && "$current_version" == "$latest_version" ]]; then
+                        echo "📦 $package: $current_version → $latest_version"
+                        echo ""
+                        echo "Already up to date at version $current_version ✓"
+                        return 0
+                    else
+                        echo "📦 $package: ${current_version:-unknown} → ${latest_version:-unknown}"
+                        echo ""
+                        echo "Version information unavailable."
+                        return 0
+                    fi
                 fi
             else
                 echo "Error: Could not get brew info for $base_package"
