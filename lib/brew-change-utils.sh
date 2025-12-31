@@ -923,7 +923,6 @@ process_release_notes() {
 
                 if [[ -n "$release_notes" && "$release_notes" != "null" ]]; then
                     # Real release notes found - show them
-                    echo ""
                     echo "📋 Release Notes:"
                     # Sanitize and format the release notes
                     local sanitized_notes

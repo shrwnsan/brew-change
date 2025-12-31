@@ -368,7 +368,6 @@ show_package_changelog_full() {
 
                     if [[ -n "$release_notes" && "$release_notes" != "null" ]]; then
                         # Real release notes found - show them
-                        echo ""
                         echo "📋 Release Notes:"
                         # Sanitize and format the release notes
                         local sanitized_notes
@@ -477,7 +476,6 @@ show_package_changelog_full() {
 
                 if [[ -n "$release_notes" && "$release_notes" != "null" ]]; then
                     # Real release notes found - show them
-                    echo ""
                     echo "📋 Release Notes:"
                     # Sanitize and format the release notes
                     local sanitized_notes
