@@ -5,6 +5,23 @@ All notable changes to brew-change are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.3] - 2025-12-31
+
+### Fixed
+- Visual separation in verbose mode by adding blank line before package output
+- Improves readability when using `-a`/`--all` or `-b`/`--identify-breaking` flags
+- Each package output now has a preceding newline for better visual distinction
+
+## [1.5.2] - 2025-12-31
+
+### Fixed
+- **Generic tap pattern handling**: Packages from taps using the "user/tap" format (e.g., shrwnsan/tap) are now properly detected
+- Homebrew stores these taps as "user/homebrew-tap" but the code was only removing the slash, resulting in incorrect path resolution
+- Added generic pattern match to handle all */tap taps correctly
+- **Up-to-date message clarity**: Split generic message into two distinct cases
+  - Show "Already up to date at version X" when package is current
+  - Show "Version information unavailable" when versions are actually missing
+
 ## [1.5.0] - 2025-12-31
 
 ### Added
@@ -106,6 +123,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Release Date | Changes | Key Features |
 |---------|---------------|---------|--------------|
+| 1.5.3 | 2025-12-31 | 1 fix | UX improvement for verbose mode output formatting |
+| 1.5.2 | 2025-12-31 | 2 fixes | Generic tap pattern handling, up-to-date message clarity |
+| 1.5.0 | 2025-12-31 | 1 addition, 2 changes | Breaking changes detection with -b flag |
+| 1.4.1 | 2025-12-22 | 1 fix, 2 additions | Homebrew installation path detection, --version flag |
 | 1.3.0 | 2025-11-26 | 8 fixes, 5 additions, 3 changes | Parallel processing, npm+GitHub hybrid support |
 | 1.2.0 | 2025-11-25 | 4 additions, 3 fixes | npm registry integration |
 | 1.1.0 | 2025-11-24 | 4 additions, 1 performance improvement | Parallel processing |

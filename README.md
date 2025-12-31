@@ -99,6 +99,9 @@ rm -rf ~/.cache/brew-change/*
 
 ## 📈 Recent Updates
 
+- **v1.5.3**: UX improvement - added blank line separation in verbose mode
+- **v1.5.2**: Fixed generic tap pattern handling (e.g., shrwnsan/tap), improved up-to-date messages
+- **v1.5.0**: Added breaking changes detection with `-b` flag
 - **v1.4.1**: Homebrew installation path detection, --version flag support
 - **v1.4.0**: Auto-discovery system for documentation repositories, revision number support
 - **v1.3.0**: Fixed parallel processing race conditions, npm+GitHub hybrid support
