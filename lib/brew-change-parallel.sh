@@ -142,6 +142,8 @@ process_packages_parallel() {
         # Output all temp files for this batch with proper separators
         for (( j=0; j<${#temp_files[@]}; j++ )); do
             if [[ -f "${temp_files[j]}" ]]; then
+                # Add newline before each package output for better separation
+                echo ""
                 cat "${temp_files[j]}"
                 # Add separator for all packages except the last one in this batch
                 if [[ $((j + 1)) -lt ${#temp_files[@]} ]] || [[ $((i + batch_size)) -lt ${#packages[@]} ]]; then
