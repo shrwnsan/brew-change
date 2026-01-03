@@ -223,7 +223,9 @@ show_package_changelog() {
                         echo "Already up to date at version $current_version ✓"
                         return 0
                     else
-                        echo "📦 $package: ${current_version:-unknown} → ${latest_version:-unknown}"
+                        local display_current="${current_version:-[not installed]}"
+                        local display_latest="${latest_version:-unknown}"
+                        echo "📦 $package: $display_current → $display_latest"
                         echo ""
                         echo "Version information unavailable."
                         return 0
@@ -297,7 +299,11 @@ show_package_changelog() {
             fi
         fi
 
-        echo "📦 $package: $current_version → unknown"
+        local display_current="$current_version"
+        if [[ "$display_current" == "unknown" || -z "$display_current" ]]; then
+            display_current="[not installed]"
+        fi
+        echo "📦 $package: $display_current → unknown"
         echo "Package information not available - this might be:"
         echo "  • A cask without GitHub repository"
         echo "  • A package using non-GitHub download sources"
