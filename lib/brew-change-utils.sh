@@ -810,6 +810,11 @@ create_package_header() {
         fi
     fi
 
+    # Replace "unknown" with "[not installed]" for better UX
+    if [[ "$current_version" == "unknown" ]]; then
+        current_version="[not installed]"
+    fi
+
     # Build package header with optional breaking changes indicator
     local breaking_indicator=""
     if [[ "$IDENTIFY_BREAKING" == "true" && "$has_breaking" == "true" ]]; then
