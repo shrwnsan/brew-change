@@ -66,7 +66,7 @@ get_latest_outdated_version() {
 
     # If not found in formulae, try casks
     if [[ -z "$latest_version" || "$latest_version" == "null" ]]; then
-        latest_version=$(echo "$outdated_json" | jq -r ".casks[] | select(.name == \"$package\") | .current_version" 2>/dev/null)
+        latest_version=$(echo "$outdated_json" | jq -r ".casks[] | select(.token == \"$package\") | .current_version" 2>/dev/null)
     fi
 
     if [[ -n "$latest_version" && "$latest_version" != "null" ]]; then
@@ -135,7 +135,7 @@ show_outdated_with_versions() {
 
     # Process casks with error handling
     if echo "$outdated_packages" | jq -e '.casks | length > 0' >/dev/null 2>&1; then
-        echo "$outdated_packages" | jq -r '.casks[] | "\(.name) (\(.installed_versions | join(", ")) → \(.current_version))"' 2>/dev/null
+        echo "$outdated_packages" | jq -r '.casks[] | "\(.name | join(" / ")) (\(.installed_versions | join(", ")) → \(.current_version))"' 2>/dev/null
     fi
 }
 
