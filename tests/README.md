@@ -1,6 +1,6 @@
 # brew-change Testing Suite
 
-This directory contains comprehensive testing tools for the `brew-change` utility, supporting both local development testing and sandboxed Docker testing.
+This directory contains testing tools for the `brew-change` utility, supporting both local development testing and CI/CD automation.
 
 ## 📁 Directory Structure
 
@@ -10,14 +10,7 @@ tests/
 ├── lib/
 │   └── test-utils.sh                   # Shared test utilities and assertions
 ├── test-breaking-changes.sh            # Breaking changes detection tests (24 tests)
-├── test-brew-change-local.sh           # Local testing menu (macOS/Linux) + CI mode
-├── test-brew-change-docker.sh          # Docker testing menu (sandboxed)
-├── docker/                             # Docker environment
-│   ├── Dockerfile.test-ubuntu          # Ubuntu 24.04 optimized testing environment
-│   ├── test-brew-change.sh             # Automated test suite
-│   ├── docker-compose.brew-change.yml  # Multi-scenario testing
-│   └── README.md                       # Docker-specific documentation
-└── results/                            # Test output directory (created automatically)
+└── test-brew-change-local.sh           # Local testing menu (macOS/Linux) + CI mode
 ```
 
 ## 🚀 Quick Start
@@ -44,18 +37,12 @@ CI mode features:
 - ✅ **Summary report**: Test statistics at the end
 - ✅ **CI-friendly**: Perfect for GitHub Actions, GitLab CI, etc.
 
-### Docker Testing (Sandboxed Environment)
-```bash
-# Run Docker testing menu
-./tests/test-brew-change-docker.sh
-```
-
 ## 🔧 Testing Options
 
 ### Local Testing (`test-brew-change-local.sh`)
-- ✅ **Environment**: Your macOS/Linux system
+- ✅ **Environment**: Your macOS/Linux system with Homebrew tap installation
 - ✅ **Speed**: Fast, no container overhead
-- ✅ **Real-world**: Tests your actual installation
+- ✅ **Real-world**: Tests your actual tap installation
 - ✅ **Convenience**: Immediate feedback
 
 **Features:**
@@ -66,41 +53,7 @@ CI mode features:
 - 🔍 Debug mode testing
 - 📊 Configuration validation
 
-### Docker Testing (`test-brew-change-docker.sh`)
-- ✅ **Environment**: Optimized Debian Slim container with Homebrew
-- ✅ **Isolation**: No interference with host system
-- ✅ **Consistency**: Reproducible test environment
-- ✅ **Cross-platform**: Same environment everywhere
-- ✅ **Performance**: Fast builds (~7 minutes vs 30+ minutes previously)
-- ✅ **Size**: Optimized image size (~216.5MB vs ~500MB previously)
-- ✅ **Packages**: Lightweight testing packages (jq, yq, tree, htop, openssl@3.5)
-
-**Features:**
-- 🐳 Build and manage Docker images
-- 🎮 Interactive menu in container
-- 📊 Performance benchmarking
-- 🧹 Docker environment cleanup
-- 🔍 Debug shell access
-- 📋 View test results
-
-## 🎯 When to Use Each
-
-### Use Local Testing When:
-- 🛠️ **Developing new features**
-- 🔧 **Debugging specific issues**
-- ⚡ **Need quick feedback**
-- 🎯 **Testing your actual setup**
-
-### Use Docker Testing When:
-- 🧪 **CI/CD pipelines**
-- 🔒 **Need isolated testing**
-- 🌍 **Cross-platform validation**
-- 📊 **Performance benchmarking**
-- 🧹 **Clean environment testing**
-
 ## 📋 Test Coverage
-
-Both testing environments provide:
 
 ### Functionality Tests
 - ✅ Help command and usage
@@ -155,29 +108,16 @@ Run with: `./tests/test-breaking-changes.sh --ci`
 time ./brew-change -a
 ```
 
-### Docker Testing Workflow
-```bash
-# Build and run all tests
-./tests/test-brew-change-docker.sh
-
-# Menu structure:
-# 🔧 Docker Management: Toggle GitHub Auth, Build/Rebuild, Clean, View logs
-# 🧪 Container Testing: Performance, Network, Resources, Specific package
-# 🐚 Container Access: Shell access and Debug mode
-# ⚙️ Configuration: Environment switching, View results
-```
-
 ### Advanced Usage
 ```bash
-# Run specific Docker test
-docker-compose -f tests/docker/docker-compose.brew-change.yml run brew-change-perf
+# Run in CI mode (non-interactive)
+./tests/test-brew-change-local.sh --ci
 
-# Debug with shell access
-docker run --rm -it brew-change-ubuntu /bin/bash
+# Enable debug output
+BREW_CHANGE_DEBUG=1 ./tests/test-brew-change-local.sh --ci
 
-# Clean environment
-./tests/test-brew-change-docker.sh
-# Choose option 10: Clean Docker Environment
+# Test breaking changes detection
+./tests/test-breaking-changes.sh --ci
 ```
 
 ## 📊 Results and Logging
@@ -186,12 +126,7 @@ docker run --rm -it brew-change-ubuntu /bin/bash
 - Results shown directly in terminal
 - Debug output available with `BREW_CHANGE_DEBUG=1`
 - Logs printed to console
-
-### Docker Testing
-- Results saved to `tests/results/`
-- Timestamped log files
-- Container logs available
-- Performance benchmarks stored
+- CI mode provides structured `[PASS]`/`[FAIL]` output
 
 ## 🔧 Configuration
 
@@ -205,15 +140,6 @@ export BREW_CHANGE_JOBS=4
 
 # Configure retry attempts
 export BREW_CHANGE_MAX_RETRIES=2
-```
-
-### Docker Configuration
-```bash
-# Override image name
-export BREW_CHANGE_IMAGE_NAME="custom-test"
-
-# Override results directory
-export BREW_CHANGE_RESULTS_DIR="./custom-results"
 ```
 
 ## 📦 Shared Test Utilities
@@ -278,12 +204,12 @@ To add new tests using the shared utilities:
 ```bash
 test_my_feature() {
     local brew_change_cmd="$1"
-    
+
     log_info "Testing my feature..."
-    
+
     # Use assertions
     assert_command_success "Feature flag" $brew_change_cmd --my-feature
-    
+
     # Or manual testing
     run_command_capture_output $brew_change_cmd --complex
     if [[ $COMMAND_EXIT_CODE -eq 0 ]]; then
@@ -315,25 +241,9 @@ which brew-change
 which jq curl git
 ```
 
-### Docker Testing Issues
-```bash
-# Check Docker installation
-docker --version
-docker info
-
-# Clean Docker environment
-./tests/test-brew-change-docker.sh
-# Choose option 10: Clean Docker Environment
-
-# Rebuild without cache
-./tests/test-brew-change-docker.sh
-# Choose option 9: Rebuild Image (No Cache)
-```
-
 ### Common Problems
 - **Permission denied**: `chmod +x tests/*.sh`
-- **brew-change not found**: Ensure current directory is in PATH or use `./brew-change`
-- **Docker not running**: Start Docker Desktop/daemon
+- **brew-change not found**: Ensure tap is installed via `brew tap shrwnsan/tap && brew install brew-change`
 - **Network issues**: Check internet connectivity for API calls
 
 ### Known Limitations
@@ -349,82 +259,59 @@ on: [push, pull_request]
 
 jobs:
   test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install from tap
+        run: |
+          brew tap shrwnsan/tap
+          brew install brew-change
+
+      - name: Run test suite in CI mode
+        run: ./tests/test-brew-change-local.sh --ci
+
+      - name: Run breaking changes tests
+        run: ./tests/test-breaking-changes.sh --ci
+```
+
+### Linux CI Example
+```yaml
+name: brew-change Tests (Linux)
+
+on: [push, pull_request]
+
+jobs:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Set up Homebrew
         run: |
           /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
           echo '/home/linuxbrew/.linuxbrew/bin' >> $GITHUB_PATH
-      
-      - name: Make brew-change executable
-        run: chmod +x brew-change
-      
+
+      - name: Install from tap
+        run: brew tap shrwnsan/tap && brew install brew-change
+
       - name: Run test suite in CI mode
         run: ./tests/test-brew-change-local.sh --ci
-
-  docker-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Run Docker tests
-        run: ./tests/test-brew-change-docker.sh
 ```
 
 ## 📈 Performance Benchmarks
 
 ### Expected Performance
-| Environment | Single Package | 13 Packages | Memory Usage | Image Size |
-|-------------|----------------|--------------|--------------|------------|
-| **Local (macOS)** | 2-4 seconds | 45-55 seconds | 15-25MB | N/A |
-| **Docker (Debian)** | 3-5 seconds | 50-60 seconds | 100-200MB | ~216.5MB |
-
-### Docker Environment Packages
-The Docker testing environment includes lightweight testing packages optimized for fast builds and realistic test scenarios:
-
-| Package | Version | Purpose | Test Value |
-|---------|---------|---------|------------|
-| **jq** | Latest | JSON processor | ✅ Essential for API testing |
-| **yq** | Latest | YAML/JSON processor | ⚡ Useful for test data |
-| **tree** | Latest | Directory viewer | ❌ Optional for debugging |
-| **htop** | Latest | Process monitor | ❌ Optional for debugging |
-| **openssl@3.5** | 3.5.x | Outdated crypto library | ✅ **Outdated detection testing** |
-
-**Package Size Impact**: ~16.5MB total for testing packages (vs ~300MB for runtime environments)
-
-### Version Control System
-To maintain consistency between development and Docker environments:
-
-```bash
-# Update Dockerfile with current package versions
-cd tests/docker && ./update-dockerfile.sh
-
-# Generate version commands manually
-cd tests/docker && ./package-versions.sh
-```
-
-This ensures Docker tests always validate the same package scenarios as your development environment.
-
-### Optimization Results
-- ✅ **Build time**: Reduced from 30+ minutes to ~7 minutes (422.6s)
-- ✅ **Image size**: Reduced from ~500MB to ~216.5MB (57% reduction)
-- ⚡ **Single package**: <5 seconds ✅ achieved
-- 🔄 **Multiple packages**: <60 seconds for 13 packages ✅ achieved
-- 💾 **Memory usage**: <50MB peak (target for optimization)
-- 🎯 **Success rate**: >95% ✅ achieved
-
-### Key Optimizations Applied
-- 🐳 **Base image**: Debian 12 Slim (optimal compatibility vs Alpine)
-- 📦 **Packages**: Lightweight testing utilities vs heavy runtime environments
-- 🔧 **Homebrew path**: Fixed user permissions for bottle downloads
-- ⚡ **Build reliability**: Added `|| true` for post-install failures
+| Environment | Single Package | 13 Packages | Memory Usage |
+|-------------|----------------|--------------|--------------|
+| **Local (macOS)** | 2-4 seconds | 45-55 seconds | 15-25MB |
+| **Local (Linux)** | 3-5 seconds | 50-60 seconds | 20-30MB |
 
 ## 🤝 Contributing
 
 When adding new tests:
-1. Update both local and Docker test suites
-2. Maintain consistency between environments
+1. Update the appropriate test suite (local or breaking changes)
+2. Use shared utilities from `lib/test-utils.sh`
 3. Add documentation for new test scenarios
 4. Update this README with new coverage areas
 
@@ -434,8 +321,6 @@ These testing tools follow the same license as the brew-change utility.
 
 ---
 
-**Last Updated**: 2025-12-27
-**Version**: 1.4.1
-**Compatibility**: macOS 10.15+, Linux, Docker 20.10+
-**Build Time**: ~7 minutes (422.6s)
-**Image Size**: ~216.5MB
+**Last Updated**: 2026-01-04
+**Version**: 1.5.3
+**Compatibility**: macOS 10.15+, Linux with Homebrew
