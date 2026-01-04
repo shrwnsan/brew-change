@@ -5,6 +5,19 @@ All notable changes to brew-change are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.4] - 2026-01-04
+
+### Added
+- **Clear status display**: Show `[not installed]` for uninstalled packages instead of `unknown`
+- Makes package status immediately clear to users when querying uninstalled packages
+
+### Fixed
+- **Output formatting**: Removed inconsistent blank lines in package output
+- Cleaner, more consistent visual presentation across all package queries
+
+### Changed
+- Removed Docker test infrastructure (simplified test setup)
+
 ## [1.5.3] - 2025-12-31
 
 ### Fixed
@@ -127,6 +140,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Release Date | Changes | Key Features |
 |---------|---------------|---------|--------------|
+| 1.5.4 | 2026-01-04 | 1 addition, 1 fix, 1 change | Clear status display for uninstalled packages |
 | 1.5.3 | 2025-12-31 | 1 fix | UX improvement for verbose mode output formatting |
 | 1.5.2 | 2025-12-31 | 1 fix | Up-to-date message clarity |
 | 1.5.1 | 2025-12-31 | 1 fix | Generic tap pattern handling for */tap taps |
