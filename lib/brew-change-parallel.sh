@@ -67,7 +67,7 @@ process_packages_parallel() {
         if [[ -n "$package" && "$package" != "null" ]]; then
             packages+=("$package:true")
         fi
-    done < <(echo "$outdated_packages" | jq -r '.casks[].name' 2>/dev/null)
+    done < <(echo "$outdated_packages" | jq -r '.casks[].token' 2>/dev/null)
 
     if [[ ${#packages[@]} -eq 0 ]]; then
         echo "No outdated packages found."
