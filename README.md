@@ -99,16 +99,11 @@ rm -rf ~/.cache/brew-change/*
 
 ## 📈 Recent Updates
 
+- **v1.5.5**: Fixed cask detection - use `.token` field for Homebrew JSON API v2
+- **v1.5.4**: Show `[not installed]` for uninstalled packages
 - **v1.5.3**: UX improvement - added blank line separation in verbose mode
 - **v1.5.2**: Improved up-to-date message clarity
 - **v1.5.1**: Fixed generic tap pattern handling (e.g., shrwnsan/tap)
-- **v1.5.0**: Added breaking changes detection with `-b` flag
-- **v1.4.1**: Homebrew installation path detection, --version flag support
-- **v1.4.0**: Auto-discovery system for documentation repositories, revision number support
-- **v1.3.0**: Fixed parallel processing race conditions, npm+GitHub hybrid support
-- **v1.2.0**: Added npm registry integration
-- **v1.1.0**: Implemented parallel processing
-- **v1.0.0**: Initial release with basic GitHub integration
 
 → **Full changelog**: [CHANGELOG.md](CHANGELOG.md)
 
