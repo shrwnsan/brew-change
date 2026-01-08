@@ -276,6 +276,7 @@ else
         # Process packages in parallel
         export outdated_packages  # Make available to subprocesses
         export IDENTIFY_BREAKING  # Make breaking flag available to subprocesses
+        export BREW_CHANGE_PARALLEL_MODE="true"  # Disable interactive prompts in parallel mode
         process_packages_parallel "$outdated_packages" "$PARALLEL_JOBS"
         
         echo "Run 'brew upgrade' to upgrade all packages, or 'brew upgrade <package>' for individual packages."

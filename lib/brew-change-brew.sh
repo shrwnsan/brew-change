@@ -142,6 +142,7 @@ show_outdated_with_versions() {
 # Function to show changelog for a single package
 show_package_changelog() {
     local package="$1"
+    echo "DEBUG: show_package_changelog called for package: $package" >&2
     validate_package_name "$package"
 
     # Initialize GitHub authentication to get higher rate limits
@@ -154,6 +155,13 @@ show_package_changelog() {
     if ! check_package_exists "$normalized_package"; then
         echo "Error: Package '$package' not found in Homebrew"
         echo ""
+
+        # Skip interactive prompts in parallel mode to avoid hanging
+        if [[ "${BREW_CHANGE_PARALLEL_MODE:-false}" == "true" ]]; then
+            echo "Skipping package in parallel mode (interactive prompts disabled)"
+            echo ""
+            return 1
+        fi
 
         # Check for similar packages if package is long enough
         local best_suggestion=""
