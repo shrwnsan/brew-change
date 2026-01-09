@@ -107,7 +107,10 @@ process_packages_parallel() {
             fi
 
             # Run in background
-            {
+            # Note: We use a subshell with explicit error handling to prevent
+            # 'set -e' from the main script causing premature exit on any error
+            (
+                set +e  # Disable immediate exit on error in this subshell
                 # Capture output to temp file, handling failures gracefully
                 if show_package_changelog "$package" > "$temp_file" 2>&1; then
                     # Success, output already captured
@@ -118,7 +121,7 @@ process_packages_parallel() {
                     echo "This package will be skipped, but other packages will continue processing." >> "$temp_file"
                     true  # Explicit success to prevent script termination
                 fi
-            } &
+            ) &
             local bg_pid=$!
             pids+=("$bg_pid")
 
@@ -131,9 +134,9 @@ process_packages_parallel() {
         # Wait for current batch to complete
         for pid_idx in "${!pids[@]}"; do
             pid="${pids[pid_idx]}"
-            wait "$pid"
+            wait "$pid" || true  # || true prevents set -e from exiting on non-zero wait status
             # Update progress counter immediately after each job completes
-            ((processed++))
+            ((processed++)) || true
             if [[ ${#packages[@]} -gt 1 ]]; then
                 echo -ne "\r\033[KProgress: $processed/${#packages[@]} packages processed...\n" >&2
             fi

@@ -142,7 +142,6 @@ show_outdated_with_versions() {
 # Function to show changelog for a single package
 show_package_changelog() {
     local package="$1"
-    echo "DEBUG: show_package_changelog called for package: $package" >&2
     validate_package_name "$package"
 
     # Initialize GitHub authentication to get higher rate limits
