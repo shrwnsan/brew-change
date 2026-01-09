@@ -155,6 +155,13 @@ show_package_changelog() {
         echo "Error: Package '$package' not found in Homebrew"
         echo ""
 
+        # Skip interactive prompts in parallel mode to avoid hanging
+        if [[ "${BREW_CHANGE_PARALLEL_MODE:-false}" == "true" ]]; then
+            echo "Skipping package in parallel mode (interactive prompts disabled)"
+            echo ""
+            return 1
+        fi
+
         # Check for similar packages if package is long enough
         local best_suggestion=""
         if best_suggestion=$(get_best_suggestion "$normalized_package" 2>/dev/null); then
