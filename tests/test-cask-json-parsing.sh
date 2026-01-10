@@ -58,7 +58,7 @@ SAMPLE_CASK_JSON='{
 }'
 
 # Real-world sample from brew outdated --json=v2 where .token is null
-# See: https://github.com/shrwnsan/brew-change/issues/XX
+# See: https://github.com/shrwnsan/brew-change/issues/28
 SAMPLE_CASK_JSON_NULL_TOKEN='{
   "formulae": [],
   "casks": [
