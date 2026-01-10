@@ -138,7 +138,7 @@ show_outdated_with_versions() {
 
     # Process casks with error handling
     if echo "$outdated_packages" | jq -e '.casks | length > 0' >/dev/null 2>&1; then
-        echo "$outdated_packages" | jq -r '.casks[] | "\(.name | join(" / ")) (\(.installed_versions | join(", ")) → \(.current_version))"' 2>/dev/null
+        echo "$outdated_packages" | jq -r '.casks[] | "\(.name | if type == "array" then join(" / ") else . end) (\(.installed_versions | join(", ")) → \(.current_version))"' 2>/dev/null
     fi
 }
 
