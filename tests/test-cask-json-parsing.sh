@@ -57,6 +57,32 @@ SAMPLE_CASK_JSON='{
   ]
 }'
 
+# Real-world sample from brew outdated --json=v2 where .token is null
+# See: https://github.com/shrwnsan/brew-change/issues/28
+SAMPLE_CASK_JSON_NULL_TOKEN='{
+  "formulae": [],
+  "casks": [
+    {
+      "token": null,
+      "name": ["claude-code"],
+      "installed_versions": ["2.1.1"],
+      "current_version": "2.1.2"
+    },
+    {
+      "token": null,
+      "name": ["codex"],
+      "installed_versions": ["0.77.0"],
+      "current_version": "0.79.0"
+    },
+    {
+      "token": null,
+      "name": ["emdash"],
+      "installed_versions": ["0.3.44"],
+      "current_version": "0.3.46"
+    }
+  ]
+}'
+
 echo "Test Suite: Cask Token Extraction"
 echo "-----------------------------------"
 
@@ -102,6 +128,36 @@ run_test \
     "Verify formula .name field is a string" \
     "echo '$SAMPLE_CASK_JSON' | jq -r '.formulae[] | .name | type'" \
     "string"
+
+echo ""
+echo "Test Suite: Null Token Handling (real-world brew outdated)"
+echo "----------------------------------------------------------"
+
+# Test 8: Extract cask names when token is null
+run_test \
+    "Extract cask names when token is null (FIX: use .name)" \
+    "echo '$SAMPLE_CASK_JSON_NULL_TOKEN' | jq -r '.casks[].name[]'" \
+    "claude-code
+codex
+emdash"
+
+# Test 9: Verify .token returns null (demonstrates the bug)
+run_test \
+    "Verify cask .token field can be null (real-world case)" \
+    "echo '$SAMPLE_CASK_JSON_NULL_TOKEN' | jq -r '.casks[0].token'" \
+    "null"
+
+# Test 10: Null tokens are filtered out correctly
+run_test \
+    "Filter out null tokens from parallel processing array" \
+    "echo '$SAMPLE_CASK_JSON_NULL_TOKEN' | jq -r '.casks[].token | select(. != null)'" \
+    ""
+
+# Test 11: Using .name instead of .token works for null token case
+run_test \
+    "Use .name field to get casks with null tokens" \
+    "echo '$SAMPLE_CASK_JSON_NULL_TOKEN' | jq -r '.casks[].name[]' | wc -l | awk '{print \$1}'" \
+    "3"
 
 echo ""
 echo "======================================"

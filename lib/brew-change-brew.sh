@@ -65,8 +65,11 @@ get_latest_outdated_version() {
     latest_version=$(echo "$outdated_json" | jq -r ".formulae[] | select(.name == \"$package\") | .current_version" 2>/dev/null)
 
     # If not found in formulae, try casks
+    # Note: .name field is used because .token can be null in brew outdated output
+    # The .name field can be either a string or array depending on the cask structure
     if [[ -z "$latest_version" || "$latest_version" == "null" ]]; then
-        latest_version=$(echo "$outdated_json" | jq -r ".casks[] | select(.token == \"$package\") | .current_version" 2>/dev/null)
+        # Handle both null tokens (name may be string) and non-null tokens (name is array)
+        latest_version=$(echo "$outdated_json" | jq -r ".casks[] | select(.name == \"$package\" or (.name[]? == \"$package\")) | .current_version" 2>/dev/null)
     fi
 
     if [[ -n "$latest_version" && "$latest_version" != "null" ]]; then
