@@ -69,7 +69,7 @@ get_latest_outdated_version() {
     # The .name field can be either a string or array depending on the cask structure
     if [[ -z "$latest_version" || "$latest_version" == "null" ]]; then
         # Handle both null tokens (name may be string) and non-null tokens (name is array)
-        latest_version=$(echo "$outdated_json" | jq -r ".casks[] | select(.name == \"$package\" or (.name | type == \"array\" and (.name[] | . == \"$package\"))) | .current_version" 2>/dev/null)
+        latest_version=$(echo "$outdated_json" | jq -r ".casks[] | select(.name == \"$package\" or (.name[]? == \"$package\")) | .current_version" 2>/dev/null)
     fi
 
     if [[ -n "$latest_version" && "$latest_version" != "null" ]]; then
