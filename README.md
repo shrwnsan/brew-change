@@ -99,11 +99,11 @@ rm -rf ~/.cache/brew-change/*
 
 ## 📈 Recent Updates
 
+- **v1.5.8**: Fixed parallel mode - resolved `set -e` inheritance breaking parallel execution
+- **v1.5.7**: Fixed cask version display - handle both string and array names in `-v` flag output
+- **v1.5.6**: Fixed cask detection - use `.name` field for proper cask identification
 - **v1.5.5**: Fixed cask detection - use `.token` field for Homebrew JSON API v2
 - **v1.5.4**: Show `[not installed]` for uninstalled packages
-- **v1.5.3**: UX improvement - added blank line separation in verbose mode
-- **v1.5.2**: Improved up-to-date message clarity
-- **v1.5.1**: Fixed generic tap pattern handling (e.g., shrwnsan/tap)
 
 → **Full changelog**: [CHANGELOG.md](CHANGELOG.md)
 
