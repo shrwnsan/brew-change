@@ -22,12 +22,16 @@ fi
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Handle Homebrew installation paths
-if [[ "$SCRIPT_DIR" == "/opt/homebrew/bin" || "$SCRIPT_DIR" == "/usr/local/bin" ]]; then
-    # Installed via Homebrew, lib files are in the Cellar/opt path
-    readonly LIB_DIR="$(brew --prefix brew-change)/lib"
-else
-    # Local installation, lib files are relative to script
+if command -v brew &>/dev/null; then
+    # Try to use brew prefix if available (works on macOS, Linux, and WSL)
+    LIB_DIR="$(brew --prefix brew-change 2>/dev/null)/lib"
+fi
+
+# Fallback to relative path if brew prefix failed or brew is not available
+if [[ -z "$LIB_DIR" || ! -d "$LIB_DIR" ]]; then
     readonly LIB_DIR="$SCRIPT_DIR/lib"
+else
+    readonly LIB_DIR="$LIB_DIR"
 fi
 
 source "$LIB_DIR/brew-change-config.sh"
