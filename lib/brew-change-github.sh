@@ -16,7 +16,8 @@ init_github_auth() {
         echo "Warning: GitHub CLI (gh) not found. Install for higher API rate limits:" >&2
         echo "  brew install gh" >&2
         echo "  Then run: gh auth login" >&2
-        return 1
+        # Still return 0 because we can proceed with unauthenticated requests
+        return 0
     fi
 
     # Check if authenticated
@@ -24,7 +25,8 @@ init_github_auth() {
         echo "Warning: Not authenticated with GitHub CLI. Run 'gh auth login' for higher API rate limits." >&2
         echo "  Current rate limit: 60 requests/hour (unauthenticated)" >&2
         echo "  With auth: 5000 requests/hour" >&2
-        return 1
+        # Still return 0 because we can proceed with unauthenticated requests
+        return 0
     fi
 
     # Get and store the token
@@ -33,7 +35,8 @@ init_github_auth() {
         return 0
     else
         echo "Warning: Failed to get GitHub token. Using unauthenticated requests (60/hour limit)." >&2
-        return 1
+        # Still return 0 because we can proceed with unauthenticated requests
+        return 0
     fi
 }
 
