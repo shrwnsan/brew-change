@@ -29,10 +29,9 @@ fi
 
 # Fallback to relative path if brew prefix failed or brew is not available
 if [[ -z "$LIB_DIR" || ! -d "$LIB_DIR" ]]; then
-    readonly LIB_DIR="$SCRIPT_DIR/lib"
-else
-    readonly LIB_DIR="$LIB_DIR"
+    LIB_DIR="$SCRIPT_DIR/lib"
 fi
+readonly LIB_DIR
 
 source "$LIB_DIR/brew-change-config.sh"
 source "$LIB_DIR/brew-change-utils.sh"

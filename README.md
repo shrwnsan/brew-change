@@ -61,6 +61,19 @@ brew-change --version
 - **curl**: HTTP requests with retry logic
 - **bash**: Version 4.0+ for modern shell features
 
+### Platform Support
+
+brew-change works seamlessly across all platforms where Homebrew is available:
+
+| Platform | Homebrew Path | Status |
+|----------|---------------|--------|
+| **macOS (Intel)** | `/usr/local/bin/brew` | ✅ Fully supported |
+| **macOS (Apple Silicon)** | `/opt/homebrew/bin/brew` | ✅ Fully supported |
+| **Linux** | `/home/linuxbrew/.linuxbrew/bin/brew` | ✅ Fully supported |
+| **WSL (Windows Subsystem for Linux)** | `/home/linuxbrew/.linuxbrew/bin/brew` | ✅ Fully supported |
+
+The script automatically detects the correct library path using `brew --prefix`, ensuring compatibility across all Homebrew installations.
+
 ## 🎯 Package Types
 
 brew-change intelligently handles different package sources:
