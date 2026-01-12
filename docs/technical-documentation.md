@@ -313,9 +313,10 @@ brew-change -b
 # Long form
 brew-change --id-breaking
 
-# Review only packages with potential issues
+# Quick filter: show only packages with the warning indicator
 brew-change -b | grep "⚠️"
 ```
+The `-b` flag adds a ⚠️ emoji next to any package where breaking changes are detected in the release notes. Detection is case-insensitive and covers 40+ common patterns (e.g., "breaking change", "deprecated", "removed", "API changes").
 
 ### Advanced Usage
 ```bash
@@ -346,16 +347,16 @@ Quickly identify security-related updates and understand vulnerability patches b
 
 ### Breaking Changes Review
 ```bash
-# Identify packages with breaking changes (recommended)
-brew-change -b | grep "⚠️"
-
-# Review specific breaking changes in detail
-brew-change -b
-
-# Filter to only see breaking package names
+# Extract just the package names for further processing
 brew-change -b | grep "⚠️" | sed 's/.*📦 \([^:]*\):.*/\1/'
+
+# Save breaking changes report for team review
+brew-change -b | grep "⚠️" > breaking-changes-$(date +%Y-%m-%d).txt
+
+# Count how many packages need attention
+brew-change -b | grep -c "⚠️"
 ```
-Quickly identify packages that may require migration work, code changes, or testing before updating. Ideal for pre-release planning and risk assessment.
+Quickly identify packages that may require migration work, code changes, or testing before updating. Ideal for pre-release planning and risk assessment. Use the extracted package names to create update tickets, notify team members, or prioritize testing efforts.
 
 ### Major Version Planning
 ```bash
