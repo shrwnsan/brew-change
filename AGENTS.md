@@ -62,6 +62,8 @@ chmod +x brew-change
 ```
 brew-change/
 ├── brew-change                    # Main entry point and CLI interface
+├── scripts/
+│   └── release.sh                # Release automation helper
 └── lib/
     ├── brew-change-config.sh    # Configuration constants and environment variables
     ├── brew-change-utils.sh     # Core utility functions (URL validation, caching, etc.)
@@ -123,6 +125,23 @@ AI-generated content includes attribution:
 3. **Check Dependencies**: Ensure all required tools are available
 4. **Verify Compatibility**: Test on both macOS and Linux if possible
 5. **Update Docs**: Keep documentation aligned with code changes
+
+## Release Process
+
+Releases are managed through the release helper script:
+
+```bash
+./scripts/release.sh [version]
+```
+
+The script automates:
+- Version bumping in brew-change
+- Git commit and push
+- Tag creation and push
+- GitHub release creation with auto-generated notes
+- SHA256 generation for homebrew-tap
+
+If no version is specified, the patch version is automatically incremented.
 
 ## Common Gotchas
 
