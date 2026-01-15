@@ -311,6 +311,7 @@ show_package_changelog() {
 
         # Normalize display version: "unknown" or empty -> "[not installed]"
         local display_current="${current_version:-[not installed]}"
+        [[ "$display_current" == "unknown" ]] && display_current="[not installed]"
         echo "📦 $package: $display_current → unknown"
         echo "Package information not available - this might be:"
         echo "  • A cask without GitHub repository"
