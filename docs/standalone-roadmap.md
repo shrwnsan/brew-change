@@ -710,78 +710,28 @@ class BrewChangeCLI {
 
 ## Timeline & Milestones: MVP-First Approach
 
-### **✅ COMPLETED: Repository Migration - December 2025**
-- [x] **Core functionality ready** (v1.4.0)
+### **✅ COMPLETED: Repository Migration & Distribution - December 2025**
+- [x] **Core functionality ready** (v1.5.x)
 - [x] **Third-party tap support** (oven-sh/bun, charmbracelet/tap, sst/tap)
 - [x] **Performance optimized** (75% faster than original)
 - [x] **GitHub repository creation** (shrwnsan/brew-change)
 - [x] **E2E testing completed** (all features verified)
 - [x] **Documentation migration** (roadmap, tool docs, migration background)
 - [x] **Apache 2.0 licensing** (AGENTS.md attribution)
+- [x] **Homebrew tap setup** (shrwnsan/homebrew-tap)
+- [x] **Public distribution via Homebrew** (`brew tap shrwnsan/tap && brew install brew-change`)
 
-**Result**: **Repository ready for public distribution**
+**Result**: **Project publicly available and distributed via Homebrew**
 
-### **NEXT: Public Launch Timeline**
-- [ ] **Homebrew tap setup** (shrwnsan/homebrew-brew-change)
-- [ ] **Installation script** (install.sh)
-- [ ] **Public v2.0.0 release** (semantic version for standalone)
-- [ ] **Community outreach** (r/homebrew, forums)
+### **NEXT: Community Engagement**
+- [ ] **Community outreach** (r/homebrew, forums, social media)
+- [ ] **Gather real-world feedback and feature requests**
+- [ ] **Iterate based on user needs**
 
-### **Week 2-4: Community Feedback Loop**
-- [ ] **Initial community outreach** (r/homebrew, forums, Twitter)
-- [ ] **Bug fixes based on real-world usage**
-- [ ] **Gather feature requests and pain points**
-- [ ] **Release v1.1 with community-driven improvements**
-
-**Result**: **Established user base and validated use cases**
-
-### **Month 2: Feature Enhancement (Based on Feedback)**
-- [ ] **Implement most requested features from community**
-- [ ] **Improve documentation based on common questions**
-- [ ] **Set up comprehensive testing based on bug reports**
-- [ ] **Release v1.2 with proven improvements**
-
-**Result**: **Mature, community-driven product**
-
-### **Months 3-4: Ecosystem Growth**
-- [ ] **TypeScript wrapper for advanced features** (if community requests)
-- [ ] **Plugin system for custom integrations**
-- [ ] **Performance optimizations based on real-world usage patterns**
-- [ ] **Integration with developer workflows**
-
-**Result**: **Enhanced capabilities serving actual needs**
-
-### **Months 5-6: Sustainability**
-- [ ] **Establish maintainer team from active contributors**
-- [ ] **Set up governance structure**
-- [ ] **Create contribution guidelines and processes**
-- [ ] **Plan for long-term maintenance and funding**
-
-**Result**: **Self-sustaining open source project**
-
-### **Accelerated vs Original Timeline Comparison**
-
-| Timeline | Original Plan | MVP-First Plan | Community Impact |
-|----------|---------------|----------------|------------------|
-| **First Public Release** | Month 2 (8 weeks) | Week 1 (7 days) | **7x faster** |
-| **Community Feedback** | Month 3 (12 weeks) | Week 2 (14 days) | **6x faster** |
-| **Feature Iteration** | Month 6 (24 weeks) | Month 2 (8 weeks) | **3x faster** |
-| **Ecosystem Growth** | Month 12 (52 weeks) | Month 3 (12 weeks) | **4x faster** |
-
-### **Risk Mitigation Through MVP Approach**
-
-#### **What MVP Approach Solves:**
-1. **Market Validation**: Test if community actually needs this tool
-2. **Real-World Testing**: Discover edge cases and actual usage patterns
-3. **Feature Prioritization**: Build what users actually want, not what we think they want
-4. **Community Building**: Early adopters become contributors and advocates
-5. **Reduced Waste**: Don't build features nobody uses
-
-#### **MVP Success Metrics (Week 2-4):**
-- **Adoption**: 100+ GitHub stars, 500+ Homebrew installs
-- **Community**: 10+ issues/discussions, 2-3 contributors
-- **Validation**: Positive feedback, real-world usage stories
-- **Engagement**: Active GitHub issues, feature requests
+### **Future: Optional TypeScript Migration**
+- [ ] See `docs/tasks-001-typescript-migration.md` for detailed implementation plan
+- [ ] To be pursued only if community feedback warrants advanced features
+- [ ] Current bash implementation remains the primary and recommended distribution
 
 ## Conclusion
 
@@ -814,7 +764,7 @@ The migration strategy outlined above provides a structured approach that minimi
 
 ---
 
-**Document Version**: 1.2
-**Last Updated**: 2025-12-21
-**Author**: Claude Code with GLM 4.6
-**Status**: Production-Ready v1.4.0 with Auto-Discovery Support
+**Document Version**: 1.3
+**Last Updated**: 2026-01-22
+**Author**: Claude Code with GLM 4.7
+**Status**: **Publicly Available via Homebrew** (v1.5.x) - Community engagement phase
