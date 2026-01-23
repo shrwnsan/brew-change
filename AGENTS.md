@@ -140,6 +140,9 @@ The script automates:
 - Tag creation and push
 - GitHub release creation with auto-generated notes
 - SHA256 generation for homebrew-tap
+- Automatic update of homebrew-tap formula (if `$TAP_PATH` exists)
+
+The homebrew-tap formula update happens at `~/Developer/personal/homebrew-tap` by default (configurable via `TAP_PATH` env var). The commit type (`fix` vs `chore`) is determined by scanning commit messages since the last release.
 
 If no version is specified, the patch version is automatically incremented.
 
