@@ -24,7 +24,7 @@ echo "📦 Release: $CURRENT_VERSION → $NEW_VERSION"
 echo ""
 
 # Step 1: Update version in brew-change
-sed -i '' "s/readonly VERSION=\"$CURRENT_VERSION\"/readonly VERSION=\"$NEW_VERSION\"/" brew-change
+sed -i.bak "s/readonly VERSION=\"$CURRENT_VERSION\"/readonly VERSION=\"$NEW_VERSION\"/" brew-change && rm -f brew-change.bak
 echo "✓ Updated brew-change version to $NEW_VERSION"
 
 # Step 2: Commit version bump
@@ -65,16 +65,13 @@ SHA256=$(curl -sL "https://github.com/shrwnsan/brew-change/archive/refs/tags/v$N
 TAP_PATH="${TAP_PATH:-$HOME/Developer/personal/homebrew-tap}"
 FORMULA_PATH="$TAP_PATH/Formula/brew-change.rb"
 
-if [[ -d "$TAP_PATH" ]]; then
+if [[ -d "$TAP_PATH" && -f "$FORMULA_PATH" ]]; then
     echo ""
     echo "Updating homebrew-tap formula at $TAP_PATH..."
-    cd "$TAP_PATH"
 
-    # Update url
-    sed -i '' "s|url \".*v[0-9].*\"|url \"https://github.com/shrwnsan/brew-change/archive/refs/tags/v$NEW_VERSION.tar.gz\"|" "$FORMULA_PATH"
-
-    # Update sha256
-    sed -i '' "s/sha256 \".*\"/sha256 \"$SHA256\"/" "$FORMULA_PATH"
+    # Portable sed in-place: works on macOS and Linux
+    sed -i.bak "s|url \".*v[0-9].*\"|url \"https://github.com/shrwnsan/brew-change/archive/refs/tags/v$NEW_VERSION.tar.gz\"|" "$FORMULA_PATH" && rm -f "$FORMULA_PATH.bak"
+    sed -i.bak "s/sha256 \".*\"/sha256 \"$SHA256\"/" "$FORMULA_PATH" && rm -f "$FORMULA_PATH.bak"
 
     # Determine commit type based on changes since last release
     cd "$SCRIPT_DIR"
@@ -88,10 +85,13 @@ if [[ -d "$TAP_PATH" ]]; then
     cd "$TAP_PATH"
     git add "$FORMULA_PATH"
     git commit -m "$COMMIT_TYPE(brew-change): bump to version $NEW_VERSION" \
-        --author="github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>" \
-        -m ""
-    git push
-    echo "✓ homebrew-tap formula updated and pushed"
+        --author="github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+    if git push; then
+        echo "✓ homebrew-tap formula updated and pushed"
+    else
+        echo "✗ Failed to push homebrew-tap update"
+        exit 1
+    fi
 else
     echo "⚠ homebrew-tap not found at $TAP_PATH"
     echo "  Manual update needed:"
