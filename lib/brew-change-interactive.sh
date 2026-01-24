@@ -4,26 +4,12 @@
 
 # Prompt for yes/no confirmation with timeout and CTRL+C support
 # Args:
-#   $1: Prompt text (will be displayed with ": " suffix)
+#   $1: Prompt text (will be displayed as-is)
 # Returns:
 #   0: User confirmed (y/Y)
 #   1: User declined or timeout
 prompt_for_confirmation() {
-    local prompt_text="$1"
-    local response=""
-    local read_timeout=1  # Check every second for timeout/interrupt
-    local total_timeout=300  # 5 minutes total wait time
-    local elapsed=0
-
-    echo -n "$prompt_text"
-    while [[ $elapsed -lt $total_timeout && -z "$response" ]]; do
-        if IFS= read -r -t $read_timeout response 2>/dev/null; then
-            break
-        fi
-        elapsed=$((elapsed + read_timeout))
-    done
-
-    [[ "$response" =~ ^[Yy]$ ]]
+    prompt_for_confirmation_with_timeout "$1" 300
 }
 
 # Prompt for yes/no confirmation with custom default timeout

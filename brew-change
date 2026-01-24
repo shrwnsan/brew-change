@@ -275,8 +275,7 @@ else
         else
             # Check if running interactively
             if is_interactive_mode; then
-                echo "Found $total_packages outdated packages. Would you like to see detailed changelog information? (y/N)"
-                if ! prompt_for_confirmation ""; then
+                if ! prompt_for_confirmation "Found $total_packages outdated packages. Would you like to see detailed changelog information? (y/N) "; then
                     echo "Run 'brew upgrade' to upgrade all packages, or 'brew upgrade <package>' for individual packages."
                     exit 0
                 fi
