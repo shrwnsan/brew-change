@@ -35,6 +35,7 @@ readonly LIB_DIR
 
 source "$LIB_DIR/brew-change-config.sh"
 source "$LIB_DIR/brew-change-utils.sh"
+source "$LIB_DIR/brew-change-interactive.sh"
 source "$LIB_DIR/brew-change-breaking.sh"
 source "$LIB_DIR/brew-change-github.sh"
 source "$LIB_DIR/brew-change-npm.sh"
@@ -199,21 +200,8 @@ if [ -n "$PACKAGE" ]; then
                     find_similar_packages "$PACKAGE"
                     echo ""
                     # Check if running interactively
-                    if [[ -t 0 ]]; then
-                        echo "Continue with '$best_suggestion'? (y/N): "
-                        local response=""
-                        local read_timeout=1
-                        local total_timeout=300
-                        local elapsed=0
-
-                        while [[ $elapsed -lt $total_timeout && -z "$response" ]]; do
-                            if IFS= read -r -t $read_timeout response 2>/dev/null; then
-                                break
-                            fi
-                            elapsed=$((elapsed + read_timeout))
-                        done
-
-                        if [[ "$response" =~ ^[Yy]$ ]]; then
+                    if is_interactive_mode; then
+                        if prompt_for_confirmation "Continue with '$best_suggestion'? (y/N): "; then
                             echo ""
                             echo "Processing changelog for 1 package..."
                             echo ""
@@ -285,25 +273,9 @@ else
             echo ""
             echo "Processing changelog for 1 outdated package..."
         else
-            # Check if running interactively (stdin is a terminal)
-            if [[ -t 0 ]]; then
-                echo "Found $total_packages outdated packages. Would you like to see detailed changelog information? (y/N)"
-                # Use a short timeout to make the read interruptible by CTRL+C
-                # The timeout loop allows CTRL+C to work properly
-                local response=""
-                local read_timeout=1  # Check every second for timeout/interrupt
-                local total_timeout=300  # 5 minutes total wait time
-                local elapsed=0
-
-                while [[ $elapsed -lt $total_timeout && -z "$response" ]]; do
-                    # Read with timeout to allow signal handling
-                    if IFS= read -r -t $read_timeout response 2>/dev/null; then
-                        break
-                    fi
-                    elapsed=$((elapsed + read_timeout))
-                done
-
-                if [[ ! "$response" =~ ^[Yy]$ ]]; then
+            # Check if running interactively
+            if is_interactive_mode; then
+                if ! prompt_for_confirmation "Found $total_packages outdated packages. Would you like to see detailed changelog information? (y/N) "; then
                     echo "Run 'brew upgrade' to upgrade all packages, or 'brew upgrade <package>' for individual packages."
                     exit 0
                 fi
