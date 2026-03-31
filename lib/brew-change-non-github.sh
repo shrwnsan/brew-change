@@ -537,6 +537,42 @@ analyze_homepage_for_github() {
 #
 # Environment variables:
 #   BREW_CHANGE_DOCS_REPO - Must be set to "1" to enable this feature
+# Function to extract the latest version from a GitHub repo's CHANGELOG.md
+#
+# Fetches CHANGELOG.md and returns the version string from the first
+# version header (e.g. "## [2.1.88]" returns "2.1.88").
+#
+# Parameters:
+#   $1 - github_repo: GitHub repository in "owner/repo" format
+#
+# Outputs:
+#   Version string (e.g. "2.1.88") to stdout
+#
+# Returns:
+#   0 if a version was found, 1 otherwise
+get_changelog_latest_version() {
+    local github_repo="$1"
+
+    local raw_url="https://raw.githubusercontent.com/$github_repo/main/CHANGELOG.md"
+    local changelog_content=""
+    if ! changelog_content=$(fetch_url_with_retry_text "$raw_url" 2>/dev/null); then
+        raw_url="https://raw.githubusercontent.com/$github_repo/master/CHANGELOG.md"
+        if ! changelog_content=$(fetch_url_with_retry_text "$raw_url" 2>/dev/null); then
+            return 1
+        fi
+    fi
+
+    # Extract version from the first version header
+    local latest_version=""
+    latest_version=$(echo "$changelog_content" | grep -m1 -oE '^##[[:space:]]*\[?v?([0-9]+\.[0-9]+[0-9.]*)' | grep -oE '[0-9]+\.[0-9]+[0-9.]*')
+
+    if [[ -n "$latest_version" ]]; then
+        echo "$latest_version"
+        return 0
+    fi
+    return 1
+}
+
 #
 # Side effects:
 #   Prints formatted changelog entries to stdout
