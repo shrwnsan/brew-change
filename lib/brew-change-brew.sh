@@ -325,8 +325,48 @@ show_package_changelog() {
     # This catches revision numbers (e.g., 0.61 vs 0.61_1) that the API doesn't track
     local actual_latest_version
     if actual_latest_version=$(get_latest_outdated_version "$base_package" 2>/dev/null); then
-        # Package is outdated, use the actual latest version
         latest_version="$actual_latest_version"
+    fi
+
+    # Check for version skew: when the installed version is newer than brew's
+    # "latest" (e.g. auto-updater installed a newer build before the cask/formula
+    # definition caught up). Try to resolve the real latest version from the
+    # GitHub CHANGELOG if the docs-repo feature is enabled.
+    if [[ "$current_version" != "$latest_version" ]]; then
+        local sorted_versions
+        sorted_versions=$(printf '%s\n%s\n' "$current_version" "$latest_version" | sort -V 2>/dev/null)
+        local oldest_version
+        oldest_version=$(echo "$sorted_versions" | head -1)
+        if [[ "$latest_version" == "$oldest_version" ]]; then
+            # Version skew detected — installed is newer than brew's "latest"
+            if [[ "$BREW_CHANGE_DOCS_REPO" == "true" || "$BREW_CHANGE_DOCS_REPO" == "1" ]]; then
+                local brew_pkg_info
+                if brew_pkg_info=$(brew info --json=v2 "$base_package" 2>/dev/null); then
+                    local pkg_homepage
+                    pkg_homepage=$(echo "$brew_pkg_info" | jq -r '.formulae[0].homepage // .casks[0].homepage // ""' 2>/dev/null)
+                    local github_repo=""
+                    # Check cache first, then try homepage analysis
+                    if github_repo=$(get_cached_pattern "$base_package" 2>/dev/null); then
+                        :
+                    elif [[ -n "$pkg_homepage" && "$pkg_homepage" != "null" ]]; then
+                        github_repo=$(analyze_homepage_for_github "$pkg_homepage" "$base_package" 2>/dev/null)
+                    fi
+                    if [[ -n "$github_repo" ]]; then
+                        local changelog_latest
+                        if changelog_latest=$(get_changelog_latest_version "$github_repo" 2>/dev/null); then
+                            # Verify the changelog version is actually newer than installed
+                            local sorted_check
+                            sorted_check=$(printf '%s\n%s\n' "$current_version" "$changelog_latest" | sort -V 2>/dev/null)
+                            local check_oldest
+                            check_oldest=$(echo "$sorted_check" | head -1)
+                            if [[ "$current_version" == "$check_oldest" ]]; then
+                                latest_version="$changelog_latest"
+                            fi
+                        fi
+                    fi
+                fi
+            fi
+        fi
     fi
 
     # Check if package is up to date
