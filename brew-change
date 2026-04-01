@@ -139,10 +139,10 @@ if [ -n "$PACKAGE" ]; then
         conflicting_packages=""
         if command -v jq >/dev/null 2>&1; then
             # Look for packages that contain the searched name using grep
-            conflicting_packages=$(brew outdated --json=v2 2>/dev/null | jq -r '.formulae[] | .name' 2>/dev/null | grep "$PACKAGE" | sort | uniq)
+            conflicting_packages=$(brew outdated --json=v2 2>/dev/null | jq -r '.formulae[] | .name' 2>/dev/null | grep "$PACKAGE" | sort | uniq || true)
 
             # Also check for exact matches with word boundaries
-            exact_matches=$(brew outdated --json=v2 2>/dev/null | jq -r '.formulae[] | .name' 2>/dev/null | grep -w "$PACKAGE" | sort | uniq)
+            exact_matches=$(brew outdated --json=v2 2>/dev/null | jq -r '.formulae[] | .name' 2>/dev/null | grep -w "$PACKAGE" | sort | uniq || true)
 
             if [[ -n "$exact_matches" ]]; then
                 # Prefer exact matches over partial matches
@@ -218,6 +218,7 @@ if [ -n "$PACKAGE" ]; then
                 echo "To search installed packages, try: brew list | grep $PACKAGE"
             fi
         fi
+        exit 1
     fi
 else
     # Get outdated packages

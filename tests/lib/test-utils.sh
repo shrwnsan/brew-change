@@ -211,6 +211,30 @@ assert_command_output_contains() {
     fi
 }
 
+# Assert that command output contains expected string, ignoring exit code
+# Use for error-path tests where non-zero exit is expected
+# Usage: assert_output_contains "test_name" "expected_string" command [args...]
+assert_output_contains() {
+    local test_name="$1"
+    local expected="$2"
+    shift 2
+    local output
+
+    output=$("$@" 2>&1) || true
+
+    if echo "$output" | grep -q "$expected"; then
+        log_test_result "$test_name" "pass"
+        return 0
+    else
+        log_test_result "$test_name" "fail" "Output does not contain expected string: '$expected'"
+        if [[ "$TEST_OUTPUT_MODE" == "ci" ]]; then
+            echo "Command output:" >&2
+            echo "$output" >&2
+        fi
+        return 1
+    fi
+}
+
 # Assert that command output does NOT contain string
 # Usage: assert_command_output_not_contains "test_name" "unexpected_string" command [args...]
 assert_command_output_not_contains() {

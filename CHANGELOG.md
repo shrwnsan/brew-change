@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **@version cask variant resolution**: Automatically detect and redirect to installed `@version` cask variants (e.g., `brew-change claude-code` now redirects to `claude-code@latest` when only the `@latest` variant is installed)
 
+### Fixed
+- **Nonexistent package error**: `set -eo pipefail` caused silent exit when `grep` found no matches in package conflict detection
+- **Test assertions**: Error-path tests now correctly validate output content regardless of exit code
+
 ## [1.5.5] - 2026-01-04
 
 ### Fixed
