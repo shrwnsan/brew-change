@@ -195,6 +195,18 @@ show_package_changelog() {
         return 1
     fi
 
+    # Check if user passed a base name but has an @version variant installed
+    # e.g. "claude-code" when "claude-code@latest" is installed
+    local resolved_variant=""
+    if resolved_variant=$(resolve_installed_variant "$normalized_package" 2>/dev/null); then
+        echo "Note: '$normalized_package' is not installed, but '$resolved_variant' is."
+        echo "Using '$resolved_variant' instead."
+        echo ""
+        # Recursively call with the correct installed variant
+        show_package_changelog "$resolved_variant"
+        return $?
+    fi
+
     # ENHANCED: Check if this is a tap package using our new detection
     local base_package=""
     local detected_tap=""

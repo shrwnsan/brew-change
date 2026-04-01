@@ -191,3 +191,29 @@ brew-change some-package
 - Accurate version comparison with revisions
 - Clean display of version transitions
 - Support for complex version schemes
+
+## @Version Cask Variants
+
+Homebrew supports versioned cask variants using the `@` suffix (e.g., `claude-code` vs `claude-code@latest`). brew-change automatically detects when a user requests a base cask name that isn't installed but has a `@version` variant installed, and redirects accordingly.
+
+### Example: claude-code@latest
+```bash
+# When claude-code (stable) is not installed but claude-code@latest is:
+brew-change claude-code
+# Note: 'claude-code' is not installed, but 'claude-code@latest' is.
+# Using 'claude-code@latest' instead.
+#
+# 📦 claude-code@latest: 2.1.89 → latest (installed 11 hours ago)
+# No new releases.
+
+# Direct usage also works:
+brew-change claude-code@latest
+# 📦 claude-code@latest: 2.1.89 → latest (installed 11 hours ago)
+# No new releases.
+```
+
+### Behavior:
+- Passing the exact installed name (e.g., `brew-change claude-code@latest`) works as expected
+- Passing the base name (e.g., `brew-change claude-code`) auto-detects the installed `@version` variant
+- If the base name IS installed (e.g., `brew-change node`), no redirect occurs
+- If neither the base name nor any variant is installed, the normal "not found" path runs
