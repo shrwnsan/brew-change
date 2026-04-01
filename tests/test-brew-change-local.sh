@@ -494,8 +494,8 @@ comprehensive_test_suite() {
     # Test 3: Invalid inputs
     echo ""
     log_info "Testing error handling..."
-    assert_command_output_contains "Invalid option handling" "Error: Unknown option" $brew_change_cmd --invalid-option
-    assert_command_output_contains "Non-existent package" "not found" $brew_change_cmd nonexistent-package-12345
+    assert_output_contains "Invalid option handling" "Error: Unknown option" $brew_change_cmd --invalid-option
+    assert_output_contains "Non-existent package" "not found" $brew_change_cmd nonexistent-package-12345
 
     # Test 4: Environment variations
     echo ""

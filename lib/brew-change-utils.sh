@@ -460,6 +460,35 @@ get_best_suggestion() {
     return 1
 }
 
+# Function to resolve installed @version variant of a cask
+# When a user passes a base name like "claude-code" but has "claude-code@latest"
+# installed, this detects and returns the installed variant.
+# Returns the installed variant name (stdout) or empty string if not applicable.
+resolve_installed_variant() {
+    local package="$1"
+
+    # Only applies to package names without @version suffix
+    if [[ "$package" == *"@"* ]]; then
+        return 1
+    fi
+
+    # Check if the exact name is already installed — no redirect needed
+    if brew list 2>/dev/null | grep -q "^${package}$"; then
+        return 1
+    fi
+
+    # Look for installed @version variants
+    local variant=""
+    variant=$(brew list 2>/dev/null | grep "^${package}@" | head -1)
+
+    if [[ -n "$variant" ]]; then
+        echo "$variant"
+        return 0
+    fi
+
+    return 1
+}
+
 # Function to check if package exists in Homebrew
 check_package_exists() {
     local package="$1"
