@@ -57,12 +57,12 @@ show_version() {
 # Function to show usage
 usage() {
     cat << 'EOF'
-Usage: brew-change [OPTIONS] [PACKAGE]
+Usage: brew-change [OPTIONS] [PACKAGE ...]
 
 Shows changelog information for Homebrew packages.
 
 Arguments:
-  PACKAGE    Show changelog for specific package only
+  PACKAGE ...    Show changelog for one or more specific packages
 
 Options:
   -a, --all            Show detailed changelog for all outdated packages (parallel)
@@ -75,13 +75,15 @@ If no PACKAGE is specified and no flags, shows simple list like 'brew outdated'.
 
 Examples:
   brew-change node              # Show changelog for node package
-  brew-change -a               # Show detailed changelogs for all outdated packages
-  brew-change -v               # Show outdated packages with versions
-  brew-change -a -b            # Show changelogs with breaking changes highlighted
-  brew-change -b               # Same as -a -b (shorthand)
-  brew-change --id-breaking    # Same as -a -b (long form)
-  brew-change                  # Show simple outdated list (package names only)
-  brew-change --version        # Show version information
+  brew-change node python git   # Show changelogs for multiple packages
+  brew-change -a                # Show detailed changelogs for all outdated packages
+  brew-change -v                # Show outdated packages with versions
+  brew-change -a -b             # Show changelogs with breaking changes highlighted
+  brew-change -b                # Same as -a -b (shorthand)
+  brew-change -b node python    # Check specific packages for breaking changes
+  brew-change --id-breaking     # Same as -a -b (long form)
+  brew-change                   # Show simple outdated list (package names only)
+  brew-change --version         # Show version information
 
 EOF
 }
@@ -90,7 +92,7 @@ EOF
 SHOW_ALL="false"
 SHOW_VERSIONS="false"
 IDENTIFY_BREAKING="false"
-PACKAGE=""
+PACKAGES=()
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -120,105 +122,141 @@ while [[ $# -gt 0 ]]; do
             exit 1
             ;;
         *)
-            PACKAGE="$1"
+            PACKAGES+=("$1")
             shift
             ;;
     esac
 done
 
 # Main execution logic
-if [ -n "$PACKAGE" ]; then
-    # Show changelog for specific package
-    # First check if package exists to provide appropriate feedback
-    if check_package_exists "$PACKAGE"; then
-        echo "Processing changelog for 1 package..."
+if [ ${#PACKAGES[@]} -gt 0 ]; then
+    # Show changelog for specific package(s)
+    export IDENTIFY_BREAKING  # Make breaking flag available to subprocesses
+
+    # Soft warning at 10+ packages
+    if [ ${#PACKAGES[@]} -gt 10 ]; then
+        echo "Note: ${#PACKAGES[@]} packages specified. For all outdated packages, consider: brew-change -a"
         echo ""
-        show_package_changelog "$PACKAGE"
-    else
-        # Package doesn't exist, check for naming conflicts
-        conflicting_packages=""
-        if command -v jq >/dev/null 2>&1; then
-            # Look for packages that contain the searched name using grep
-            conflicting_packages=$(brew outdated --json=v2 2>/dev/null | jq -r '.formulae[] | .name' 2>/dev/null | grep "$PACKAGE" | sort | uniq || true)
+    fi
 
-            # Also check for exact matches with word boundaries
-            exact_matches=$(brew outdated --json=v2 2>/dev/null | jq -r '.formulae[] | .name' 2>/dev/null | grep -w "$PACKAGE" | sort | uniq || true)
+    # Process single package through existing resolution logic for backward compat
+    if [ ${#PACKAGES[@]} -eq 1 ]; then
+        PACKAGE="${PACKAGES[0]}"
+        if check_package_exists "$PACKAGE"; then
+            echo "Processing changelog for 1 package..."
+            echo ""
+            show_package_changelog "$PACKAGE"
+        else
+            # Package doesn't exist, check for naming conflicts
+            conflicting_packages=""
+            if command -v jq >/dev/null 2>&1; then
+                # Look for packages that contain the searched name using grep
+                conflicting_packages=$(brew outdated --json=v2 2>/dev/null | jq -r '.formulae[] | .name' 2>/dev/null | grep "$PACKAGE" | sort | uniq || true)
 
-            if [[ -n "$exact_matches" ]]; then
-                # Prefer exact matches over partial matches
-                conflicting_packages="$exact_matches"
-            fi
-        fi
+                # Also check for exact matches with word boundaries
+                exact_matches=$(brew outdated --json=v2 2>/dev/null | jq -r '.formulae[] | .name' 2>/dev/null | grep -w "$PACKAGE" | sort | uniq || true)
 
-        # If we found packages with similar names, present a choice
-        if [[ -n "$conflicting_packages" ]]; then
-            package_count=$(echo "$conflicting_packages" | wc -l | tr -d ' ')
-            if [[ "$package_count" -gt 1 ]]; then
-                echo "Multiple packages found matching '$PACKAGE':"
-                echo ""
-                echo "$conflicting_packages" | while read -r pkg; do
-                    echo "  • $pkg"
-                done
-                echo ""
-
-                # Check if the original package name is in the list
-                exact_match=""
-                if echo "$conflicting_packages" | grep -q "^${PACKAGE}$"; then
-                    exact_match="$PACKAGE"
+                if [[ -n "$exact_matches" ]]; then
+                    # Prefer exact matches over partial matches
+                    conflicting_packages="$exact_matches"
                 fi
+            fi
 
-                # If exact match exists, use it; otherwise show interactive prompt
-                if [[ -n "$exact_match" ]]; then
-                    echo "Using exact match: $exact_match"
-                    PACKAGE="$exact_match"
+            # If we found packages with similar names, present a choice
+            if [[ -n "$conflicting_packages" ]]; then
+                package_count=$(echo "$conflicting_packages" | wc -l | tr -d ' ')
+                if [[ "$package_count" -gt 1 ]]; then
+                    echo "Multiple packages found matching '$PACKAGE':"
+                    echo ""
+                    echo "$conflicting_packages" | while read -r pkg; do
+                        echo "  • $pkg"
+                    done
+                    echo ""
+
+                    # Check if the original package name is in the list
+                    exact_match=""
+                    if echo "$conflicting_packages" | grep -q "^${PACKAGE}$"; then
+                        exact_match="$PACKAGE"
+                    fi
+
+                    # If exact match exists, use it; otherwise show interactive prompt
+                    if [[ -n "$exact_match" ]]; then
+                        echo "Using exact match: $exact_match"
+                        PACKAGE="$exact_match"
+                        echo "Processing changelog for 1 package..."
+                        echo ""
+                        show_package_changelog "$PACKAGE"
+                    else
+                        echo "Please specify which package you want:"
+                        echo "$conflicting_packages" | paste -sd "," -
+                        echo ""
+                        exit 1
+                    fi
+                elif [[ "$package_count" -eq 1 ]]; then
+                    # Use the single found package
+                    PACKAGE="$conflicting_packages"
+                    echo "Using package: $PACKAGE"
                     echo "Processing changelog for 1 package..."
                     echo ""
                     show_package_changelog "$PACKAGE"
-                else
-                    echo "Please specify which package you want:"
-                    echo "$conflicting_packages" | paste -sd "," -
-                    echo ""
-                    exit 1
                 fi
-            elif [[ "$package_count" -eq 1 ]]; then
-                # Use the single found package
-                PACKAGE="$conflicting_packages"
-                echo "Using package: $PACKAGE"
-                echo "Processing changelog for 1 package..."
+            else
+                # No conflicts found, show standard error message
+                echo "Error: Package '$PACKAGE' not found in Homebrew"
                 echo ""
-                show_package_changelog "$PACKAGE"
-            fi
-        else
-            # No conflicts found, show standard error message
-            echo "Error: Package '$PACKAGE' not found in Homebrew"
-            echo ""
-            # Check for similar packages if package is long enough
-            if command -v jq >/dev/null 2>&1; then
-                best_suggestion=""
-                if best_suggestion=$(get_best_suggestion "$PACKAGE" 2>/dev/null); then
-                    echo "Similar installed packages:"
-                    find_similar_packages "$PACKAGE"
-                    echo ""
-                    # Check if running interactively
-                    if is_interactive_mode; then
-                        if prompt_for_confirmation "Continue with '$best_suggestion'? (y/N): "; then
-                            echo ""
-                            echo "Processing changelog for 1 package..."
-                            echo ""
-                            show_package_changelog "$best_suggestion"
+                # Check for similar packages if package is long enough
+                if command -v jq >/dev/null 2>&1; then
+                    best_suggestion=""
+                    if best_suggestion=$(get_best_suggestion "$PACKAGE" 2>/dev/null); then
+                        echo "Similar installed packages:"
+                        find_similar_packages "$PACKAGE"
+                        echo ""
+                        # Check if running interactively
+                        if is_interactive_mode; then
+                            if prompt_for_confirmation "Continue with '$best_suggestion'? (y/N): "; then
+                                echo ""
+                                echo "Processing changelog for 1 package..."
+                                echo ""
+                                show_package_changelog "$best_suggestion"
+                            fi
+                        else
+                            # Non-interactive mode: skip suggestion
+                            echo "To search installed packages, try: brew list | grep $PACKAGE"
                         fi
                     else
-                        # Non-interactive mode: skip suggestion
                         echo "To search installed packages, try: brew list | grep $PACKAGE"
                     fi
                 else
                     echo "To search installed packages, try: brew list | grep $PACKAGE"
                 fi
-            else
-                echo "To search installed packages, try: brew list | grep $PACKAGE"
             fi
+            exit 1
         fi
-        exit 1
+    else
+        # Multiple packages: process sequentially with separators
+        echo "Processing changelogs for ${#PACKAGES[@]} packages..."
+        echo ""
+
+        had_errors=0
+        for i in "${!PACKAGES[@]}"; do
+            pkg="${PACKAGES[$i]}"
+
+            # Add separator between packages
+            if [[ $i -gt 0 ]]; then
+                echo "---"
+            fi
+
+            if check_package_exists "$pkg"; then
+                show_package_changelog "$pkg"
+            else
+                echo "Error: Package '$pkg' not found in Homebrew"
+                had_errors=1
+            fi
+        done
+
+        if [[ "$had_errors" -eq 1 ]]; then
+            exit 1
+        fi
     fi
 else
     # Get outdated packages
