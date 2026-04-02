@@ -45,7 +45,8 @@ echo "✓ Tagged and pushed v$NEW_VERSION"
 # Step 5: Create GitHub Release
 echo ""
 echo "Creating GitHub release..."
-RELEASE_NOTES=$(git log $(git describe --tags --abbrev=0 HEAD^)..HEAD --pretty=format:"- %s" | tail -n +2)
+PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || git rev-list --max-parents=0 HEAD)
+RELEASE_NOTES=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s" | tail -n +2)
 gh release create "v$NEW_VERSION" \
   --title "v$NEW_VERSION" \
   --notes "## Changes
@@ -75,7 +76,8 @@ if [[ -d "$TAP_PATH" && -f "$FORMULA_PATH" ]]; then
 
     # Determine commit type based on changes since last release
     cd "$SCRIPT_DIR"
-    if git log $(git describe --tags --abbrev=0 HEAD^)..HEAD --pretty=format:"%s" | grep -qiE 'fix|bug'; then
+    PREV_TAG_CHECK=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || git rev-list --max-parents=0 HEAD)
+    if git log "${PREV_TAG_CHECK}..HEAD" --pretty=format:"%s" | grep -qiE 'fix|bug'; then
         COMMIT_TYPE="fix"
     else
         COMMIT_TYPE="chore"

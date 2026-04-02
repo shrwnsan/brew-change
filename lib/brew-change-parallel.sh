@@ -101,6 +101,11 @@ process_packages_parallel() {
             local temp_file=$(mktemp -t brew-change-output.XXXXXX 2>/dev/null)
             temp_files+=("$temp_file")
 
+            # Register for global cleanup in case of interrupt
+            if [[ -z "${BREW_CHANGE_SUBPROCESS:-}" ]] && command -v register_temp_file >/dev/null 2>&1; then
+                register_temp_file "$temp_file"
+            fi
+
             # Add small delay before starting each job to avoid thundering herd
             if [[ $j -gt 0 ]]; then
                 sleep 0.$((RANDOM % 5 + 1))  # 0.1-0.5s random delay

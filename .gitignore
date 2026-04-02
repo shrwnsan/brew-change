@@ -49,3 +49,6 @@ build/
 *.key
 *.pem
 *.p12
+
+# Git worktrees
+.worktrees/

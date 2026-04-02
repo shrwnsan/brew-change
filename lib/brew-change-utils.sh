@@ -55,7 +55,7 @@ rate_limit_delay() {
 # Function to get cache file path for a URL
 get_cache_file() {
     local url="$1"
-    local cache_key=$(echo "$url" | sha256sum | cut -d' ' -f1)
+    local cache_key=$(echo "$url" | { command -v sha256sum >/dev/null 2>&1 && sha256sum || shasum -a 256; } | cut -d' ' -f1)
     echo "${CACHE_DIR}/${cache_key}.json"
 }
 
@@ -64,7 +64,7 @@ get_cache_temp_file() {
     local cache_file="$1"
     local cache_dir=$(dirname "$cache_file")
     local base_name=$(basename "$cache_file")
-    echo "${cache_dir}/.${base_name}.tmp.$$"
+    echo "${cache_dir}/.${base_name}.tmp.${BASHPID:-$$}"
 }
 
 # Function to check if cache is valid (with atomic check)
@@ -256,8 +256,9 @@ validate_url() {
 fetch_url_with_retry_text() {
     local url="$1"
     
-    # Validate URL before processing (but skip JSON validation)
-    if ! validate_url "$url"; then
+    # Basic URL safety check (allow any domain for text fetches)
+    if [[ -z "$url" ]] || [[ ! "$url" =~ ^https?:// ]]; then
+        echo "Error: Invalid URL: $url" >&2
         return 1
     fi
     

@@ -168,8 +168,11 @@ if [[ -z "${BREW_CHANGE_SUBPROCESS:-}" ]]; then
         fi
         
         # Check if we have any temp files in cache directory
+        # Note: This pattern uses $$ (parent PID). Subshell temp files use BASHPID
+        # and are tracked via register_temp_file instead. Stale subshell files are
+        # cleaned by the wildcard cleanup at script startup (line 149).
         if [[ ! $has_temp_files && -n "${CACHE_DIR:-}" && -d "$CACHE_DIR" ]]; then
-            if find "$CACHE_DIR" -name ".*.tmp.$$" -type f -exec test -f {} \; >/dev/null; then
+            if find "$CACHE_DIR" -name ".*.tmp.$$" -type f -print -quit 2>/dev/null | grep -q .; then
                 has_temp_files=true
             fi
         fi
@@ -211,7 +214,7 @@ if [[ -z "${BREW_CHANGE_SUBPROCESS:-}" ]]; then
                 done
             fi
 
-            exit 130  # Standard exit code for SIGINT
+            # Let the script exit with its natural exit code; don't force 130
         fi
 
         # Return success when no cleanup needed
