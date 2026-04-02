@@ -49,6 +49,10 @@ if ! verify_dependencies; then
     exit 1
 fi
 
+# Pre-initialize GitHub auth token so subshells inherit it
+init_github_auth
+export GITHUB_AUTH_TOKEN
+
 # Function to show version
 show_version() {
     echo "brew-change version $VERSION"
@@ -151,10 +155,10 @@ if [ ${#PACKAGES[@]} -gt 0 ]; then
             conflicting_packages=""
             if command -v jq >/dev/null 2>&1; then
                 # Look for packages that contain the searched name using grep
-                conflicting_packages=$(brew outdated --json=v2 2>/dev/null | jq -r '.formulae[] | .name' 2>/dev/null | grep "$PACKAGE" | sort | uniq || true)
+                conflicting_packages=$(brew outdated --json=v2 2>/dev/null | jq -r '.formulae[] | .name' 2>/dev/null | grep -F -e "$PACKAGE" | sort | uniq || true)
 
                 # Also check for exact matches with word boundaries
-                exact_matches=$(brew outdated --json=v2 2>/dev/null | jq -r '.formulae[] | .name' 2>/dev/null | grep -w "$PACKAGE" | sort | uniq || true)
+                exact_matches=$(brew outdated --json=v2 2>/dev/null | jq -r '.formulae[] | .name' 2>/dev/null | grep -F -w -e "$PACKAGE" | sort | uniq || true)
 
                 if [[ -n "$exact_matches" ]]; then
                     # Prefer exact matches over partial matches
@@ -325,7 +329,7 @@ else
         fi
         echo ""
         # Process packages in parallel
-        export outdated_packages  # Make available to subprocesses
+        # Note: outdated_packages is passed as argument to process_packages_parallel, no export needed
         export IDENTIFY_BREAKING  # Make breaking flag available to subprocesses
         export BREW_CHANGE_PARALLEL_MODE="true"  # Disable interactive prompts in parallel mode
         process_packages_parallel "$outdated_packages" "$PARALLEL_JOBS"

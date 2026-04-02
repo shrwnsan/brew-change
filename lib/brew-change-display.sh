@@ -78,7 +78,7 @@ optimize_github_markdown() {
     sed '/^[[:space:]]*--[[:space:]]*$/d' | \
     sed '/^[[:space:]]*-[[:space:]]*--[[:space:]]*$/d' | \
     # Remove lines containing only dash characters
-    sed '/^[[:space:]]*[-]+[[:space:]]*$/d' | \
+    sed -E '/^[[:space:]]*[-]+[[:space:]]*$/d' | \
     # Remove empty lines
     sed '/^[[:space:]]*$/d' | \
     # Remove trailing whitespace
