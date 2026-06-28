@@ -81,6 +81,12 @@ if [[ -z "${BREW_CHANGE_DOCS_REPO:-}" ]]; then
     readonly BREW_CHANGE_DOCS_REPO="false"
 fi
 
+# Upgrade interactive mode — safety gate for brew upgrade execution
+# Must be "true" to enable the interactive upgrade prompt with -u flag
+if [[ -z "${BREW_CHANGE_UPGRADE_INTERACTIVE:-}" ]]; then
+    BREW_CHANGE_UPGRADE_INTERACTIVE="false"
+fi
+
 # Calculate optimal parallel jobs based on system resources
 cpu_count=1
 memory_gb=1
@@ -153,7 +159,8 @@ fi
 if [[ -z "${BREW_CHANGE_SUBPROCESS:-}" ]]; then
     # Store temp files for cleanup
     TEMP_FILES=()
-    
+    TEMP_DIRS=()
+
     cleanup() {
         local has_temp_files=false
         
@@ -200,6 +207,13 @@ if [[ -z "${BREW_CHANGE_SUBPROCESS:-}" ]]; then
                 fi
             done
 
+            # Remove all registered temp directories
+            for temp_dir in "${TEMP_DIRS[@]:-}"; do
+                if [[ -n "$temp_dir" && -d "$temp_dir" ]]; then
+                    rm -rf "$temp_dir" 2>/dev/null || true
+                fi
+            done
+
             # Cleanup any remaining temp files in cache directory
             if [[ -n "${CACHE_DIR:-}" && -d "$CACHE_DIR" ]]; then
                 find "$CACHE_DIR" -name ".*.tmp.$$" -type f -delete 2>/dev/null || true
@@ -233,6 +247,14 @@ if [[ -z "${BREW_CHANGE_SUBPROCESS:-}" ]]; then
         local temp_file="$1"
         if [[ -n "$temp_file" ]]; then
             TEMP_FILES+=("$temp_file")
+        fi
+    }
+
+    # Function to register temp directories for cleanup
+    register_temp_dir() {
+        local temp_dir="$1"
+        if [[ -n "$temp_dir" ]]; then
+            TEMP_DIRS+=("$temp_dir")
         fi
     }
     
