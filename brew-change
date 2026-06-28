@@ -43,6 +43,7 @@ source "$LIB_DIR/brew-change-brew.sh"
 source "$LIB_DIR/brew-change-non-github.sh"
 source "$LIB_DIR/brew-change-display.sh"
 source "$LIB_DIR/brew-change-parallel.sh"
+source "$LIB_DIR/brew-change-upgrade.sh"
 
 # Verify dependencies
 if ! verify_dependencies; then
@@ -72,6 +73,8 @@ Options:
   -a, --all            Show detailed changelog for all outdated packages (parallel)
   -v, --verbose        Show outdated packages with version numbers (like 'brew outdated -v')
   -b, --id-breaking    Highlight packages with breaking changes (implies -a)
+  -u, --upgrade        Show changelogs then offer selective upgrade (implies -a, -b)
+                        Set BREW_CHANGE_UPGRADE_INTERACTIVE=true to enable execution
   -h, --help           Show this help message
       --version        Show version information
 
@@ -86,6 +89,9 @@ Examples:
   brew-change -b                # Same as -a -b (shorthand)
   brew-change -b node python    # Check specific packages for breaking changes
   brew-change --id-breaking     # Same as -a -b (long form)
+  brew-change -u                # Show changelogs with upgrade summary
+  BREW_CHANGE_UPGRADE_INTERACTIVE=true brew-change -u
+                                # Show changelogs + interactive upgrade prompt
   brew-change                   # Show simple outdated list (package names only)
   brew-change --version         # Show version information
 
@@ -96,6 +102,7 @@ EOF
 SHOW_ALL="false"
 SHOW_VERSIONS="false"
 IDENTIFY_BREAKING="false"
+UPGRADE_MODE="false"
 PACKAGES=()
 
 while [[ $# -gt 0 ]]; do
@@ -106,6 +113,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -b|--id-breaking)
             IDENTIFY_BREAKING="true"
+            shift
+            ;;
+        -u|--upgrade)
+            UPGRADE_MODE="true"
             shift
             ;;
         -v|--verbose)
@@ -296,6 +307,12 @@ else
         SHOW_ALL="true"
     fi
 
+    # If -u is used, implicitly enable -a and -b
+    if [ "$UPGRADE_MODE" = "true" ]; then
+        SHOW_ALL="true"
+        IDENTIFY_BREAKING="true"
+    fi
+
     if [ "$SHOW_ALL" = "true" ]; then
         # Count total outdated packages
         total_packages=0
@@ -332,9 +349,23 @@ else
         # Note: outdated_packages is passed as argument to process_packages_parallel, no export needed
         export IDENTIFY_BREAKING  # Make breaking flag available to subprocesses
         export BREW_CHANGE_PARALLEL_MODE="true"  # Disable interactive prompts in parallel mode
+
+        # If upgrade mode, create a tracking directory for breaking-change status
+        if [[ "$UPGRADE_MODE" == "true" ]]; then
+            UPGRADE_STATUS_DIR=$(mktemp -d -t brew-change-status.XXXXXX 2>/dev/null)
+            export UPGRADE_STATUS_DIR
+            register_temp_dir "$UPGRADE_STATUS_DIR"
+        fi
+
         process_packages_parallel "$outdated_packages" "$PARALLEL_JOBS"
-        
-        echo "Run 'brew upgrade' to upgrade all packages, or 'brew upgrade <package>' for individual packages."
+
+        if [[ "$UPGRADE_MODE" == "true" ]]; then
+            # Collect breaking-change status and run upgrade flow
+            collect_upgrade_status "$UPGRADE_STATUS_DIR"
+            run_upgrade_prompt "$outdated_packages"
+        else
+            echo "Run 'brew upgrade' to upgrade all packages, or 'brew upgrade <package>' for individual packages."
+        fi
     elif [ "$SHOW_VERSIONS" = "true" ]; then
         # Show list with versions like brew outdated -v
         show_outdated_with_versions

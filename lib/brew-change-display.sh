@@ -526,6 +526,11 @@ show_package_changelog_full() {
         fi
     fi
 
+    # Write breaking status for upgrade mode tracking (only when UPGRADE_STATUS_DIR is set)
+    if [[ -n "${UPGRADE_STATUS_DIR:-}" && -d "${UPGRADE_STATUS_DIR}" ]]; then
+        printf '%s\t%s\n' "$package" "$has_breaking" >> "${UPGRADE_STATUS_DIR}/results.tsv"
+    fi
+
     # Create package header using shared function
     create_package_header "$package" "$current_version" "$latest_version" "$relative_date" "$package_info" "$has_breaking"
     echo ""
