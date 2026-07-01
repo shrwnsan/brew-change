@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # Version information
-readonly VERSION="1.8.0"
+readonly VERSION="1.8.1"
 
 # Set UTF-8 locale to handle emojis and special characters
 # This must be set before any text processing
@@ -327,11 +327,12 @@ else
         echo "Outdated packages:"
         brew outdated -v
 
-        # Ask for confirmation before showing detailed changelogs (skip for single package)
+        # Ask for confirmation before showing detailed changelogs
+        # Skip for upgrade mode (-u) or single package — auto-proceed
         echo ""
-        if [[ $total_packages -eq 1 ]]; then
+        if [[ $total_packages -eq 1 ]] || [[ "$UPGRADE_MODE" == "true" ]]; then
             echo ""
-            echo "Processing changelog for 1 outdated package..."
+            echo "Processing changelog for $total_packages outdated package(s)..."
         else
             # Check if running interactively
             if is_interactive_mode; then
