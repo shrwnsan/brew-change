@@ -70,40 +70,24 @@ prompt_upgrade_action() {
     local total_timeout=60
     local elapsed=0
     local spinner_idx=0
+    local prompt_width=$(( ${#prompt_text} + 6 ))
 
     local response=""
-    # Use a background subshell for spinner animation so it doesn't block read
-    local spinner_pid=""
-    local spin_tty="/dev/tty"
 
-    # Start spinner in background, writing to /dev/tty
-    (
-        local s_idx=0
-        local s_elapsed=0
-        local s_chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-        local s_len=${#s_chars}
-        while true; do
-            sleep 0.1
-            s_idx=$(( (s_idx + 1) % s_len ))
-            s_elapsed=$(( s_elapsed + 1 ))
-            local s_sec=$(( s_elapsed / 10 ))
-            local frame="${s_chars:s_idx:1} ${s_sec}s"
-            printf "\r%s%s" "$prompt_text" "$frame" > "$spin_tty"
-        done
-    ) &
-    spinner_pid=$!
-
-    # Read user input with timeout
     while [[ $elapsed -lt $total_timeout && -z "$response" ]]; do
+        # Draw spinner + timer in-place via carriage return
+        local frame="${spinner_chars:spinner_idx:1} ${elapsed}s"
+        printf "\r%s%s" "$prompt_text" "$frame" > /dev/tty
+        spinner_idx=$(( (spinner_idx + 1) % ${#spinner_chars} ))
+
         if IFS= read -r -t $read_timeout response 2>/dev/null; then
             break
         fi
         elapsed=$((elapsed + read_timeout))
     done
 
-    # Stop spinner and clear the line
-    kill "$spinner_pid" 2>/dev/null; wait "$spinner_pid" 2>/dev/null
-    printf "\r%*s\r" "$(( ${#prompt_text} + 10 ))" "" > /dev/tty
+    # Clear the spinner line
+    printf "\r%*s\r" "$prompt_width" "" > /dev/tty
 
     # Timeout with no input -> use default (not cancel)
     if [[ -z "$response" ]]; then
