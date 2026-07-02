@@ -68,7 +68,8 @@ prompt_upgrade_action() {
 
     local response=""
     local read_timeout=1
-    local total_timeout=300
+    local total_timeout=60
+    local reprint_interval=15
     local elapsed=0
 
     echo -n "$prompt_text"
@@ -77,10 +78,16 @@ prompt_upgrade_action() {
             break
         fi
         elapsed=$((elapsed + read_timeout))
+        # Re-print prompt periodically so it stays visible
+        if [[ $elapsed -gt 0 && $((elapsed % reprint_interval)) -eq 0 ]]; then
+            echo ""
+            echo -n "$prompt_text"
+        fi
     done
 
-    # Empty response -> use default
+    # Timeout with no input -> use default (not cancel)
     if [[ -z "$response" ]]; then
+        echo "(timed out, using default: $default_option)"
         response="$default_option"
     fi
 
