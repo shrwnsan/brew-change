@@ -27,7 +27,7 @@ prompt_for_confirmation_with_timeout() {
     local total_timeout="$custom_timeout"
     local elapsed=0
 
-    echo -n "$prompt_text"
+    echo -n "$prompt_text" > /dev/tty
     while [[ $elapsed -lt $total_timeout && -z "$response" ]]; do
         if IFS= read -r -t $read_timeout response 2>/dev/null; then
             break
@@ -72,7 +72,8 @@ prompt_upgrade_action() {
     local reprint_interval=15
     local elapsed=0
 
-    echo -n "$prompt_text"
+    # Write prompt to /dev/tty to bypass command substitution capture
+    echo -n "$prompt_text" > /dev/tty
     while [[ $elapsed -lt $total_timeout && -z "$response" ]]; do
         if IFS= read -r -t $read_timeout response 2>/dev/null; then
             break
@@ -80,14 +81,14 @@ prompt_upgrade_action() {
         elapsed=$((elapsed + read_timeout))
         # Re-print prompt periodically so it stays visible
         if [[ $elapsed -gt 0 && $((elapsed % reprint_interval)) -eq 0 ]]; then
-            echo ""
-            echo -n "$prompt_text"
+            echo "" > /dev/tty
+            echo -n "$prompt_text" > /dev/tty
         fi
     done
 
     # Timeout with no input -> use default (not cancel)
     if [[ -z "$response" ]]; then
-        echo "(timed out, using default: $default_option)"
+        echo "(timed out, using default: $default_option)" > /dev/tty
         response="$default_option"
     fi
 
@@ -108,9 +109,9 @@ prompt_package_selection() {
     local packages=("$@")
     local selected=()
 
-    echo ""
-    echo "Select packages to upgrade:"
-    echo ""
+    echo "" > /dev/tty
+    echo "Select packages to upgrade:" > /dev/tty
+    echo "" > /dev/tty
 
     for pkg in "${packages[@]}"; do
         local default_response="y"
@@ -131,7 +132,7 @@ prompt_package_selection() {
         local total_timeout=60
         local elapsed=0
 
-        echo -n "$prompt_text"
+        echo -n "$prompt_text" > /dev/tty
         while [[ $elapsed -lt $total_timeout && -z "$response" ]]; do
             if IFS= read -r -t $read_timeout response 2>/dev/null; then
                 break
@@ -172,14 +173,14 @@ prompt_upgrade_confirmation() {
     shift
     local packages=("$@")
 
-    echo ""
+    echo "" > /dev/tty
     if [[ ${#packages[@]} -gt 0 ]]; then
-        echo "About to upgrade: $description"
-        echo "  ${packages[*]}"
+        echo "About to upgrade: $description" > /dev/tty
+        echo "  ${packages[*]}" > /dev/tty
     else
-        echo "About to upgrade: $description"
+        echo "About to upgrade: $description" > /dev/tty
     fi
-    echo ""
+    echo "" > /dev/tty
 
     prompt_for_confirmation "Proceed with upgrade? (y/N): "
 }
