@@ -188,5 +188,10 @@ prompt_upgrade_confirmation() {
     fi
     echo "" > /dev/tty
 
-    prompt_for_confirmation "Proceed with upgrade? (y/N): "
+    if prompt_for_confirmation_with_timeout "Proceed with upgrade? (y/N): " 60; then
+        return 0
+    else
+        echo "Upgrade cancelled." > /dev/tty
+        return 1
+    fi
 }
