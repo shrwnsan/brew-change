@@ -69,7 +69,7 @@ prompt_upgrade_action() {
     echo "Select upgrade mode:" > /dev/tty
     echo "" > /dev/tty
 
-    local prompt_text="[a]ll / [s]afe-only ($safe_count) / [c]hoose / cancel [$default_option]: "
+    local prompt_text="[a]ll / [s]afe-only ($safe_count) / [c]hoose / cancel [$default_option]? "
     local spinner_chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
     local read_timeout=0.1
     local spinner_idx=0
@@ -88,8 +88,9 @@ prompt_upgrade_action() {
         fi
     done
 
-    # Clear the spinner line
+    # Clear the spinner line and move to next line
     printf "\r%*s\r" "$prompt_width" "" > /dev/tty
+    echo "" > /dev/tty
 
     # Empty response -> use default
     if [[ -z "$response" ]]; then
