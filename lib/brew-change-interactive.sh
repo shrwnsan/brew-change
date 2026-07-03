@@ -46,7 +46,7 @@ is_interactive_mode() {
     [[ -t 0 ]]
 }
 
-# Four-option upgrade action prompt with spinner + timer animation
+# Four-option upgrade action prompt with spinner animation
 # Args:
 #   $1: Count of packages with breaking changes
 #   $2: Count of packages without breaking changes (safe)
@@ -64,37 +64,35 @@ prompt_upgrade_action() {
         default_option="s"
     fi
 
+    # Helper text
+    echo "" > /dev/tty
+    echo "Select upgrade mode:" > /dev/tty
+    echo "" > /dev/tty
+
     local prompt_text="[a]ll / [s]afe-only ($safe_count) / [c]hoose / cancel [$default_option]: "
     local spinner_chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
     local read_timeout=0.1
-    local total_timeout=60
-    local elapsed_ticks=0
-    local remaining_secs=60
     local spinner_idx=0
-    local ticks_per_sec=10
     local prompt_width=$(( ${#prompt_text} + 6 ))
 
     local response=""
 
-    while [[ $remaining_secs -gt 0 && -z "$response" ]]; do
-        # Draw spinner + countdown timer in-place via carriage return
-        local frame="${spinner_chars:spinner_idx:1} ${remaining_secs}s"
+    while [[ -z "$response" ]]; do
+        # Draw spinner in-place via carriage return (no timeout, waits indefinitely)
+        local frame=" ${spinner_chars:spinner_idx:1}"
         printf "\r%s%s" "$prompt_text" "$frame" > /dev/tty
         spinner_idx=$(( (spinner_idx + 1) % ${#spinner_chars} ))
 
         if IFS= read -r -t $read_timeout response 2>/dev/null; then
             break
         fi
-        elapsed_ticks=$((elapsed_ticks + 1))
-        remaining_secs=$(( total_timeout - elapsed_ticks / ticks_per_sec ))
     done
 
     # Clear the spinner line
     printf "\r%*s\r" "$prompt_width" "" > /dev/tty
 
-    # Timeout with no input -> use default (not cancel)
+    # Empty response -> use default
     if [[ -z "$response" ]]; then
-        echo "(timed out, using default: $default_option)" > /dev/tty
         response="$default_option"
     fi
 
@@ -188,7 +186,7 @@ prompt_upgrade_confirmation() {
     fi
     echo "" > /dev/tty
 
-    if prompt_for_confirmation_with_timeout "Proceed with upgrade? (y/N): " 60; then
+    if prompt_for_confirmation "Proceed with upgrade? (y/N): "; then
         return 0
     else
         echo "Upgrade cancelled." > /dev/tty
