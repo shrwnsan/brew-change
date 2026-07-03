@@ -69,16 +69,16 @@ prompt_upgrade_action() {
     local read_timeout=0.1
     local total_timeout=60
     local elapsed_ticks=0
-    local elapsed_secs=0
+    local remaining_secs=60
     local spinner_idx=0
     local ticks_per_sec=10
     local prompt_width=$(( ${#prompt_text} + 6 ))
 
     local response=""
 
-    while [[ $elapsed_secs -lt $total_timeout && -z "$response" ]]; do
-        # Draw spinner + timer in-place via carriage return
-        local frame="${spinner_chars:spinner_idx:1} ${elapsed_secs}s"
+    while [[ $remaining_secs -gt 0 && -z "$response" ]]; do
+        # Draw spinner + countdown timer in-place via carriage return
+        local frame="${spinner_chars:spinner_idx:1} ${remaining_secs}s"
         printf "\r%s%s" "$prompt_text" "$frame" > /dev/tty
         spinner_idx=$(( (spinner_idx + 1) % ${#spinner_chars} ))
 
@@ -86,7 +86,7 @@ prompt_upgrade_action() {
             break
         fi
         elapsed_ticks=$((elapsed_ticks + 1))
-        elapsed_secs=$(( elapsed_ticks / ticks_per_sec ))
+        remaining_secs=$(( total_timeout - elapsed_ticks / ticks_per_sec ))
     done
 
     # Clear the spinner line
