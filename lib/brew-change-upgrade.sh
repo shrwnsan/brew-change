@@ -223,17 +223,6 @@ execute_upgrade() {
             ;;
     esac
 
-    # Final confirmation
-    if [[ ${#cmd_args[@]} -eq 0 ]]; then
-        if ! prompt_upgrade_confirmation "$description"; then
-            return 0
-        fi
-    else
-        if ! prompt_upgrade_confirmation "$description" "${cmd_args[@]}"; then
-            return 0
-        fi
-    fi
-
     echo ""
     if [[ ${#cmd_args[@]} -eq 0 ]]; then
         echo "Running: brew upgrade"
