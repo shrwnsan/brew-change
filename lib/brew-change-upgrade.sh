@@ -225,19 +225,19 @@ execute_upgrade() {
 
     echo ""
     if [[ ${#cmd_args[@]} -eq 0 ]]; then
-        echo "Running: brew upgrade"
+        echo "Running: brew upgrade --yes"
     else
-        echo "Running: brew upgrade ${cmd_args[*]}"
+        echo "Running: brew upgrade --yes ${cmd_args[*]}"
     fi
     echo ""
 
-    # Execute brew upgrade, capturing output
+    # Execute brew upgrade with --yes to skip Homebrew's confirmation prompt
     local upgrade_exit_code=0
 
     if [[ ${#cmd_args[@]} -eq 0 ]]; then
-        brew upgrade || upgrade_exit_code=$?
+        brew upgrade --yes || upgrade_exit_code=$?
     else
-        brew upgrade "${cmd_args[@]}" || upgrade_exit_code=$?
+        brew upgrade --yes "${cmd_args[@]}" || upgrade_exit_code=$?
     fi
 
     echo ""
