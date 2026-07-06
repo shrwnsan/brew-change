@@ -64,33 +64,51 @@ prompt_upgrade_action() {
         default_option="s"
     fi
 
+    # Build prompt text based on context
+    local prompt_text
+    if [[ "$breaking_count" -eq 0 ]]; then
+        # All packages safe — no need for separate safe-only option
+        prompt_text="[a]ll (safe) / [c]hoose / cancel [$default_option]? "
+    elif [[ "$safe_count" -eq 0 ]]; then
+        # No safe packages — hide safe-only option
+        prompt_text="[a]ll / [c]hoose / cancel [$default_option]? "
+    else
+        prompt_text="[a]ll / [s]afe-only ($safe_count) / [c]hoose / cancel [$default_option]? "
+    fi
+
     # Helper text
     echo "" > /dev/tty
     echo "Select upgrade mode:" > /dev/tty
     echo "" > /dev/tty
 
-    local prompt_text="[a]ll / [s]afe-only ($safe_count) / [c]hoose / cancel [$default_option]? "
     local spinner_chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-    local read_timeout=0.1
     local spinner_idx=0
     local prompt_width=$(( ${#prompt_text} + 6 ))
 
     local response=""
+    local stty_saved=""
 
     while [[ -z "$response" ]]; do
-        # Draw spinner in-place via carriage return (no timeout, waits indefinitely)
+        # Draw spinner in-place via carriage return
         local frame=" ${spinner_chars:spinner_idx:1}"
         printf "\r%s%s" "$prompt_text" "$frame" > /dev/tty
         spinner_idx=$(( (spinner_idx + 1) % ${#spinner_chars} ))
 
-        if IFS= read -r -t $read_timeout response 2>/dev/null; then
-            break
+        # Poll for single-character input (no ENTER required)
+        # Uses -icanon for non-blocking poll without disabling echo or signals
+        stty_saved="$(stty -g)"
+        stty -icanon min 0 time 1 2>/dev/null
+        IFS= read -r -n 1 char 2>/dev/null || char=""
+        stty "$stty_saved" 2>/dev/null
+
+        if [[ -n "$char" ]]; then
+            # Clear spinner, redraw prompt, echo the character on clean line
+            printf "\r%*s\r" "$prompt_width" "" > /dev/tty
+            printf "%s%s" "$prompt_text" "$char" > /dev/tty
+            echo "" > /dev/tty
+            response="$char"
         fi
     done
-
-    # Clear the spinner line and move to next line
-    printf "\r%*s\r" "$prompt_width" "" > /dev/tty
-    echo "" > /dev/tty
 
     # Empty response -> use default
     if [[ -z "$response" ]]; then
@@ -99,7 +117,7 @@ prompt_upgrade_action() {
 
     case "$response" in
         a|all)    echo "all" ;;
-        s|safe)   echo "safe" ;;
+        s|safe)   echo "safe" ;;   # Accepted even when not shown (backward compat)
         c|choose) echo "choose" ;;
         *)        echo "cancel" ;;
     esac
