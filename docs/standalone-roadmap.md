@@ -508,8 +508,8 @@ class BrewChangeCLI {
 1. **Package Manager Integration**
    ```bash
    # Direct integration with package managers
-   brew-change --upgrade-interactive    # Interactive upgrade selection
-   brew-change --dry-run               # Preview upgrades without executing
+   brew-change -u                       # Interactive upgrade selection (implemented)
+   brew-change -u --dry-run             # Preview upgrades without executing (implemented)
    brew-change --backup                # Create rollback points
    ```
 

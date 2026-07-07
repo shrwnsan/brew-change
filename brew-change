@@ -73,8 +73,9 @@ Options:
   -a, --all            Show detailed changelog for all outdated packages (parallel)
   -v, --verbose        Show outdated packages with version numbers (like 'brew outdated -v')
   -b, --id-breaking    Highlight packages with breaking changes (implies -a)
-  -u, --upgrade        Show changelogs then offer selective upgrade (implies -a, -b)
-                        Set BREW_CHANGE_UPGRADE_INTERACTIVE=true to enable execution
+  -u, --upgrade        Show changelogs with interactive upgrade prompt (implies -a, -b)
+                        Use --dry-run to preview without executing
+  -n, --dry-run        Preview upgrade without executing (use with -u)
   -h, --help           Show this help message
       --version        Show version information
 
@@ -89,9 +90,8 @@ Examples:
   brew-change -b                # Same as -a -b (shorthand)
   brew-change -b node python    # Check specific packages for breaking changes
   brew-change --id-breaking     # Same as -a -b (long form)
-  brew-change -u                # Show changelogs with upgrade summary
-  BREW_CHANGE_UPGRADE_INTERACTIVE=true brew-change -u
-                                # Show changelogs + interactive upgrade prompt
+  brew-change -u                # Show changelogs + interactive upgrade prompt
+  brew-change -u --dry-run      # Show changelogs + upgrade summary (no execution)
   brew-change                   # Show simple outdated list (package names only)
   brew-change --version         # Show version information
 
@@ -103,6 +103,7 @@ SHOW_ALL="false"
 SHOW_VERSIONS="false"
 IDENTIFY_BREAKING="false"
 UPGRADE_MODE="false"
+DRY_RUN_MODE="false"
 PACKAGES=()
 
 while [[ $# -gt 0 ]]; do
@@ -117,6 +118,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -u|--upgrade)
             UPGRADE_MODE="true"
+            shift
+            ;;
+        -n|--dry-run)
+            DRY_RUN_MODE="true"
             shift
             ;;
         -v|--verbose)
@@ -311,6 +316,11 @@ else
     if [ "$UPGRADE_MODE" = "true" ]; then
         SHOW_ALL="true"
         IDENTIFY_BREAKING="true"
+    fi
+
+    # Export dry-run mode for subprocesses
+    if [ "$DRY_RUN_MODE" = "true" ]; then
+        export DRY_RUN_MODE
     fi
 
     if [ "$SHOW_ALL" = "true" ]; then

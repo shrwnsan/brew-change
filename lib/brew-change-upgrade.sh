@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Upgrade orchestration functions for brew-change
 # Handles the interactive selective upgrade flow triggered by -u/--upgrade flag
+# Use -n/--dry-run with -u to preview without executing
 
 # Arrays populated by collect_upgrade_status
 BREAKING_PKGS=()
@@ -106,7 +107,6 @@ print_upgrade_suggestion() {
     fi
 
     echo ""
-    echo "Tip: Set BREW_CHANGE_UPGRADE_INTERACTIVE=true to enable the interactive upgrade prompt."
 }
 
 # Run the interactive upgrade flow
@@ -125,7 +125,13 @@ run_upgrade_prompt() {
     # Print summary (always shown in upgrade mode)
     print_upgrade_summary "$outdated_packages"
 
-    # Non-interactive mode: print suggestion and exit
+    # Dry-run mode: print suggestion and exit without executing
+    if [[ "${DRY_RUN_MODE:-false}" == "true" ]]; then
+        print_upgrade_suggestion "$outdated_packages"
+        return 0
+    fi
+
+    # Non-interactive mode (piped input): print suggestion and exit
     if ! is_interactive_mode; then
         echo ""
         echo "Non-interactive mode. Upgrade skipped."
@@ -133,12 +139,6 @@ run_upgrade_prompt() {
             echo "Suggested safe upgrade: brew upgrade ${SAFE_PKGS[*]}"
         fi
         echo "To upgrade all: brew upgrade"
-        return 0
-    fi
-
-    # Check safety gate: env var must be true for interactive prompt
-    if [[ "$BREW_CHANGE_UPGRADE_INTERACTIVE" != "true" ]]; then
-        print_upgrade_suggestion "$outdated_packages"
         return 0
     fi
 
