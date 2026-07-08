@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Upgrade prompt**: Remove confusing `[$default]` suffix — now shows `?` with default implicitly applied on Enter.
+
+### Fixed
 - **Upgrade prompt**: Add `[q]uit` key for discoverable cancel option and default to safe option on unknown input instead of cancelling.
 
 ### Changed
