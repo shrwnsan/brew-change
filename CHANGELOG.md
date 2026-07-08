@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Spinner animation**: Move stty setup outside the poll loop to eliminate per-iteration overhead that caused the spinner to appear frozen.
+
+### Fixed
 - **Upgrade prompt**: Remove confusing `[$default]` suffix — now shows `?` with default implicitly applied on Enter.
 
 ### Fixed
