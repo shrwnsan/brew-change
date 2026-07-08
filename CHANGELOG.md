@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Upgrade prompt**: Add `[q]uit` key for discoverable cancel option and default to safe option on unknown input instead of cancelling.
+
 ### Changed
 - **Upgrade mode (`-u`)**: Now launches interactive upgrade prompt by default instead of requiring `BREW_CHANGE_UPGRADE_INTERACTIVE=true` env var. Use `--dry-run` (`-n`) to preview without executing.
 
