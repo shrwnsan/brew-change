@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Spinner output**: Clear spinner frame in the foreground before redrawing prompt to fix duplicate line artifact.
+
+### Fixed
 - **Spinner animation**: Rewrite using background subshell for smooth ~8 FPS animation independent of the blocking read.
 
 ### Fixed
