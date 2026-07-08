@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Spinner animation**: Rewrite using background subshell for smooth ~8 FPS animation independent of the blocking read.
+
+### Fixed
 - **Spinner animation**: Move stty setup outside the poll loop to eliminate per-iteration overhead that caused the spinner to appear frozen.
 
 ### Fixed
