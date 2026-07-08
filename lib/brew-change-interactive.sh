@@ -96,8 +96,6 @@ prompt_upgrade_action() {
             idx=$(( (idx + 1) % len ))
             sleep 0.12
         done
-        # Clear the spinner line when done
-        printf "\r%*s\r" "$prompt_width" "" > /dev/tty
     ) &
     local spinner_pid=$!
 
@@ -113,7 +111,8 @@ prompt_upgrade_action() {
     kill "$spinner_pid" 2>/dev/null
     wait "$spinner_pid" 2>/dev/null
 
-    # Redraw prompt with the user's selection
+    # Clear any leftover spinner frame, then redraw with user's selection
+    printf "\r%*s\r" "$prompt_width" "" > /dev/tty
     printf "%s%s" "$prompt_text" "$response" > /dev/tty
     echo "" > /dev/tty
 
