@@ -68,12 +68,12 @@ prompt_upgrade_action() {
     local prompt_text
     if [[ "$breaking_count" -eq 0 ]]; then
         # All packages safe — no need for separate safe-only option
-        prompt_text="[a]ll (safe) / [c]hoose / [q]uit [$default_option]? "
+        prompt_text="[a]ll (safe) / [c]hoose / [q]uit? "
     elif [[ "$safe_count" -eq 0 ]]; then
         # No safe packages — hide safe-only option
-        prompt_text="[a]ll / [c]hoose / [q]uit [$default_option]? "
+        prompt_text="[a]ll / [c]hoose / [q]uit? "
     else
-        prompt_text="[a]ll / [s]afe-only ($safe_count) / [c]hoose / [q]uit [$default_option]? "
+        prompt_text="[a]ll / [s]afe-only ($safe_count) / [c]hoose / [q]uit? "
     fi
 
     # Helper text
@@ -86,7 +86,6 @@ prompt_upgrade_action() {
     local prompt_width=$(( ${#prompt_text} + 6 ))
 
     local response=""
-    local stty_saved=""
 
     while [[ -z "$response" ]]; do
         # Draw spinner in-place via carriage return
@@ -96,6 +95,7 @@ prompt_upgrade_action() {
 
         # Poll for single-character input (no ENTER required)
         # Uses -icanon for non-blocking poll without disabling echo or signals
+        local stty_saved
         stty_saved="$(stty -g)"
         stty -icanon min 0 time 1 2>/dev/null
         IFS= read -r -n 1 char 2>/dev/null || char=""
