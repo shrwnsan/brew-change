@@ -81,38 +81,41 @@ prompt_upgrade_action() {
     echo "Select upgrade mode:" > /dev/tty
     echo "" > /dev/tty
 
-    local spinner_chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-    local spinner_idx=0
     local prompt_width=$(( ${#prompt_text} + 6 ))
 
-    local response=""
+    # Background spinner subshell: animates independently of the blocking read.
+    # Writes carriage-return overwrites to /dev/tty at ~8 FPS.
+    # Killed when read completes in the foreground.
+    local _PROMPT_ACTION_SPINNING="1"
+    (
+        local chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        local idx=0
+        local len=${#chars}
+        while [[ "$_PROMPT_ACTION_SPINNING" == "1" ]]; do
+            printf "\r%s %s" "$prompt_text" "${chars:idx:1}" > /dev/tty
+            idx=$(( (idx + 1) % len ))
+            sleep 0.12
+        done
+        # Clear the spinner line when done
+        printf "\r%*s\r" "$prompt_width" "" > /dev/tty
+    ) &
+    local spinner_pid=$!
 
-    # Set non-blocking input once before the loop for smooth animation
+    # Block on single-character input from the terminal
     local stty_saved
     stty_saved="$(stty -g)"
-    stty -icanon min 0 time 1 2>/dev/null
+    stty -icanon -echo 2>/dev/null
+    IFS= read -r -n 1 response 2>/dev/null || response=""
+    stty "$stty_saved" 2>/dev/null
 
-    while [[ -z "$response" ]]; do
-        # Draw spinner in-place via carriage return
-        local frame=" ${spinner_chars:spinner_idx:1}"
-        printf "\r%s%s" "$prompt_text" "$frame" > /dev/tty
-        spinner_idx=$(( (spinner_idx + 1) % ${#spinner_chars} ))
+    # Stop spinner and wait for clean exit
+    _PROMPT_ACTION_SPINNING="0"
+    kill "$spinner_pid" 2>/dev/null
+    wait "$spinner_pid" 2>/dev/null
 
-        # Poll for single-character input (no ENTER required)
-        IFS= read -r -n 1 char 2>/dev/null || char=""
-
-        if [[ -n "$char" ]]; then
-            # Clear spinner, redraw prompt, echo the character on clean line
-            stty "$stty_saved" 2>/dev/null
-            printf "\r%*s\r" "$prompt_width" "" > /dev/tty
-            printf "%s%s" "$prompt_text" "$char" > /dev/tty
-            echo "" > /dev/tty
-            response="$char"
-        fi
-    done
-
-    # Restore terminal settings if loop exited without input
-    [[ -z "$response" ]] && stty "$stty_saved" 2>/dev/null
+    # Redraw prompt with the user's selection
+    printf "%s%s" "$prompt_text" "$response" > /dev/tty
+    echo "" > /dev/tty
 
     # Empty response -> use default
     if [[ -z "$response" ]]; then
