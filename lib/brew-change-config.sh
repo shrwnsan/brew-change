@@ -81,12 +81,6 @@ if [[ -z "${BREW_CHANGE_DOCS_REPO:-}" ]]; then
     readonly BREW_CHANGE_DOCS_REPO="false"
 fi
 
-# Upgrade interactive mode — safety gate for brew upgrade execution
-# Must be "true" to enable the interactive upgrade prompt with -u flag
-if [[ -z "${BREW_CHANGE_UPGRADE_INTERACTIVE:-}" ]]; then
-    BREW_CHANGE_UPGRADE_INTERACTIVE="false"
-fi
-
 # Calculate optimal parallel jobs based on system resources
 cpu_count=1
 memory_gb=1

@@ -17,6 +17,12 @@ brew-change node
 # Show detailed changelogs for all outdated packages in parallel
 brew-change -a
 
+# Show changelogs with interactive upgrade prompt
+brew-change -u
+
+# Preview upgrades without executing
+brew-change -u --dry-run
+
 # Highlight packages with breaking changes (-b implies -a)
 brew-change -b
 
