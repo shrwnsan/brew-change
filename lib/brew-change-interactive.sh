@@ -68,12 +68,12 @@ prompt_upgrade_action() {
     local prompt_text
     if [[ "$breaking_count" -eq 0 ]]; then
         # All packages safe — no need for separate safe-only option
-        prompt_text="[a]ll (safe) / [c]hoose / cancel [$default_option]? "
+        prompt_text="[a]ll (safe) / [c]hoose / [q]uit [$default_option]? "
     elif [[ "$safe_count" -eq 0 ]]; then
         # No safe packages — hide safe-only option
-        prompt_text="[a]ll / [c]hoose / cancel [$default_option]? "
+        prompt_text="[a]ll / [c]hoose / [q]uit [$default_option]? "
     else
-        prompt_text="[a]ll / [s]afe-only ($safe_count) / [c]hoose / cancel [$default_option]? "
+        prompt_text="[a]ll / [s]afe-only ($safe_count) / [c]hoose / [q]uit [$default_option]? "
     fi
 
     # Helper text
@@ -119,7 +119,8 @@ prompt_upgrade_action() {
         a|all)    echo "all" ;;
         s|safe)   echo "safe" ;;   # Accepted even when not shown (backward compat)
         c|choose) echo "choose" ;;
-        *)        echo "cancel" ;;
+        q|quit)   echo "cancel" ;;
+        *)        echo "$default_option" ;;   # Unknown key -> use default instead of cancelling
     esac
 }
 
