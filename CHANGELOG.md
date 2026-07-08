@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Upgrade mode (`-u`)**: Now launches interactive upgrade prompt by default instead of requiring `BREW_CHANGE_UPGRADE_INTERACTIVE=true` env var. Use `--dry-run` (`-n`) to preview without executing.
+
+### Added
+- **`--dry-run` flag (`-n`)**: Preview upgrade without executing (use with `-u`)
+
+### Removed
+- **`BREW_CHANGE_UPGRADE_INTERACTIVE` env var**: No longer needed; `-u` is interactive by default.
+
 ### Added
 - **@version cask variant resolution**: Automatically detect and redirect to installed `@version` cask variants (e.g., `brew-change claude-code` now redirects to `claude-code@latest` when only the `@latest` variant is installed)
 
