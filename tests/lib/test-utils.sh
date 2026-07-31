@@ -8,6 +8,98 @@ TESTS_PASSED=0
 TESTS_FAILED=0
 TEST_OUTPUT_MODE="${TEST_OUTPUT_MODE:-interactive}"  # interactive or ci
 
+# Install deterministic brew/curl executables at the front of PATH. Each call is
+# logged as command<TAB>arg... in COMMAND_HARNESS_LOG; no host command is run.
+setup_command_harness() {
+    if [[ -n "${COMMAND_HARNESS_ROOT:-}" ]]; then
+        teardown_command_harness
+    fi
+
+    COMMAND_HARNESS_ORIGINAL_PATH="$PATH"
+    COMMAND_HARNESS_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/brew-change-harness.XXXXXX") || return 1
+    COMMAND_HARNESS_BIN="$COMMAND_HARNESS_ROOT/bin"
+    COMMAND_HARNESS_CONFIG="$COMMAND_HARNESS_ROOT/config"
+    COMMAND_HARNESS_LOG="$COMMAND_HARNESS_ROOT/argv.log"
+    mkdir -p "$COMMAND_HARNESS_BIN" "$COMMAND_HARNESS_CONFIG" || return 1
+    : >"$COMMAND_HARNESS_LOG"
+    export COMMAND_HARNESS_ROOT COMMAND_HARNESS_BIN COMMAND_HARNESS_CONFIG COMMAND_HARNESS_LOG
+
+    local command_name
+    for command_name in brew curl; do
+        cat >"$COMMAND_HARNESS_BIN/$command_name" <<'EOF'
+#!/bin/bash
+command_name=${0##*/}
+{
+    printf '%s' "$command_name"
+    for argument in "$@"; do
+        printf '\t%s' "$argument"
+    done
+    printf '\n'
+} >>"$COMMAND_HARNESS_LOG"
+config="$COMMAND_HARNESS_CONFIG/$command_name"
+[[ -f "$config/stdout" ]] && cat "$config/stdout"
+[[ -f "$config/stderr" ]] && cat "$config/stderr" >&2
+status=0
+[[ -f "$config/status" ]] && IFS= read -r status <"$config/status"
+exit "$status"
+EOF
+        chmod +x "$COMMAND_HARNESS_BIN/$command_name"
+    done
+    PATH="$COMMAND_HARNESS_BIN:$PATH"
+    export PATH
+}
+
+# Configure a fake command with stdout/stderr fixture paths and an exit status.
+# Empty fixture paths produce no output. Files are copied into temporary state.
+configure_fake_command() {
+    local command_name="$1"
+    local stdout_fixture="${2:-}"
+    local stderr_fixture="${3:-}"
+    local status="${4:-0}"
+    local config="$COMMAND_HARNESS_CONFIG/$command_name"
+
+    case "$command_name" in brew|curl) ;; *) return 2 ;; esac
+    case "$status" in ''|*[!0-9]*) return 2 ;; esac
+    mkdir -p "$config" || return 1
+    rm -f "$config/stdout" "$config/stderr"
+    [[ -z "$stdout_fixture" ]] || cp "$stdout_fixture" "$config/stdout" || return 1
+    [[ -z "$stderr_fixture" ]] || cp "$stderr_fixture" "$config/stderr" || return 1
+    printf '%s\n' "$status" >"$config/status"
+}
+
+# Restore PATH and delete all temporary command configuration and logs.
+teardown_command_harness() {
+    if [[ -n "${COMMAND_HARNESS_ORIGINAL_PATH:-}" ]]; then
+        PATH="$COMMAND_HARNESS_ORIGINAL_PATH"
+        export PATH
+    fi
+    [[ -z "${COMMAND_HARNESS_ROOT:-}" ]] || rm -rf "$COMMAND_HARNESS_ROOT"
+    unset COMMAND_HARNESS_ROOT COMMAND_HARNESS_BIN COMMAND_HARNESS_CONFIG COMMAND_HARNESS_LOG
+    unset COMMAND_HARNESS_ORIGINAL_PATH
+}
+
+# Return an explicitly injected epoch, falling back to the system clock.
+brew_change_test_now() {
+    if [[ -n "${BREW_CHANGE_TEST_NOW:-}" ]]; then
+        printf '%s\n' "$BREW_CHANGE_TEST_NOW"
+    else
+        date +%s
+    fi
+}
+
+# Classify a fixture timestamp against the injected/current time and max age.
+cache_fixture_state() {
+    local timestamp_file="$1"
+    local max_age="$2"
+    local timestamp
+    IFS= read -r timestamp <"$timestamp_file" || return 1
+    if (( $(brew_change_test_now) - timestamp <= max_age )); then
+        printf 'fresh\n'
+    else
+        printf 'stale\n'
+    fi
+}
+
 # Colors (only used in interactive mode)
 RED='\033[0;31m'
 GREEN='\033[0;32m'

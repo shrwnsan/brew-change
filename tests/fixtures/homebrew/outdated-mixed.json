@@ -1,0 +1,9 @@
+{
+  "formulae": [
+    {"name": "alpha", "installed_versions": ["1.0.0"], "current_version": "1.1.0"}
+  ],
+  "casks": [
+    {"name": "visual-app", "token": "visual-app", "names": ["Visual App", "Visual App Pro"], "installed_versions": ["2.0"], "current_version": "2.1"},
+    {"name": ["Fallback App"], "token": null, "names": ["Fallback App"], "installed_versions": ["3.0"], "current_version": "3.1"}
+  ]
+}
