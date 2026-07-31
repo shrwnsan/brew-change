@@ -16,19 +16,33 @@ setup_command_harness() {
     fi
 
     COMMAND_HARNESS_ORIGINAL_PATH="$PATH"
+    if [[ ${BREW_CHANGE_TEST_NOW+x} ]]; then
+        COMMAND_HARNESS_ORIGINAL_NOW_SET=1
+        COMMAND_HARNESS_ORIGINAL_NOW="$BREW_CHANGE_TEST_NOW"
+    else
+        COMMAND_HARNESS_ORIGINAL_NOW_SET=0
+        COMMAND_HARNESS_ORIGINAL_NOW=""
+    fi
     COMMAND_HARNESS_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/brew-change-harness.XXXXXX") || return 1
     COMMAND_HARNESS_BIN="$COMMAND_HARNESS_ROOT/bin"
     COMMAND_HARNESS_CONFIG="$COMMAND_HARNESS_ROOT/config"
     COMMAND_HARNESS_LOG="$COMMAND_HARNESS_ROOT/argv.log"
     mkdir -p "$COMMAND_HARNESS_BIN" "$COMMAND_HARNESS_CONFIG" || return 1
     : >"$COMMAND_HARNESS_LOG"
-    export COMMAND_HARNESS_ROOT COMMAND_HARNESS_BIN COMMAND_HARNESS_CONFIG COMMAND_HARNESS_LOG
+    COMMAND_HARNESS_SENTINEL="harness-$$-$RANDOM"
+    printf '%s\n' "$COMMAND_HARNESS_SENTINEL" >"$COMMAND_HARNESS_ROOT/sentinel"
+    export COMMAND_HARNESS_ROOT COMMAND_HARNESS_BIN COMMAND_HARNESS_CONFIG COMMAND_HARNESS_LOG COMMAND_HARNESS_SENTINEL
 
     local command_name
     for command_name in brew curl; do
         cat >"$COMMAND_HARNESS_BIN/$command_name" <<'EOF'
 #!/bin/bash
 command_name=${0##*/}
+IFS= read -r expected_sentinel <"$COMMAND_HARNESS_ROOT/sentinel" || exit 125
+[[ "$COMMAND_HARNESS_SENTINEL" == "$expected_sentinel" ]] || exit 125
+config="$COMMAND_HARNESS_CONFIG/$command_name"
+[[ -d "$config" ]] || exit 125
+: >"$COMMAND_HARNESS_ROOT/$command_name.invoked"
 {
     printf '%s' "$command_name"
     for argument in "$@"; do
@@ -36,9 +50,35 @@ command_name=${0##*/}
     done
     printf '\n'
 } >>"$COMMAND_HARNESS_LOG"
-config="$COMMAND_HARNESS_CONFIG/$command_name"
+if [[ "$command_name" == curl ]]; then
+    headers_target=""
+    write_out=""
+    effective_url=""
+    while (( $# )); do
+        case "$1" in
+            -D|--dump-header) headers_target="${2:-}"; shift 2; continue ;;
+            -w|--write-out) write_out="${2:-}"; shift 2; continue ;;
+            http://*|https://*) effective_url="$1" ;;
+        esac
+        shift
+    done
+    if [[ -n "$headers_target" && -f "$config/headers" ]]; then
+        if [[ "$headers_target" == - ]]; then cat "$config/headers"; else cat "$config/headers" >"$headers_target"; fi
+    fi
+fi
 [[ -f "$config/stdout" ]] && cat "$config/stdout"
 [[ -f "$config/stderr" ]] && cat "$config/stderr" >&2
+if [[ "$command_name" == curl && -n "$write_out" ]]; then
+    http_status=000
+    redirect_url=""
+    [[ ! -f "$config/http-status" ]] || IFS= read -r http_status <"$config/http-status"
+    [[ ! -f "$config/redirect-url" ]] || IFS= read -r redirect_url <"$config/redirect-url"
+    write_out=${write_out//'%{http_code}'/$http_status}
+    write_out=${write_out//'%{response_code}'/$http_status}
+    write_out=${write_out//'%{url_effective}'/$effective_url}
+    write_out=${write_out//'%{redirect_url}'/$redirect_url}
+    printf '%b' "$write_out"
+fi
 status=0
 [[ -f "$config/status" ]] && IFS= read -r status <"$config/status"
 exit "$status"
@@ -47,6 +87,21 @@ EOF
     done
     PATH="$COMMAND_HARNESS_BIN:$PATH"
     export PATH
+}
+
+# Configure curl response metadata from a status fixture containing
+# "HTTP_STATUS [REDIRECT_URL]" and an optional raw response-headers fixture.
+configure_fake_curl_metadata() {
+    local status_fixture="$1"
+    local headers_fixture="${2:-}"
+    local http_status redirect_url
+    read -r http_status redirect_url <"$status_fixture" || return 1
+    case "$http_status" in ???) ;; *) return 2 ;; esac
+    mkdir -p "$COMMAND_HARNESS_CONFIG/curl" || return 1
+    printf '%s\n' "$http_status" >"$COMMAND_HARNESS_CONFIG/curl/http-status"
+    printf '%s\n' "${redirect_url:-}" >"$COMMAND_HARNESS_CONFIG/curl/redirect-url"
+    rm -f "$COMMAND_HARNESS_CONFIG/curl/headers"
+    [[ -z "$headers_fixture" ]] || cp "$headers_fixture" "$COMMAND_HARNESS_CONFIG/curl/headers" || return 1
 }
 
 # Configure a fake command with stdout/stderr fixture paths and an exit status.
@@ -73,9 +128,15 @@ teardown_command_harness() {
         PATH="$COMMAND_HARNESS_ORIGINAL_PATH"
         export PATH
     fi
+    if [[ "${COMMAND_HARNESS_ORIGINAL_NOW_SET:-0}" == 1 ]]; then
+        BREW_CHANGE_TEST_NOW="$COMMAND_HARNESS_ORIGINAL_NOW"
+        export BREW_CHANGE_TEST_NOW
+    else
+        unset BREW_CHANGE_TEST_NOW
+    fi
     [[ -z "${COMMAND_HARNESS_ROOT:-}" ]] || rm -rf "$COMMAND_HARNESS_ROOT"
-    unset COMMAND_HARNESS_ROOT COMMAND_HARNESS_BIN COMMAND_HARNESS_CONFIG COMMAND_HARNESS_LOG
-    unset COMMAND_HARNESS_ORIGINAL_PATH
+    unset COMMAND_HARNESS_ROOT COMMAND_HARNESS_BIN COMMAND_HARNESS_CONFIG COMMAND_HARNESS_LOG COMMAND_HARNESS_SENTINEL
+    unset COMMAND_HARNESS_ORIGINAL_PATH COMMAND_HARNESS_ORIGINAL_NOW_SET COMMAND_HARNESS_ORIGINAL_NOW
 }
 
 # Return an explicitly injected epoch, falling back to the system clock.

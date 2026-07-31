@@ -101,7 +101,12 @@ Add helpers that create a temporary `bin`, prepend it to `PATH`, write dispatch 
 
 ```bash
 bash tests/test-command-harness.sh
-PATH="$(mktemp -d)" /opt/homebrew/bin/bash tests/test-command-harness.sh
+minimal_path=$(mktemp -d)
+for utility in dirname mktemp mkdir cat chmod cp rm jq; do
+  ln -s "$(command -v "$utility")" "$minimal_path/$utility"
+done
+PATH="$minimal_path" /bin/bash tests/test-command-harness.sh
+rm -rf "$minimal_path"
 ```
 
 Expected: PASS; no real Homebrew or network request is made.
