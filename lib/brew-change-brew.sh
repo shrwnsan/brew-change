@@ -1,6 +1,42 @@
 #!/usr/bin/env bash
 # Homebrew integration functions for brew-change
 
+# Function to extract canonical package tokens from brew outdated --json=v2 output.
+# Emits one "token<TAB>type" line per package (formula or cask).
+# For formulae, the token is .name. For casks, a null .token falls back to .name
+# (array -> first element, string -> as-is). Rows with empty/null tokens are
+# omitted.
+# Args:
+#   $1: The outdated JSON string.
+# Outputs: TSV lines to stdout.
+extract_outdated_package_tokens() {
+    local outdated_json="$1"
+
+    # Check jq availability
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "Error: jq command not found - required for JSON processing" >&2
+        return 1
+    fi
+
+    jq -r '
+      # Formulae: .name is the command token
+      (.formulae[]? |
+        .name as $tok |
+        select($tok != null and $tok != "") |
+        [$tok, "formula"] |
+        @tsv
+      ),
+
+      # Casks: prefer .token; fall back to .name (array -> first element, string -> as-is)
+      (.casks[]? |
+        (.token // (if (.name | type) == "array" then .name[0] else .name end)) as $tok |
+        [$tok, "cask"] |
+        select($tok != null and $tok != "") |
+        @tsv
+      )
+    ' <<< "$outdated_json" 2>/dev/null
+}
+
 # Function to fetch package info from Homebrew
 fetch_package_info() {
     local package="$1"

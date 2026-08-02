@@ -28,7 +28,7 @@ trap teardown_command_harness EXIT
 configure_fake_command brew "$SCRIPT_DIR/fixtures/homebrew/outdated-mixed.json" "" 0
 brew_output=$(brew outdated --json=v2 --greedy) || fail "configured brew should succeed"
 assert_equal "$(cat "$SCRIPT_DIR/fixtures/homebrew/outdated-mixed.json")" "$brew_output" "brew stdout"
-assert_equal "array" "$(jq -r '.casks[] | select(.token == "visual-app") | .name | type' "$SCRIPT_DIR/fixtures/homebrew/outdated-mixed.json")" "string-token cask name type"
+assert_equal "array" "$(jq -r '.casks[] | select(.token == "rectangle") | .name | type' "$SCRIPT_DIR/fixtures/homebrew/outdated-mixed.json")" "string-token cask name type"
 assert_equal "false" "$(jq -r '[.casks[] | has("names")] | any' "$SCRIPT_DIR/fixtures/homebrew/outdated-mixed.json")" "casks omit nonstandard names field"
 assert_equal "array" "$(jq -r '.casks[] | select(.token == null) | .name | type' "$SCRIPT_DIR/fixtures/homebrew/outdated-mixed.json")" "null-token cask name fallback"
 

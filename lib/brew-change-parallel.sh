@@ -52,22 +52,21 @@ process_packages_parallel() {
     # Adjust jobs based on system resources
     jobs=$(adjust_jobs_for_resources "$jobs")
 
-    # ENHANCED: Create unified array for all packages - our new functions handle everything!
+    # ENHANCED: Create unified array for all packages using canonical tokens
     local packages=()
 
-    # Add formulas
-    while IFS= read -r package; do
+    local package_type
+    local is_cask_flag
+    while IFS=$'\t' read -r package package_type; do
         if [[ -n "$package" && "$package" != "null" ]]; then
-            packages+=("$package:false")
+            case "$package_type" in
+                formula) is_cask_flag="false" ;;
+                cask) is_cask_flag="true" ;;
+                *) continue ;;
+            esac
+            packages+=("$package:$is_cask_flag")
         fi
-    done < <(echo "$outdated_packages" | jq -r '.formulae[].name' 2>/dev/null)
-
-    # Add casks
-    while IFS= read -r package; do
-        if [[ -n "$package" && "$package" != "null" ]]; then
-            packages+=("$package:true")
-        fi
-    done < <(echo "$outdated_packages" | jq -r '.casks[].name' 2>/dev/null)
+    done < <(extract_outdated_package_tokens "$outdated_packages" 2>/dev/null)
 
     if [[ ${#packages[@]} -eq 0 ]]; then
         echo "No outdated packages found."

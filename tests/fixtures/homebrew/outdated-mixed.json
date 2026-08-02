@@ -1,9 +1,9 @@
 {
   "formulae": [
-    {"name": "alpha", "installed_versions": ["1.0.0"], "current_version": "1.1.0"}
+    {"name": "node", "installed_versions": ["22.6.0"], "current_version": "22.8.0"}
   ],
   "casks": [
-    {"name": ["Visual App", "Visual App Pro"], "token": "visual-app", "installed_versions": ["2.0"], "current_version": "2.1"},
-    {"name": ["Fallback App"], "token": null, "installed_versions": ["3.0"], "current_version": "3.1"}
+    {"name": ["Rectangle", "Rectangle Pro"], "token": "rectangle", "installed_versions": ["0.88"], "current_version": "0.92"},
+    {"name": ["claude-code"], "token": null, "installed_versions": ["2.1.1"], "current_version": "2.1.2"}
   ]
 }

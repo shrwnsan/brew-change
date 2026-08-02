@@ -160,14 +160,11 @@ run_upgrade_prompt() {
             execute_upgrade "${#SAFE_PKGS[@]} safe packages" "safe"
             ;;
         choose)
-            # Build full package list from JSON
+            # Build full package list from JSON using canonical tokens
             local all_pkgs=()
-            while IFS= read -r pkg; do
+            while IFS=$'\t' read -r pkg pkg_type; do
                 [[ -n "$pkg" && "$pkg" != "null" ]] && all_pkgs+=("$pkg")
-            done < <(echo "$outdated_packages" | jq -r '.formulae[].name // empty' 2>/dev/null)
-            while IFS= read -r pkg; do
-                [[ -n "$pkg" && "$pkg" != "null" ]] && all_pkgs+=("$pkg")
-            done < <(echo "$outdated_packages" | jq -r '.casks[].name // empty' 2>/dev/null)
+            done < <(extract_outdated_package_tokens "$outdated_packages" 2>/dev/null)
 
             if [[ ${#all_pkgs[@]} -eq 0 ]]; then
                 echo "No packages to choose from."
