@@ -46,34 +46,42 @@ is_interactive_mode() {
     [[ -t 0 ]]
 }
 
-# Four-option upgrade action prompt with spinner animation
+# Convert one prompt response into the restricted upgrade action vocabulary.
+upgrade_action_from_response() {
+    local response="$1"
+    local no_signal_count="$2"
+
+    case "$response" in
+        u|upgrade) echo "no-signal" ;;
+        c|choose) echo "choose" ;;
+        q|quit) echo "cancel" ;;
+        '')
+            if [[ "$no_signal_count" -gt 0 ]]; then
+                echo "no-signal"
+            else
+                echo "cancel"
+            fi
+            ;;
+        *) echo "cancel" ;;
+    esac
+}
+
+# Restricted upgrade action prompt with spinner animation
 # Args:
-#   $1: Count of packages with breaking changes
-#   $2: Count of packages without breaking changes (safe)
+#   $1: Count of packages needing attention
+#   $2: Count of no-signal packages
 #   $3: Total outdated package count
 # Returns (via echo to stdout):
-#   "all", "safe", "choose", or "cancel"
+#   "no-signal", "choose", or "cancel"
 prompt_upgrade_action() {
-    local breaking_count="$1"
-    local safe_count="$2"
-    local total_count="$3"
-
-    # Determine default based on whether breaking changes exist
-    local default_option="a"
-    if [[ "$breaking_count" -gt 0 ]]; then
-        default_option="s"
-    fi
+    local no_signal_count="$2"
 
     # Build prompt text based on context
     local prompt_text
-    if [[ "$breaking_count" -eq 0 ]]; then
-        # All packages safe — no need for separate safe-only option
-        prompt_text="[a]ll (safe) / [c]hoose / [q]uit? "
-    elif [[ "$safe_count" -eq 0 ]]; then
-        # No safe packages — hide safe-only option
-        prompt_text="[a]ll / [c]hoose / [q]uit? "
+    if [[ "$no_signal_count" -gt 0 ]]; then
+        prompt_text="[u]pgrade no-signal ($no_signal_count) / [c]hoose / [q]uit? "
     else
-        prompt_text="[a]ll / [s]afe-only ($safe_count) / [c]hoose / [q]uit? "
+        prompt_text="[c]hoose / [q]uit? "
     fi
 
     # Helper text
@@ -116,18 +124,7 @@ prompt_upgrade_action() {
     printf "%s%s" "$prompt_text" "$response" > /dev/tty
     echo "" > /dev/tty
 
-    # Empty response -> use default
-    if [[ -z "$response" ]]; then
-        response="$default_option"
-    fi
-
-    case "$response" in
-        a|all)    echo "all" ;;
-        s|safe)   echo "safe" ;;   # Accepted even when not shown (backward compat)
-        c|choose) echo "choose" ;;
-        q|quit)   echo "cancel" ;;
-        *)        echo "$default_option" ;;   # Unknown key -> use default instead of cancelling
-    esac
+    upgrade_action_from_response "$response" "$no_signal_count"
 }
 
 # Interactive per-package selection prompt
@@ -144,12 +141,15 @@ prompt_package_selection() {
     echo "" > /dev/tty
 
     for pkg in "${packages[@]}"; do
-        local default_response="y"
+        local default_response="n"
         local breaking_marker=""
 
         if is_package_breaking "$pkg"; then
-            default_response="n"
             breaking_marker=" ⚠️"
+        elif is_package_default_selected "$pkg"; then
+            default_response="y"
+        else
+            breaking_marker=" ?"
         fi
 
         local prompt_text="  Upgrade $pkg$breaking_marker? [Y/n]: "

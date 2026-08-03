@@ -292,6 +292,30 @@ format_release_notes() {
     echo ""
 }
 
+# Check whether two versions have distinct numeric major components.
+is_major_version_transition() {
+    local installed_major="${1%%.*}"
+    local latest_major="${2%%.*}"
+
+    [[ "$installed_major" =~ ^[0-9]+$ ]] || return 1
+    [[ "$latest_major" =~ ^[0-9]+$ ]] || return 1
+    [[ "$installed_major" != "$latest_major" ]]
+}
+
+# Record an inventory-derived major-version risk before any release retrieval
+# path can return early. Retrieval status remains independent of the signal.
+record_major_version_evidence() {
+    local package="$1"
+    local current_version="$2"
+    local latest_version="$3"
+
+    is_major_version_transition "$current_version" "$latest_version" || return 0
+    [[ -n "${UPGRADE_STATUS_DIR:-}" && -d "$UPGRADE_STATUS_DIR" ]] || return 0
+
+    printf '%s\tinventory\tunavailable\t\tmajor version transition detected\tmajor-version-transition\n' \
+        "$package" >> "$UPGRADE_STATUS_DIR/results.tsv"
+}
+
 # Function to show package changelog in full format
 show_package_changelog_full() {
     local package="$1"
@@ -303,6 +327,8 @@ show_package_changelog_full() {
     if [[ "$current_version" == "$latest_version" ]]; then
         return 0
     fi
+
+    record_major_version_evidence "$package" "$current_version" "$latest_version"
 
     # Get package details
     local source_url=""
@@ -514,21 +540,71 @@ show_package_changelog_full() {
         return 0
     fi
 
-    # Detect breaking changes if flag is set
+    # Detect breaking changes if flag is set and collect evidence metadata.
+    # This block ONLY runs when we have a valid release_json (GitHub or npm).
+    # Early-return paths above (non-GitHub packages) do NOT write evidence
+    # rows; they are synthesized as unknown by classify_upgrade_evidence.
     local has_breaking="false"
-    if [[ "$IDENTIFY_BREAKING" == "true" && -n "$release_json" && "$release_json" != "null" ]]; then
+    local evidence_source="unknown"
+    local retrieval_status="failed"
+    local retrieved_at=""
+    local evidence_reason="no release notes"
+    local risk_signal=""
+
+    if [[ -n "$release_json" && "$release_json" != "null" ]]; then
         local body
         body=$(echo "$release_json" | jq -r '.body // empty' 2>/dev/null)
+
+        # Determine evidence source: prefer npm when available.
+        if [[ "$is_npm_package" == "true" ]]; then
+            evidence_source="npm"
+        elif [[ "$should_use_github" == "true" ]]; then
+            evidence_source="github"
+        fi
+
+        # No-signal adequacy requires a nonempty valid release-note body,
+        # not merely metadata (published_at, tag name, etc.).
         if [[ -n "$body" && "$body" != "null" ]]; then
+            # A publication timestamp is not retrieval time. Record when the
+            # adequate evidence was fetched for this assessment.
+            retrieved_at=$(date +%s)
+            if [[ "$retrieved_at" =~ ^[1-9][0-9]*$ ]]; then
+                retrieval_status="fresh"
+            fi
+            evidence_reason="release notes checked"
+        else
+            # Metadata alone is not adequate release evidence.
+            evidence_reason="release metadata only"
+            retrieval_status="unavailable"
+        fi
+
+        if [[ "$IDENTIFY_BREAKING" == "true" && -n "$body" && "$body" != "null" ]]; then
             if detect_breaking_changes "$body"; then
                 has_breaking="true"
+                risk_signal="breaking-change-keyword"
+                evidence_reason="breaking change detected in release notes"
             fi
         fi
     fi
 
-    # Write breaking status for upgrade mode tracking (only when UPGRADE_STATUS_DIR is set)
+    # Detect major version transition as independent risk signal.
+    # Requires numeric major versions; non-numeric/unknown versions are
+    # NOT classified as transitions.
+    if [[ "$has_breaking" == "false" ]]; then
+        if is_major_version_transition "$current_version" "$latest_version"; then
+            has_breaking="true"
+            risk_signal="major-version-transition"
+            evidence_reason="major version transition detected"
+            # retrieval_status stays as-is; classification is independent
+        fi
+    fi
+
+    # Write evidence row for upgrade mode tracking (only when UPGRADE_STATUS_DIR is set)
+    # Row schema: package<TAB>source<TAB>retrieval_status<TAB>retrieved_at<TAB>reason<TAB>risk_signal
     if [[ -n "${UPGRADE_STATUS_DIR:-}" && -d "${UPGRADE_STATUS_DIR}" ]]; then
-        printf '%s\t%s\n' "$package" "$has_breaking" >> "${UPGRADE_STATUS_DIR}/results.tsv"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$package" "$evidence_source" "$retrieval_status" "$retrieved_at" "$evidence_reason" "$risk_signal" \
+            >> "${UPGRADE_STATUS_DIR}/results.tsv"
     fi
 
     # Create package header using shared function

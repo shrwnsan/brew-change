@@ -371,8 +371,16 @@ else
         process_packages_parallel "$outdated_packages" "$PARALLEL_JOBS"
 
         if [[ "$UPGRADE_MODE" == "true" ]]; then
-            # Collect breaking-change status and run upgrade flow
-            collect_upgrade_status "$UPGRADE_STATUS_DIR"
+            # Build canonical inventory token list for evidence collection.
+            # This ensures every package gets exactly one classification outcome.
+            # Note: cannot use 'local' at top level; these are plain variables.
+            inventory_tokens=()
+            while IFS=$'\t' read -r pkg _ptype; do
+                [[ -n "$pkg" && "$pkg" != "null" ]] && inventory_tokens+=("$pkg")
+            done < <(extract_outdated_package_tokens "$outdated_packages" 2>/dev/null)
+
+            # Collect evidence and classify with missing-row synthesis
+            classify_upgrade_evidence "$UPGRADE_STATUS_DIR" "${inventory_tokens[@]+"${inventory_tokens[@]}"}"
             run_upgrade_prompt "$outdated_packages"
         else
             echo "Run 'brew upgrade' to upgrade all packages, or 'brew upgrade <package>' for individual packages."
