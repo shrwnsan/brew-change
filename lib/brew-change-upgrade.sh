@@ -304,10 +304,17 @@ run_upgrade_prompt() {
     # Print summary (always shown in upgrade mode)
     print_upgrade_summary "$outdated_packages"
 
-    # Dry-run mode: print suggestion and exit without executing
+    # Dry-run mode: run real brew upgrade --dry-run on no-signal packages,
+    # no confirmation, no mutation. If no no-signal packages, do not call brew.
     if [[ "${DRY_RUN_MODE:-false}" == "true" ]]; then
-        print_upgrade_suggestion "$outdated_packages"
-        return 0
+        if [[ ${#NO_SIGNAL_PKGS[@]} -eq 0 ]]; then
+            echo ""
+            echo "No no-signal packages to dry-run."
+            print_upgrade_suggestion "$outdated_packages"
+            return 0
+        fi
+        preview_upgrade_packages "${NO_SIGNAL_PKGS[@]}"
+        return $?
     fi
 
     # Non-interactive mode (piped input): print suggestion and exit
@@ -329,11 +336,11 @@ run_upgrade_prompt() {
                 echo "No no-signal packages to upgrade."
                 return 0
             fi
-            execute_upgrade "${#NO_SIGNAL_PKGS[@]} no-signal packages" "no-signal"
+            run_upgrade_with_preview "${NO_SIGNAL_PKGS[@]}"
             ;;
         choose)
             # Build full package list from JSON using canonical tokens
-            local all_pkgs=()
+            local -a all_pkgs=()
             while IFS=$'\t' read -r pkg pkg_type; do
                 [[ -n "$pkg" && "$pkg" != "null" ]] && all_pkgs+=("$pkg")
             done < <(extract_outdated_package_tokens "$outdated_packages" 2>/dev/null)
@@ -343,18 +350,26 @@ run_upgrade_prompt() {
                 return 0
             fi
 
-            local selected
-            selected=$(prompt_package_selection "${all_pkgs[@]}")
+            local selected_output
+            selected_output=$(prompt_package_selection "${all_pkgs[@]}")
 
-            if [[ -z "$selected" ]]; then
+            if [[ -z "$selected_output" ]]; then
                 echo ""
                 echo "No packages selected."
                 return 0
             fi
 
-            local selected_count
-            selected_count=$(echo "$selected" | wc -l | tr -d ' ')
-            execute_upgrade "$selected_count selected packages" "selected" "$selected"
+            # Convert newline-separated selection into a proper array
+            local -a selected_pkgs=()
+            mapfile -t selected_pkgs <<< "$selected_output"
+
+            if [[ ${#selected_pkgs[@]} -eq 0 ]]; then
+                echo ""
+                echo "No packages selected."
+                return 0
+            fi
+
+            run_upgrade_with_preview "${selected_pkgs[@]}"
             ;;
         cancel|*)
             echo ""
@@ -364,45 +379,36 @@ run_upgrade_prompt() {
     esac
 }
 
-# Execute brew upgrade for selected packages
+# ---------------------------------------------------------------------------
+# execute_upgrade
+#
+# THE single mutation entry point. All real `brew upgrade --yes` calls must
+# go through this function. Called internally by run_upgrade_with_preview
+# after preview + confirmation succeed.
+#
 # Args:
-#   $1: Human-readable description of what's being upgraded
-#   $2: Mode - "no-signal", or "selected"
-#   $3: (Optional) Newline-separated list of package names for "selected" mode
+#   $1...: Package names to upgrade (passed as array elements)
+# Returns:
+#   0 on successful upgrade
+#   Non-zero on failure
+# ---------------------------------------------------------------------------
 execute_upgrade() {
-    local description="$1"
-    local mode="$2"
-    shift 2
-    local package_list="${*:-}"
+    local -a packages=("$@")
 
-    local cmd_args=()
-
-    case "$mode" in
-        no-signal)
-            cmd_args=("${NO_SIGNAL_PKGS[@]}")
-            ;;
-        selected)
-            # Convert newline-separated to array
-            while IFS= read -r pkg; do
-                [[ -n "$pkg" ]] && cmd_args+=("$pkg")
-            done <<< "$package_list"
-            ;;
-    esac
-
-    if [[ ${#cmd_args[@]} -eq 0 ]]; then
+    if [[ ${#packages[@]} -eq 0 ]]; then
         echo ""
         echo "No packages selected for upgrade."
         return 0
     fi
 
     echo ""
-    echo "Running: brew upgrade --yes ${cmd_args[*]}"
+    echo "Running: brew upgrade --yes ${packages[*]}"
     echo ""
 
-    # Execute brew upgrade with --yes to skip Homebrew's confirmation prompt
     local upgrade_exit_code=0
 
-    brew upgrade --yes "${cmd_args[@]}" || upgrade_exit_code=$?
+    HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 \
+        brew upgrade --yes "${packages[@]}" || upgrade_exit_code=$?
 
     echo ""
 
@@ -415,4 +421,86 @@ execute_upgrade() {
     fi
 
     return $upgrade_exit_code
+}
+
+# ---------------------------------------------------------------------------
+# preview_upgrade_packages
+#
+# Run `brew upgrade --dry-run` for the given package array, capture and
+# display the output, and show a dependency/dependent warning.
+#
+# Args:
+#   $1...: Package names to preview
+# Returns:
+#   0 on successful preview (dry-run exit 0)
+#   1 on preview failure (dry-run non-zero exit)
+# ---------------------------------------------------------------------------
+preview_upgrade_packages() {
+    local -a packages=("$@")
+
+    if [[ ${#packages[@]} -eq 0 ]]; then
+        echo "No packages to preview." >&2
+        return 1
+    fi
+
+    echo ""
+    echo "Preview: brew upgrade --dry-run ${packages[*]}"
+    echo ""
+
+    local preview_exit_code=0
+    local preview_output
+
+    preview_output=$(HOMEBREW_NO_AUTO_UPDATE=1 brew upgrade --dry-run "${packages[@]}" 2>&1) || preview_exit_code=$?
+
+    echo "$preview_output"
+
+    echo ""
+    echo "Warning: Homebrew may also act on dependencies and dependents of these packages." >&2
+    echo ""
+
+    return $preview_exit_code
+}
+
+# ---------------------------------------------------------------------------
+# run_upgrade_with_preview
+#
+# THE single entry point for preview-confirm-mutate. All actual upgrade
+# flows (no-signal, choose, any future path) must call this. No mutation
+# may occur outside this function.
+#
+# Flow: preview_upgrade_packages -> prompt_upgrade_confirmation -> execute_upgrade
+#
+# Args:
+#   $1...: Package names to upgrade
+# Returns:
+#   0 on successful upgrade (or declined confirmation)
+#   1 on preview failure or upgrade execution failure
+# ---------------------------------------------------------------------------
+run_upgrade_with_preview() {
+    local -a packages=("$@")
+
+    if [[ ${#packages[@]} -eq 0 ]]; then
+        echo "No packages selected for upgrade."
+        return 0
+    fi
+
+    local pkg_count=${#packages[@]}
+    local desc="$pkg_count package"
+    [[ "$pkg_count" -ne 1 ]] && desc="$pkg_count packages"
+
+    # Step 1: Preview dry-run
+    if ! preview_upgrade_packages "${packages[@]}"; then
+        echo "Preview failed. Upgrade cancelled." >&2
+        return 1
+    fi
+
+    # Step 2: Prompt for final confirmation
+    if ! prompt_upgrade_confirmation "$desc" "${packages[@]}"; then
+        echo ""
+        echo "Upgrade cancelled."
+        return 0
+    fi
+
+    # Step 3: Execute mutation through single entry point, same package argv
+    execute_upgrade "${packages[@]}"
 }

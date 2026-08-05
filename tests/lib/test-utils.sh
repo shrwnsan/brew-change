@@ -50,6 +50,15 @@ config="$COMMAND_HARNESS_CONFIG/$command_name"
     done
     printf '\n'
 } >>"$COMMAND_HARNESS_LOG"
+if [[ -n "${COMMAND_HARNESS_ENV_LOG:-}" && -n "${COMMAND_HARNESS_ENV_CAPTURE_VARS:-}" ]]; then
+    saved_ifs="$IFS"
+    IFS=':'
+    for env_name in $COMMAND_HARNESS_ENV_CAPTURE_VARS; do
+        printf '%s=%s\n' "$env_name" "${!env_name:-}" >>"$COMMAND_HARNESS_ENV_LOG"
+    done
+    IFS="$saved_ifs"
+    printf '%s\n' '---ENV-SEP---' >>"$COMMAND_HARNESS_ENV_LOG"
+fi
 if [[ "$command_name" == curl ]]; then
     headers_target=""
     write_out=""
@@ -87,6 +96,28 @@ EOF
     done
     PATH="$COMMAND_HARNESS_BIN:$PATH"
     export PATH
+}
+
+# Extend the default command harness to optionally capture selected env vars
+# from fake commands. Creates COMMAND_HARNESS_ENV_LOG containing captured
+# environment values separated by "---ENV-SEP---" per invocation.
+#
+# Args:
+#   $1...: Environment variable names to capture (e.g., HOMEBREW_NO_AUTO_UPDATE HOMEBREW_NO_INSTALL_CLEANUP)
+# If called with no args, env capture is disabled (default).
+#
+# NOTE: Uses a colon-separated string (COMMAND_HARNESS_ENV_CAPTURE_VARS) rather
+# than an array, because bash arrays cannot be exported to child processes.
+configure_harness_env_capture() {
+    if [[ $# -gt 0 ]]; then
+        # Join args with colon for export (array can't be exported)
+        local _IFS="$IFS"; IFS=':'; COMMAND_HARNESS_ENV_CAPTURE_VARS="$*"; IFS="$_IFS"
+        COMMAND_HARNESS_ENV_LOG="$COMMAND_HARNESS_ROOT/env.log"
+        : >"$COMMAND_HARNESS_ENV_LOG"
+        export COMMAND_HARNESS_ENV_LOG COMMAND_HARNESS_ENV_CAPTURE_VARS
+    else
+        unset COMMAND_HARNESS_ENV_LOG COMMAND_HARNESS_ENV_CAPTURE_VARS
+    fi
 }
 
 # Configure curl response metadata from a status fixture containing
@@ -136,6 +167,7 @@ teardown_command_harness() {
     fi
     [[ -z "${COMMAND_HARNESS_ROOT:-}" ]] || rm -rf "$COMMAND_HARNESS_ROOT"
     unset COMMAND_HARNESS_ROOT COMMAND_HARNESS_BIN COMMAND_HARNESS_CONFIG COMMAND_HARNESS_LOG COMMAND_HARNESS_SENTINEL
+    unset COMMAND_HARNESS_ENV_LOG COMMAND_HARNESS_ENV_CAPTURE_VARS
     unset COMMAND_HARNESS_ORIGINAL_PATH COMMAND_HARNESS_ORIGINAL_NOW_SET COMMAND_HARNESS_ORIGINAL_NOW
 }
 

@@ -886,8 +886,8 @@ assert_eq "Enter selects no-signal when available" "no-signal" "$(upgrade_action
 
 echo ""
 echo "Test 54: legacy bulk-all and safe actions cancel"
-assert_eq "a cancels" "cancel" "$(upgrade_action_from_response "a" 2)"
-assert_eq "s cancels" "cancel" "$(upgrade_action_from_response "s" 2)"
+assert_eq "a is invalid" "invalid" "$(upgrade_action_from_response "a" 2)"
+assert_eq "s is invalid" "invalid" "$(upgrade_action_from_response "s" 2)"
 assert_eq "Enter cancels with no no-signal packages" "cancel" "$(upgrade_action_from_response "" 0)"
 
 echo ""

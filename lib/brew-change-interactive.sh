@@ -46,7 +46,14 @@ is_interactive_mode() {
     [[ -t 0 ]]
 }
 
-# Convert one prompt response into the restricted upgrade action vocabulary.
+# Convert one prompt response into the upgrade action vocabulary.
+# May return "invalid" for unrecognized single-character input that is
+# not a recognized command (u/c/q or their long forms). Callers that loop
+# must handle "invalid" by reprompting.
+#
+# Empty response: selects "no-signal" only if no_signal_count > 0,
+# otherwise cancels. This applies only to a deliberate empty Enter from
+# the user (not EOF/timeout, which are handled by the caller).
 upgrade_action_from_response() {
     local response="$1"
     local no_signal_count="$2"
@@ -62,17 +69,33 @@ upgrade_action_from_response() {
                 echo "cancel"
             fi
             ;;
-        *) echo "cancel" ;;
+        *) echo "invalid" ;;
     esac
 }
 
-# Restricted upgrade action prompt with spinner animation
+# Keep a failed read (EOF or timeout) distinct from a deliberate empty Enter.
+upgrade_action_from_read() {
+    local read_succeeded="$1"
+    local response="$2"
+    local no_signal_count="$3"
+
+    if [[ "$read_succeeded" != "true" ]]; then
+        echo "cancel"
+    else
+        upgrade_action_from_response "$response" "$no_signal_count"
+    fi
+}
+
+# Restricted upgrade action prompt with spinner animation.
+# Invalid input reprompts. q cancels. EOF/timeout cancels.
+# Empty Enter selects no-signal only if no_signal_count > 0, else cancels.
+#
 # Args:
 #   $1: Count of packages needing attention
 #   $2: Count of no-signal packages
 #   $3: Total outdated package count
 # Returns (via echo to stdout):
-#   "no-signal", "choose", or "cancel"
+#   "no-signal", "choose", or "cancel"  (never "invalid")
 prompt_upgrade_action() {
     local no_signal_count="$2"
 
@@ -90,41 +113,63 @@ prompt_upgrade_action() {
     echo "" > /dev/tty
 
     local prompt_width=$(( ${#prompt_text} + 6 ))
+    while true; do
+        local _PROMPT_ACTION_SPINNING="1"
+        (
+            local chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+            local idx=0
+            local len=${#chars}
+            while [[ "$_PROMPT_ACTION_SPINNING" == "1" ]]; do
+                printf "\r%s %s" "$prompt_text" "${chars:idx:1}" > /dev/tty
+                idx=$(( (idx + 1) % len ))
+                sleep 0.12
+            done
+        ) &
+        local spinner_pid=$!
 
-    # Background spinner subshell: animates independently of the blocking read.
-    # Writes carriage-return overwrites to /dev/tty at ~8 FPS.
-    # Killed when read completes in the foreground.
-    local _PROMPT_ACTION_SPINNING="1"
-    (
-        local chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-        local idx=0
-        local len=${#chars}
-        while [[ "$_PROMPT_ACTION_SPINNING" == "1" ]]; do
-            printf "\r%s %s" "$prompt_text" "${chars:idx:1}" > /dev/tty
-            idx=$(( (idx + 1) % len ))
-            sleep 0.12
-        done
-    ) &
-    local spinner_pid=$!
+        # Block on single-character input from the terminal.
+        # read returns non-zero on EOF or timeout.
+        local stty_saved
+        stty_saved="$(stty -g)"
+        stty -icanon -echo 2>/dev/null
+        local response=""
+        IFS= read -r -n 1 -t 300 response 2>/dev/null || {
+            stty "$stty_saved" 2>/dev/null
+            _PROMPT_ACTION_SPINNING="0"
+            kill "$spinner_pid" 2>/dev/null
+            wait "$spinner_pid" 2>/dev/null
+            printf "\r%*s\r" "$prompt_width" "" > /dev/tty
+            # EOF or timeout -> cancel
+            upgrade_action_from_read "false" "" "$no_signal_count"
+            return 0
+        }
+        stty "$stty_saved" 2>/dev/null
 
-    # Block on single-character input from the terminal
-    local stty_saved
-    stty_saved="$(stty -g)"
-    stty -icanon -echo 2>/dev/null
-    IFS= read -r -n 1 response 2>/dev/null || response=""
-    stty "$stty_saved" 2>/dev/null
+        # Stop spinner and wait for clean exit
+        _PROMPT_ACTION_SPINNING="0"
+        kill "$spinner_pid" 2>/dev/null
+        wait "$spinner_pid" 2>/dev/null
 
-    # Stop spinner and wait for clean exit
-    _PROMPT_ACTION_SPINNING="0"
-    kill "$spinner_pid" 2>/dev/null
-    wait "$spinner_pid" 2>/dev/null
+        local action
+        action=$(upgrade_action_from_read "true" "$response" "$no_signal_count")
 
-    # Clear any leftover spinner frame, then redraw with user's selection
-    printf "\r%*s\r" "$prompt_width" "" > /dev/tty
-    printf "%s%s" "$prompt_text" "$response" > /dev/tty
-    echo "" > /dev/tty
-
-    upgrade_action_from_response "$response" "$no_signal_count"
+        case "$action" in
+            invalid)
+                # Reprompt with hint
+                printf "\r%*s\r" "$prompt_width" "" > /dev/tty
+                echo "Invalid input '$response'. Type u/c/q." > /dev/tty
+                continue
+                ;;
+            *)
+                # Valid action (no-signal, choose, cancel)
+                printf "\r%*s\r" "$prompt_width" "" > /dev/tty
+                printf "%s%s" "$prompt_text" "$response" > /dev/tty
+                echo "" > /dev/tty
+                echo "$action"
+                return 0
+                ;;
+        esac
+    done
 }
 
 # Interactive per-package selection prompt

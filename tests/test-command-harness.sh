@@ -71,4 +71,13 @@ export BREW_CHANGE_TEST_NOW=1700000000
 teardown_command_harness
 [[ ! ${BREW_CHANGE_TEST_NOW+x} ]] || fail "previously unset BREW_CHANGE_TEST_NOW was not unset"
 
+setup_command_harness
+configure_harness_env_capture HOMEBREW_NO_AUTO_UPDATE
+configure_fake_command brew "" "" 0
+HOMEBREW_NO_AUTO_UPDATE=1 brew upgrade --dry-run node || fail "env-capture brew should succeed"
+assert_equal $'HOMEBREW_NO_AUTO_UPDATE=1\n---ENV-SEP---' "$(cat "$COMMAND_HARNESS_ENV_LOG")" "selected environment capture"
+teardown_command_harness
+[[ ! ${COMMAND_HARNESS_ENV_LOG+x} ]] || fail "environment log variable was not unset"
+[[ ! ${COMMAND_HARNESS_ENV_CAPTURE_VARS+x} ]] || fail "environment capture variable was not unset"
+
 printf 'PASS: deterministic command harness\n'
