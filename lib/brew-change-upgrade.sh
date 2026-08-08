@@ -327,7 +327,7 @@ run_upgrade_prompt() {
 
     # Interactive prompt
     local action
-    action=$(prompt_upgrade_action "$attention_count" "$no_signal_count" "$total_count")
+    prompt_upgrade_action "$attention_count" "$no_signal_count" "$total_count" action
 
     case "$action" in
         no-signal)

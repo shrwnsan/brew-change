@@ -154,87 +154,90 @@ if [[ -z "${BREW_CHANGE_SUBPROCESS:-}" ]]; then
     # Store temp files for cleanup
     TEMP_FILES=()
     TEMP_DIRS=()
+    BREW_CHANGE_STTY_STATE=""
+
+    # Idempotent core cleanup: removes temp files/dirs, kills registered PIDs.
+    # Safe to call multiple times; guards against re-entry via
+    # _BC_CLEANUP_DONE sentinel.
+    _BC_CLEANUP_DONE=""
 
     cleanup() {
-        local has_temp_files=false
-        
-        # Check if we have any temp files to clean
-        if [[ -n "${TEMP_FILES[@]:-}" ]]; then
-            for temp_file in "${TEMP_FILES[@]:-}"; do
-                if [[ -n "$temp_file" && -f "$temp_file" ]]; then
-                    has_temp_files=true
-                    break
-                fi
-            done
+        # Idempotent guard: skip if already cleaned
+        [[ "$_BC_CLEANUP_DONE" == "1" ]] && return 0
+        _BC_CLEANUP_DONE="1"
+
+        if [[ -n "${BREW_CHANGE_STTY_STATE:-}" && -r /dev/tty ]]; then
+            stty "$BREW_CHANGE_STTY_STATE" < /dev/tty 2>/dev/null || true
+            BREW_CHANGE_STTY_STATE=""
         fi
-        
-        # Check if we have any temp files in cache directory
-        # Note: This pattern uses $$ (parent PID). Subshell temp files use BASHPID
-        # and are tracked via register_temp_file instead. Stale subshell files are
-        # cleaned by the wildcard cleanup at script startup (line 149).
-        if [[ ! $has_temp_files && -n "${CACHE_DIR:-}" && -d "$CACHE_DIR" ]]; then
-            if find "$CACHE_DIR" -name ".*.tmp.$$" -type f -print -quit 2>/dev/null | grep -q .; then
-                has_temp_files=true
-            fi
-        fi
-        
-        # Check if we have any PIDs to kill
-        if [[ ! $has_temp_files && -n "${BREW_CHANGE_PIDS:-}" ]]; then
-            local has_pids=false
+
+        # Kill any registered child processes first (so they don't hold files)
+        if [[ -n "${BREW_CHANGE_PIDS:-}" ]]; then
             for pid in "${BREW_CHANGE_PIDS[@]}"; do
                 if kill -0 "$pid" 2>/dev/null; then
-                    has_pids=true
-                    break
+                    kill -TERM "$pid" 2>/dev/null || true
                 fi
             done
-            has_temp_files=$has_pids
+            for pid in "${BREW_CHANGE_PIDS[@]}"; do
+                local attempts=0
+                while kill -0 "$pid" 2>/dev/null && [[ $attempts -lt 20 ]]; do
+                    sleep 0.05
+                    attempts=$((attempts + 1))
+                done
+                if kill -0 "$pid" 2>/dev/null; then
+                    kill -KILL "$pid" 2>/dev/null || true
+                fi
+                wait "$pid" 2>/dev/null || true
+            done
         fi
-        
-        # Only show cleanup and exit if there's something to clean
-        if $has_temp_files; then
-            echo "Cleaning up temporary files..." >&2
 
-            # Remove all registered temp files
+        # Remove all registered temp files
+        if [[ -n "${TEMP_FILES[@]:-}" ]]; then
             for temp_file in "${TEMP_FILES[@]:-}"; do
                 if [[ -n "$temp_file" && -f "$temp_file" ]]; then
                     rm -f "$temp_file" 2>/dev/null || true
                 fi
             done
+        fi
 
-            # Remove all registered temp directories
+        # Remove all registered temp directories
+        if [[ -n "${TEMP_DIRS[@]:-}" ]]; then
             for temp_dir in "${TEMP_DIRS[@]:-}"; do
                 if [[ -n "$temp_dir" && -d "$temp_dir" ]]; then
                     rm -rf "$temp_dir" 2>/dev/null || true
                 fi
             done
-
-            # Cleanup any remaining temp files in cache directory
-            if [[ -n "${CACHE_DIR:-}" && -d "$CACHE_DIR" ]]; then
-                find "$CACHE_DIR" -name ".*.tmp.$$" -type f -delete 2>/dev/null || true
-            fi
-
-            # Kill any child processes (for parallel processing)
-            if [[ -n "${BREW_CHANGE_PIDS:-}" ]]; then
-                for pid in "${BREW_CHANGE_PIDS[@]}"; do
-                    if kill -0 "$pid" 2>/dev/null; then
-                        kill -TERM "$pid" 2>/dev/null || true
-                    fi
-                done
-            fi
-
-            # Let the script exit with its natural exit code; don't force 130
         fi
 
-        # Return success when no cleanup needed
+        # Cleanup any remaining temp files in cache directory
+        if [[ -n "${CACHE_DIR:-}" && -d "$CACHE_DIR" ]]; then
+            find "$CACHE_DIR" -name ".*.tmp.$$" -type f -delete 2>/dev/null || true
+        fi
+
         return 0
     }
-    
-    # Trap various signals for cleanup
-    trap cleanup EXIT
-    trap cleanup INT   # Ctrl+C
-    trap cleanup TERM  # termination signal
-    trap cleanup HUP   # hangup signal
-    trap cleanup QUIT  # quit signal
+
+    # EXIT trap: run cleanup, but do NOT overwrite the current exit status.
+    # The cleanup function always returns 0; we restore $? after it.
+    _bc_on_exit() {
+        local saved_status=$?
+        cleanup
+        return "$saved_status"
+    }
+    trap '_bc_on_exit' EXIT
+
+    # Signal-specific handlers: cleanup, clear trap, exit conventional status.
+    # Clearing the trap prevents recursive invocation if cleanup itself triggers
+    # the same signal.
+    _bc_on_INT()  { cleanup; trap - INT;  exit 130; }
+    _bc_on_TERM() { cleanup; trap - TERM; exit 143; }
+    _bc_on_HUP()  { cleanup; trap - HUP;  exit 129; }
+    _bc_on_QUIT() { cleanup; trap - QUIT;  exit 131; }
+
+    trap '_bc_on_INT'  INT   # Ctrl+C
+    trap '_bc_on_TERM' TERM  # termination signal
+    trap '_bc_on_HUP'  HUP   # hangup signal
+    trap '_bc_on_QUIT' QUIT  # quit signal
     
     # Function to register temp files for cleanup
     register_temp_file() {
@@ -262,5 +265,25 @@ if [[ -z "${BREW_CHANGE_SUBPROCESS:-}" ]]; then
                 BREW_CHANGE_PIDS+=("$pid")
             fi
         fi
+    }
+
+    unregister_pid() {
+        local removed_pid="$1"
+        local remaining=()
+        local pid
+        for pid in "${BREW_CHANGE_PIDS[@]:-}"; do
+            if [[ "$pid" != "$removed_pid" ]]; then
+                remaining+=("$pid")
+            fi
+        done
+        BREW_CHANGE_PIDS=("${remaining[@]}")
+    }
+
+    register_terminal_state() {
+        BREW_CHANGE_STTY_STATE="$1"
+    }
+
+    unregister_terminal_state() {
+        BREW_CHANGE_STTY_STATE=""
     }
 fi

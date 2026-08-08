@@ -139,6 +139,9 @@ process_packages_parallel() {
         for pid_idx in "${!pids[@]}"; do
             pid="${pids[pid_idx]}"
             wait "$pid" || true  # || true prevents set -e from exiting on non-zero wait status
+            if command -v unregister_pid >/dev/null 2>&1; then
+                unregister_pid "$pid"
+            fi
             # Update progress counter immediately after each job completes
             ((processed++)) || true
             if [[ ${#packages[@]} -gt 1 ]]; then

@@ -62,7 +62,7 @@ upgrade_action_from_response() {
         u|upgrade) echo "no-signal" ;;
         c|choose) echo "choose" ;;
         q|quit) echo "cancel" ;;
-        '')
+        ''|$'\n')
             if [[ "$no_signal_count" -gt 0 ]]; then
                 echo "no-signal"
             else
@@ -86,6 +86,56 @@ upgrade_action_from_read() {
     fi
 }
 
+# Stop a spinner child and reap it.
+_stop_spinner() {
+    local spid="${1:-}"
+    [[ -z "$spid" ]] && return 0
+    kill "$spid" 2>/dev/null || true
+    wait "$spid" 2>/dev/null || true
+    if command -v unregister_pid >/dev/null 2>&1; then
+        unregister_pid "$spid"
+    fi
+}
+
+_restore_prompt_terminal() {
+    if [[ -n "${prompt_stty_state:-}" ]]; then
+        stty "$prompt_stty_state" < /dev/tty 2>/dev/null || true
+        prompt_stty_state=""
+    fi
+    if command -v unregister_terminal_state >/dev/null 2>&1; then
+        unregister_terminal_state
+    fi
+}
+
+_cleanup_upgrade_prompt() {
+    _restore_prompt_terminal
+    _stop_spinner "${spinner_pid:-}"
+    spinner_pid=""
+}
+
+_run_saved_trap() {
+    local definition="$1"
+    [[ -z "$definition" ]] && return 0
+    definition="${definition#trap -- }"
+    eval "set -- $definition"
+    eval "$1"
+}
+
+_handle_prompt_signal() {
+    local status="$1"
+    local previous_trap="$2"
+    _cleanup_upgrade_prompt
+    _run_saved_trap "$previous_trap"
+    exit "$status"
+}
+
+_restore_prompt_traps() {
+    trap - INT TERM
+    [[ -n "${prompt_previous_int_trap:-}" ]] && eval "$prompt_previous_int_trap"
+    [[ -n "${prompt_previous_term_trap:-}" ]] && eval "$prompt_previous_term_trap"
+    [[ "${prompt_installed_exit_trap:-false}" == "true" ]] && trap - EXIT
+}
+
 # Restricted upgrade action prompt with spinner animation.
 # Invalid input reprompts. q cancels. EOF/timeout cancels.
 # Empty Enter selects no-signal only if no_signal_count > 0, else cancels.
@@ -94,10 +144,12 @@ upgrade_action_from_read() {
 #   $1: Count of packages needing attention
 #   $2: Count of no-signal packages
 #   $3: Total outdated package count
-# Returns (via echo to stdout):
+#   $4: Optional variable name to receive the action without a subshell
+# Returns (via the named variable, or stdout when omitted):
 #   "no-signal", "choose", or "cancel"  (never "invalid")
 prompt_upgrade_action() {
     local no_signal_count="$2"
+    local output_var="${4:-}"
 
     # Build prompt text based on context
     local prompt_text
@@ -113,47 +165,63 @@ prompt_upgrade_action() {
     echo "" > /dev/tty
 
     local prompt_width=$(( ${#prompt_text} + 6 ))
+    local spinner_pid=""
+    local prompt_stty_state=""
+    local prompt_previous_int_trap
+    local prompt_previous_term_trap
+    local prompt_installed_exit_trap=false
+
+    prompt_previous_int_trap="$(trap -p INT)"
+    prompt_previous_term_trap="$(trap -p TERM)"
+    trap '_handle_prompt_signal 130 "$prompt_previous_int_trap"' INT
+    trap '_handle_prompt_signal 143 "$prompt_previous_term_trap"' TERM
+    if [[ -z "$(trap -p EXIT)" ]]; then
+        trap '_cleanup_upgrade_prompt' EXIT
+        prompt_installed_exit_trap=true
+    fi
+
     while true; do
-        local _PROMPT_ACTION_SPINNING="1"
         (
             local chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
             local idx=0
             local len=${#chars}
-            while [[ "$_PROMPT_ACTION_SPINNING" == "1" ]]; do
+            while true; do
                 printf "\r%s %s" "$prompt_text" "${chars:idx:1}" > /dev/tty
                 idx=$(( (idx + 1) % len ))
                 sleep 0.12
             done
-        ) &
-        local spinner_pid=$!
+        ) < /dev/null &
+        spinner_pid=$!
+        if command -v register_pid >/dev/null 2>&1; then
+            register_pid "$spinner_pid"
+        fi
 
-        # Block on single-character input from the terminal.
-        # read returns non-zero on EOF or timeout.
-        local stty_saved
-        stty_saved="$(stty -g)"
-        stty -icanon -echo 2>/dev/null
+        prompt_stty_state="$(stty -g < /dev/tty)"
+        if command -v register_terminal_state >/dev/null 2>&1; then
+            register_terminal_state "$prompt_stty_state"
+        fi
+
         local response=""
-        IFS= read -r -n 1 -t 300 response 2>/dev/null || {
-            stty "$stty_saved" 2>/dev/null
-            _PROMPT_ACTION_SPINNING="0"
-            kill "$spinner_pid" 2>/dev/null
-            wait "$spinner_pid" 2>/dev/null
+        if ! IFS= read -r -N 1 -t 300 response 2>/dev/null; then
+            _cleanup_upgrade_prompt
             printf "\r%*s\r" "$prompt_width" "" > /dev/tty
-            # EOF or timeout -> cancel
-            upgrade_action_from_read "false" "" "$no_signal_count"
+            local resolved_action
+            resolved_action=$(upgrade_action_from_read "false" "" "$no_signal_count")
+            _restore_prompt_traps
+            if [[ -n "$output_var" ]]; then
+                printf -v "$output_var" '%s' "$resolved_action"
+            else
+                printf '%s\n' "$resolved_action"
+            fi
             return 0
-        }
-        stty "$stty_saved" 2>/dev/null
+        fi
 
-        # Stop spinner and wait for clean exit
-        _PROMPT_ACTION_SPINNING="0"
-        kill "$spinner_pid" 2>/dev/null
-        wait "$spinner_pid" 2>/dev/null
+        _cleanup_upgrade_prompt
 
-        local action
-        action=$(upgrade_action_from_read "true" "$response" "$no_signal_count")
+        local resolved_action
+        resolved_action=$(upgrade_action_from_read "true" "$response" "$no_signal_count")
 
-        case "$action" in
+        case "$resolved_action" in
             invalid)
                 # Reprompt with hint
                 printf "\r%*s\r" "$prompt_width" "" > /dev/tty
@@ -165,7 +233,12 @@ prompt_upgrade_action() {
                 printf "\r%*s\r" "$prompt_width" "" > /dev/tty
                 printf "%s%s" "$prompt_text" "$response" > /dev/tty
                 echo "" > /dev/tty
-                echo "$action"
+                _restore_prompt_traps
+                if [[ -n "$output_var" ]]; then
+                    printf -v "$output_var" '%s' "$resolved_action"
+                else
+                    printf '%s\n' "$resolved_action"
+                fi
                 return 0
                 ;;
         esac
