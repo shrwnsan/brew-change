@@ -311,7 +311,7 @@ prompt_package_selection() {
 
 # Final confirmation before running brew upgrade
 # Args:
-#   $1: Description of what will be upgraded (e.g., "3 safe packages")
+#   $1: Description of what will be upgraded (e.g., "3 no-signal packages")
 #   $2...: Package names (optional, for display)
 # Returns:
 #   0: User confirmed
