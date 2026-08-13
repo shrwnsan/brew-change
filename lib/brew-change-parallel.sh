@@ -144,7 +144,7 @@ process_packages_parallel() {
             fi
             # Update progress counter immediately after each job completes
             ((processed++)) || true
-            if [[ ${#packages[@]} -gt 1 ]]; then
+            if [[ ${#packages[@]} -gt 1 && -t 2 ]]; then
                 echo -ne "\r\033[KProgress: $processed/${#packages[@]} packages processed...\n" >&2
             fi
         done
@@ -175,7 +175,7 @@ process_packages_parallel() {
     done
 
     # Clear progress line and show summary for multi-package processing
-    if [[ ${#packages[@]} -gt 1 ]]; then
+    if [[ ${#packages[@]} -gt 1 && -t 2 ]]; then
         echo -ne "\r\033[K" >&2
         echo "" >&2
         local end_time=$(date +%s)
