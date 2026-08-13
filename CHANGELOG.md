@@ -7,36 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- **Spinner output**: Clear spinner frame in the foreground before redrawing prompt to fix duplicate line artifact.
-
-### Fixed
-- **Spinner animation**: Rewrite using background subshell for smooth ~8 FPS animation independent of the blocking read.
-
-### Fixed
-- **Spinner animation**: Move stty setup outside the poll loop to eliminate per-iteration overhead that caused the spinner to appear frozen.
-
-### Fixed
-- **Upgrade prompt**: Remove confusing `[$default]` suffix — now shows `?` with default implicitly applied on Enter.
-
-### Fixed
-- **Upgrade prompt**: Add `[q]uit` key for discoverable cancel option and default to safe option on unknown input instead of cancelling.
-
 ### Changed
-- **Upgrade mode (`-u`)**: Now launches interactive upgrade prompt by default instead of requiring `BREW_CHANGE_UPGRADE_INTERACTIVE=true` env var. Use `--dry-run` (`-n`) to preview without executing.
+- **Trusted update assessment**: Replace binary safe/breaking language with attention, no-signal, and unknown. Attention and unknown packages are never bulk/default selected.
+- **Upgrade execution**: Preview the exact named package plan with Homebrew, warn about dependencies/dependents, then require immediate final confirmation before passing the same package arguments to the mutation command.
+- **Non-interactive behavior**: Piped runs remain deterministic and never start an upgrade.
 
 ### Added
-- **`--dry-run` flag (`-n`)**: Preview upgrade without executing (use with `-u`)
+- Deterministic command, URL-policy, signal, terminal, assessment, upgrade-flow, and release-preflight test coverage.
+- Linux/macOS CI with Bash 4+, jq, and ShellCheck.
+- Release preflight for clean/synchronized state, SemVer/tag/tool validation, deterministic verification, and HTTP download checks before publication.
+
+### Fixed
+- Canonical cask token handling across inventory and upgrade paths.
+- Signal exit statuses, child cleanup, temporary-file cleanup, and terminal restoration.
+- Evidence requests now use an exact HTTPS host policy, bounded validated redirects, and per-hop GitHub token confinement.
+
+## [1.11.5] - 2026-07-09
+
+### Fixed
+- Clear the final spinner frame before redrawing the upgrade prompt.
+
+## [1.11.4] - 2026-07-09
+
+### Fixed
+- Run prompt animation in a background subshell so blocking input does not freeze it.
+
+## [1.11.3] - 2026-07-08
+
+### Fixed
+- Move terminal setup out of the spinner poll loop.
+
+## [1.11.2] - 2026-07-08
+
+### Fixed
+- Simplify prompt text and correct prompt variable scoping.
+
+## [1.11.1] - 2026-07-08
+
+### Fixed
+- Add a discoverable quit action and improve Enter-default handling.
+
+## [1.11.0] - 2026-07-08
+
+### Added
+- Make `-u` interactive by default and add `-n` / `--dry-run` preview mode.
 
 ### Removed
-- **`BREW_CHANGE_UPGRADE_INTERACTIVE` env var**: No longer needed; `-u` is interactive by default.
+- Remove the `BREW_CHANGE_UPGRADE_INTERACTIVE` opt-in environment variable.
+
+## [1.10.0–1.10.1] - 2026-07-07
+
+### Changed
+- Improve interactive upgrade UX and pass `--yes` to the Homebrew upgrade command.
+
+## [1.9.0–1.9.2] - 2026-07-03
+
+### Changed
+- Remove interactive prompt timeouts, redundant confirmation, and noisy prompt formatting.
+
+## [1.8.0–1.8.8] - 2026-06-28 to 2026-07-03
 
 ### Added
-- **@version cask variant resolution**: Automatically detect and redirect to installed `@version` cask variants (e.g., `brew-change claude-code` now redirects to `claude-code@latest` when only the `@latest` variant is installed)
+- Add selective interactive upgrades with `-u`.
 
 ### Fixed
-- **Nonexistent package error**: `set -eo pipefail` caused silent exit when `grep` found no matches in package conflict detection
-- **Test assertions**: Error-path tests now correctly validate output content regardless of exit code
+- Harden `/dev/tty` prompt input, cancellation, and spinner timing through the 1.8 patch series.
+
+## [1.7.0] - 2026-04-02
+
+### Changed
+- Apply eleven post-refactor code-review corrections.
+
+## [1.6.0] - 2026-04-02
+
+### Added
+- Accept multiple positional package arguments.
 
 ## [1.5.5] - 2026-01-04
 

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Run the fixture-backed test suites used by CI and release preflight.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+passed=0
+failed=0
+
+run_suite() {
+    local name="$1"
+    shift
+
+    printf '\n--- %s ---\n' "$name"
+    if "$@"; then
+        passed=$((passed + 1))
+    else
+        printf 'FAIL: %s\n' "$name" >&2
+        failed=$((failed + 1))
+    fi
+}
+
+run_suite "shell command harness" bash "$SCRIPT_DIR/test-command-harness.sh"
+run_suite "CLI validation" bash "$SCRIPT_DIR/test-cli-validation.sh"
+run_suite "breaking-change detection" bash "$SCRIPT_DIR/test-breaking-changes.sh" --ci
+run_suite "refactor regressions" bash "$SCRIPT_DIR/test-refactor-fixes.sh"
+run_suite "cask JSON parsing" bash "$SCRIPT_DIR/test-cask-json-parsing.sh"
+run_suite "variant resolution" bash "$SCRIPT_DIR/test-variant-resolution.sh"
+run_suite "upgrade assessment" bash "$SCRIPT_DIR/test-upgrade-assessment.sh"
+run_suite "upgrade flow" bash "$SCRIPT_DIR/test-upgrade-flow.sh"
+run_suite "signal cleanup" bash "$SCRIPT_DIR/test-signal-cleanup.sh"
+run_suite "terminal restoration" python3 "$SCRIPT_DIR/test-terminal-restoration.py"
+run_suite "URL policy" bash "$SCRIPT_DIR/test-url-policy.sh"
+run_suite "release preflight" bash "$SCRIPT_DIR/test-release-preflight.sh"
+
+printf '\nDeterministic suites: %d passed, %d failed\n' "$passed" "$failed"
+[[ $failed -eq 0 ]]

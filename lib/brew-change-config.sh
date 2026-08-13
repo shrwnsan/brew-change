@@ -192,7 +192,7 @@ if [[ -z "${BREW_CHANGE_SUBPROCESS:-}" ]]; then
         fi
 
         # Remove all registered temp files
-        if [[ -n "${TEMP_FILES[@]:-}" ]]; then
+        if [[ ${#TEMP_FILES[@]} -gt 0 ]]; then
             for temp_file in "${TEMP_FILES[@]:-}"; do
                 if [[ -n "$temp_file" && -f "$temp_file" ]]; then
                     rm -f "$temp_file" 2>/dev/null || true
@@ -201,7 +201,7 @@ if [[ -z "${BREW_CHANGE_SUBPROCESS:-}" ]]; then
         fi
 
         # Remove all registered temp directories
-        if [[ -n "${TEMP_DIRS[@]:-}" ]]; then
+        if [[ ${#TEMP_DIRS[@]} -gt 0 ]]; then
             for temp_dir in "${TEMP_DIRS[@]:-}"; do
                 if [[ -n "$temp_dir" && -d "$temp_dir" ]]; then
                     rm -rf "$temp_dir" 2>/dev/null || true

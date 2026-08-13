@@ -25,35 +25,24 @@ chmod +x brew-change
 
 ## Running Tests
 
-### Manual Testing
+### Deterministic gate
 ```bash
-# Test basic functionality
-./brew-change
-
-# Test specific package types
-./brew-change node              # GitHub package
-./brew-change gemini-cli        # Hybrid package
-./brew-change claude-code       # Non-GitHub package
-./brew-change crush             # Third-party tap package
-
-# Test parallel processing
-./brew-change -a
-
-# Test breaking changes detection
-./brew-change -b
-
-# Performance testing
-time ./brew-change -a
+# Same fixture-backed suites used by CI and release preflight
+./tests/run-deterministic.sh
 ```
+
+These tests fake Homebrew and HTTP behavior. They do not perform a real upgrade. Use `./tests/test-brew-change-local.sh` only for optional host/network troubleshooting.
 
 ### Shell Script Linting
 ```bash
-# Check all shell scripts
-shellcheck brew-change lib/*.sh
+# Blocking baseline across the repository
+shellcheck --severity=error brew-change lib/*.sh scripts/*.sh tests/*.sh tests/lib/*.sh
 
-# Check specific file
-shellcheck lib/brew-change-github.sh
+# Default severity for each modified script
+shellcheck path/to/changed-script.sh
 ```
+
+Pre-existing warning/style findings outside the release gate are currently baselined; ShellCheck errors are not. Do not add a broad suppression. Explain any narrow inline suppression.
 
 ## Code Style
 
@@ -128,7 +117,7 @@ The breaking changes detection system (`lib/brew-change-breaking.sh`) uses patte
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/new-feature`
 3. Make your changes and test thoroughly
-4. Run shellcheck on all modified files
+4. Run `./tests/run-deterministic.sh` and ShellCheck on all modified scripts
 5. Submit a pull request with clear description
 6. Link any relevant issues
 
@@ -137,7 +126,8 @@ The breaking changes detection system (`lib/brew-change-breaking.sh`) uses patte
 - [ ] Help text is updated
 - [ ] New features are tested
 - [ ] Existing functionality still works
-- [ ] shellcheck passes on all files
+- [ ] The deterministic runner passes
+- [ ] ShellCheck reports no errors repository-wide and no new findings in modified scripts
 - [ ] Documentation is updated
 
 ## Project Structure
@@ -154,9 +144,11 @@ brew-change/
 │   ├── configuration.md         # Configuration guide
 │   └── technical-documentation.md  # Technical details
 ├── tests/                       # Test suite
-│   ├── test-breaking-changes.sh # Breaking changes tests
-│   ├── test-brew-change-local.sh # Local testing
-│   ├── test-brew-change-docker.sh # Docker testing
+│   ├── run-deterministic.sh     # CI/release fixture-backed gate
+│   ├── test-upgrade-flow.sh     # Preview/confirm/mutate invariants
+│   ├── test-url-policy.sh       # Evidence destination policy
+│   ├── test-release-preflight.sh # Publication failure invariants
+│   ├── test-brew-change-local.sh # Optional live/local menu
 │   └── lib/
 │       └── test-utils.sh        # Test utilities
 └── lib/                         # Library modules
@@ -170,6 +162,14 @@ brew-change/
     ├── brew-change-display.sh   # Output formatting
     └── brew-change-parallel.sh  # Parallel processing
 ```
+
+Docker test infrastructure was removed in v1.5.4 and is not part of the current development workflow.
+
+## Release process
+
+Maintainers run `./scripts/release.sh [X.Y.Z]` from a clean, synchronized `main` branch. The script validates strict SemVer, local/remote tag availability, required tools, the deterministic gate, and an HTTP archive download before creating a version commit or publishing anything. On success it retains the existing behavior of pushing the version commit and tag, creating the GitHub release, and optionally updating the tap checkout at `$TAP_PATH`.
+
+Publication spans Git and GitHub and cannot be transactional. If a failure occurs after preflight, inspect which of the commit, tag, GitHub release, and tap update exist before retrying. Repair or remove only the incomplete remote object, restore `main` to a consistent release commit, then rerun after the underlying failure is fixed. Never blindly rerun the script after a partial publication.
 
 ## Bug Reports
 
