@@ -103,9 +103,9 @@ kill -STOP "$$"
         if action == "eof":
             process.stdin.close()
         elif action == signal.SIGINT:
-            os.killpg(process.pid, signal.SIGINT)
+            os.kill(process.pid, signal.SIGINT)
         elif isinstance(action, int):
-            os.killpg(process.pid, action)
+            os.kill(process.pid, action)
         else:
             os.write(master, action)
 
