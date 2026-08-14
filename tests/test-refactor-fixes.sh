@@ -204,7 +204,11 @@ if [[ -f "$test_cache_file" ]]; then
     content=$(cat "$test_cache_file")
     assert_eq "Cached content matches" '{"test": true}' "$content"
     # Verify permissions
-    perms=$(stat -f "%Lp" "$test_cache_file" 2>/dev/null || stat -c "%a" "$test_cache_file" 2>/dev/null)
+    if stat -c "%a" "$test_cache_file" >/dev/null 2>&1; then
+        perms=$(stat -c "%a" "$test_cache_file")
+    else
+        perms=$(stat -f "%Lp" "$test_cache_file")
+    fi
     assert_eq "Cache file has secure permissions (600)" "600" "$perms"
     rm -f "$test_cache_file"
 else

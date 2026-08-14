@@ -15,16 +15,18 @@ extract_outdated_package_tokens() {
     printf 'alpha\tformula\nbeta\tformula\n'
 }
 
-adjust_jobs_for_resources() {
-    printf '%s\n' "$1"
-}
-
 show_package_changelog() {
     printf 'changelog for %s\n' "$1"
 }
 
 # shellcheck source=../lib/brew-change-parallel.sh
 source "$PROJECT_DIR/lib/brew-change-parallel.sh"
+
+# Override production resource detection after sourcing it so a busy CI runner
+# cannot add an unrelated high-load warning to this output-focused test.
+adjust_jobs_for_resources() {
+    printf '%s\n' "$1"
+}
 
 stderr_file=$(mktemp "${TMPDIR:-/tmp}/brew-change-progress.XXXXXX")
 trap 'rm -f "$stderr_file"' EXIT

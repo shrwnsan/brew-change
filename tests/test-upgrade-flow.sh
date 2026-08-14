@@ -27,6 +27,10 @@ BREW_CHANGE="$PROJECT_DIR/brew-change"
 # Source shared test utilities
 source "$SCRIPT_DIR/lib/test-utils.sh"
 
+# GitHub's macOS runners can export Homebrew behavior variables. Tests set and
+# capture these explicitly, so isolate them from the host environment first.
+unset HOMEBREW_NO_AUTO_UPDATE HOMEBREW_NO_INSTALL_CLEANUP
+
 # Source production libs (suppress subprocess traps)
 export BREW_CHANGE_SUBPROCESS="true"
 source "$LIB_DIR/brew-change-config.sh"
