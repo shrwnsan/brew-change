@@ -200,130 +200,377 @@ validate_json_response() {
     return 0
 }
 
-# Function to validate URL and prevent malicious redirects
+# =============================================================================
+# URL POLICY — Single validation function for all runtime HTTP destinations
+# =============================================================================
+#
+# SECURITY MODEL
+#
+# Every runtime curl / fetch call MUST pass through validate_url() (or
+# fetch_url_with_retry / fetch_url_with_retry_text which call it
+# internally).  Authenticated requests MUST go through
+# fetch_url_policy_aware() which enforces the same policy and never
+# leaks credentials outside api.github.com.
+#
+# ALLOWLIST (exact hostname match only — never subdomain / suffix tricks)
+#
+#   api.github.com           GitHub API (authenticated or unauthenticated)
+#   crabnebula.app           CrabNebula package metadata
+#   downloads.sourceforge.net SourceForge downloads metadata
+#   factory.ai               Factory package metadata
+#   github.com                GitHub site
+#   raw.githubusercontent.com GitHub raw content
+#   formulae.brew.sh         Homebrew formula/cask JSON API
+#   registry.npmjs.org        npm registry
+#   sourceforge.net           SourceForge project metadata
+#
+# REJECTIONS
+#
+#   • Non-HTTPS schemes (http, ftp, file, data, javascript, …)
+#   • Arbitrary public hosts not in the allowlist
+#   • Subdomains of allowed hosts (e.g. sub.api.github.com)
+#   • Localhost / loopback / link-local / private IPv4 and IPv6
+#   • Userinfo in authority component (user:pass@host)
+#   • Encoded CR (%0D) or LF (%0A) in any casing, including double-encoding
+#
+# LIMITATIONS (portable Bash)
+#
+#   DNS rebinding cannot be fully prevented in a shell script.  After
+#   validate_url() accepts a hostname, a malicious DNS server could
+#   resolve it to a private IP on the actual TCP connect.  Mitigations
+#   available to the operator include: local DNS-over-HTTPS, a hosts
+#   file entry, or a proxy that enforces DNS pinning.
+# =============================================================================
+
+# Exact-allowlist hosts (sorted, one per line for easy diffing)
+readonly _BC_ALLOWED_HOSTS=(
+    "api.github.com"
+    "crabnebula.app"
+    "downloads.sourceforge.net"
+    "factory.ai"
+    "formulae.brew.sh"
+    "github.com"
+    "raw.githubusercontent.com"
+    "registry.npmjs.org"
+    "sourceforge.net"
+)
+
+# validate_url — enforce the single URL boundary policy.
+#
+# Returns 0 if the URL is permitted, 1 otherwise (with a diagnostic
+# message on stderr).
 validate_url() {
     local url="$1"
-    
-    # Check for empty URL
+
+    # ---- Empty ----
     if [[ -z "$url" ]]; then
         echo "Error: Empty URL provided" >&2
         return 1
     fi
-    
-    # Allow only HTTPS (secure) or HTTP for specific endpoints
-    if [[ ! "$url" =~ ^https?:// ]]; then
-        echo "Error: Only HTTP/HTTPS URLs are allowed: $url" >&2
+
+    # ---- Scheme: HTTPS only ----
+    if [[ ! "$url" =~ ^https:// ]]; then
+        echo "Error: Only HTTPS URLs are allowed: $url" >&2
         return 1
     fi
-    
-    # Define allowed domains
-    local allowed_domains=(
-        "api.github.com"
-        "github.com"
-        "raw.githubusercontent.com"
-        "formulae.brew.sh"
-        "registry.npmjs.org"
-    )
-    
-    # Extract domain from URL
-    local domain
-    domain=$(echo "$url" | sed -E 's|^https?://([^/]*).*|\1|')
-    
-    # Check if domain is in allowed list
+
+    if [[ "$url" == *$'\r'* || "$url" == *$'\n'* || "$url" == *$'\t'* || "$url" == *'\\'* ]]; then
+        echo "Error: Control characters and backslashes are not allowed in URLs" >&2
+        return 1
+    fi
+
+    # ---- Dangerous schemes already handled above, but guard anyway ----
+    case "$url" in
+        javascript:*|data:*|file:*|ftp:*|gopher:*|dict:*|ldap:*)
+            echo "Error: Dangerous scheme: $url" >&2
+            return 1
+            ;;
+    esac
+
+    # ---- Strip userinfo: reject if present ----
+    # After stripping "https://", everything up to the first path, query,
+    # or fragment delimiter is the authority. If it contains "@" the
+    # authority has userinfo.
+    local authority="${url#https://}"
+    authority="${authority%%/*}"
+    authority="${authority%%\?*}"
+    authority="${authority%%#*}"
+    if [[ "$authority" == *"@"* ]]; then
+        echo "Error: Userinfo not allowed in URL: $url" >&2
+        return 1
+    fi
+
+    # ---- Extract host (strip port if present) ----
+    local host=""
+    local port=""
+    if [[ "$authority" == \[*\]* ]]; then
+        host="${authority#\[}"
+        host="${host%%\]*}"
+        local after_bracket="${authority#*\]}"
+        [[ -z "$after_bracket" ]] || port="${after_bracket#:}"
+    else
+        host="${authority%%:*}"
+        [[ "$authority" == *:* ]] && port="${authority#*:}"
+    fi
+    if [[ -n "$port" && "$port" != "443" ]]; then
+        echo "Error: Only the default HTTPS port is allowed: $port" >&2
+        return 1
+    fi
+
+    # ---- Reject encoded CR / LF (any casing, double-encoding) ----
+    local lowered="${url,,}"
+    # Check for raw percent-encoded CR/LF patterns at any depth
+    if [[ "$lowered" == *"%0d"* || "$lowered" == *"%0a"* ]]; then
+        echo "Error: Encoded CR/LF not allowed: $url" >&2
+        return 1
+    fi
+    # Also check for double-encoded forms (%25 = literal %)
+    if [[ "$lowered" == *"%250d"* || "$lowered" == *"%250a"* ]]; then
+        echo "Error: Double-encoded CR/LF not allowed: $url" >&2
+        return 1
+    fi
+
+    # ---- Reject private / loopback / link-local IPv4 ----
+    case "$host" in
+        127.*|10.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*|192.168.*|169.254.*)
+            echo "Error: Private/reserved IPv4 not allowed: $host" >&2
+            return 1
+            ;;
+    esac
+
+    # ---- Reject localhost ----
+    if [[ "$host" == "localhost" ]]; then
+        echo "Error: localhost not allowed" >&2
+        return 1
+    fi
+
+    # ---- Reject IPv6 loopback / link-local / ULA ----
+    case "$host" in
+        ::1|::|0:0:0:0:0:0:0:1|0:0:0:0:0:0:0:0)
+            echo "Error: IPv6 loopback not allowed: $host" >&2
+            return 1
+            ;;
+        fe80:*|fc00:*|fd00:*)
+            echo "Error: IPv6 link-local/ULA not allowed: $host" >&2
+            return 1
+            ;;
+    esac
+
+    # ---- Exact host allowlist (no subdomain/suffix tricks) ----
     local allowed=false
-    for allowed_domain in "${allowed_domains[@]}"; do
-        if [[ "$domain" == "$allowed_domain" || "$domain" == *".$allowed_domain" ]]; then
+    local ah
+    for ah in "${_BC_ALLOWED_HOSTS[@]}"; do
+        if [[ "$host" == "$ah" ]]; then
             allowed=true
             break
         fi
     done
-    
     if [[ "$allowed" != "true" ]]; then
-        echo "Error: Domain not allowed: $domain" >&2
+        echo "Error: Domain not allowed: $host" >&2
         return 1
     fi
-    
-    # Check for suspicious URL patterns (allow @ in legitimate package repository URLs)
-    if [[ "$url" == *"%0a"* ]] || [[ "$url" == *"%0d"* ]] || [[ "$url" == "javascript:"* ]] || [[ "$url" == "data:"* ]] || [[ "$url" == "file:"* ]] || ([[ "$url" == *"@"* ]] && [[ ! "$url" =~ ^https://(registry\.npmjs\.org|formulae\.brew\.sh|raw\.githubusercontent\.com|api\.github\.com)/ ]]); then
-        echo "Error: Suspicious URL pattern detected: $url" >&2
-        return 1
-    fi
-    
+
     return 0
 }
 
-# Function to fetch text content (non-JSON) with retries
-fetch_url_with_retry_text() {
+# Internal helper: perform a single policy-checked HTTP request without
+# auto-following redirects. Returns a body with status 0, a resolved redirect
+# URL with status 2, or status 1 on request failure.
+#
+# Args:
+#   $1  URL (must already pass validate_url)
+#   $2  GitHub token (optional; sent only to api.github.com)
+_bc_fetch_one() {
     local url="$1"
-    
-    # Basic URL safety check (allow any domain for text fetches)
-    if [[ -z "$url" ]] || [[ ! "$url" =~ ^https?:// ]]; then
-        echo "Error: Invalid URL: $url" >&2
+    local token="${2:-}"
+
+    local tmpdir
+    tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/bcfetch.XXXXXX") || return 1
+
+    local headers_file="$tmpdir/headers"
+    local body_file="$tmpdir/body"
+    local status=0
+    local curl_args=(
+        -s -o "$body_file" -D "$headers_file"
+        --max-time 10
+        --connect-timeout 5
+        --fail
+        --proto =https
+        --user-agent "brew-change/1.0"
+        --no-progress-meter
+    )
+
+    if [[ -n "$token" && "$url" == https://api.github.com/* ]]; then
+        curl_args+=(-H "Authorization: token ${token}")
+    fi
+    curl_args+=("$url")
+
+    # Request without --location: capture headers, don't auto-follow
+    curl "${curl_args[@]}" 2>/dev/null || status=$?
+
+    local http_code=""
+    http_code=$(grep -i '^HTTP/' "$headers_file" 2>/dev/null | tail -1 | grep -o '[0-9]\{3\}' || true)
+
+    # 3xx redirect: parse Location header
+    if [[ "$http_code" =~ ^3 ]]; then
+        local location=""
+        location=$(grep -i '^location:' "$headers_file" 2>/dev/null | head -1 | sed 's/^[Ll]ocation:[[:space:]]*//' | tr -d '\r\n' || true)
+        if [[ -n "$location" ]]; then
+            # Resolve relative URLs against the request URL (same origin only)
+            if [[ "$location" != https://* && "$location" != http://* ]]; then
+                if [[ "$location" == //* ]]; then
+                    location="https:${location}"
+                elif [[ "$location" == /* ]]; then
+                    # Absolute path: prepend scheme + host
+                    local host_part="${url#https://}"
+                    host_part="${host_part%%[/?#]*}"
+                    location="https://${host_part}${location}"
+                elif [[ "$location" == \?* ]]; then
+                    # Query-only reference: retain the current path.
+                    local current_without_query="${url%%\?*}"
+                    current_without_query="${current_without_query%%#*}"
+                    location="${current_without_query}${location}"
+                else
+                    # Relative path: prepend directory of current URL
+                    local base_url="${url%%[?#]*}"
+                    local origin_authority="${base_url#https://}"
+                    origin_authority="${origin_authority%%/*}"
+                    local origin="https://${origin_authority}"
+                    local base_path="${base_url#${origin}}"
+                    if [[ -z "$base_path" || "$base_path" != */* ]]; then
+                        location="${origin}/${location}"
+                    else
+                        location="${origin}${base_path%/*}/${location}"
+                    fi
+                fi
+            fi
+            printf '%s\n' "$location"
+        fi
+        rm -rf "$tmpdir"
+        return 2
+    fi
+
+    if [[ $status -ne 0 ]]; then
+        rm -rf "$tmpdir"
         return 1
     fi
-    
+
+    cat "$body_file"
+    rm -rf "$tmpdir"
+    return 0
+}
+
+_bc_fetch_with_redirects() {
+    local current_url="$1"
+    local token="${2:-}"
+    local redirects=0
+    local response=""
+    local fetch_status=0
+
+    while true; do
+        if response=$(_bc_fetch_one "$current_url" "$token"); then
+            printf '%s' "$response"
+            return 0
+        else
+            fetch_status=$?
+        fi
+
+        [[ $fetch_status -eq 2 && -n "$response" ]] || return 1
+        if ! validate_url "$response"; then
+            echo "Warning: Redirect target not allowed: $response" >&2
+            return 1
+        fi
+        if [[ $redirects -ge 2 ]]; then
+            echo "Warning: Too many redirects for URL: $1" >&2
+            return 1
+        fi
+
+        current_url="$response"
+        redirects=$((redirects + 1))
+    done
+}
+
+# Function to fetch text content (non-JSON) with retries and policy enforcement.
+# Uses the same validate_url() as the JSON helper.
+fetch_url_with_retry_text() {
+    local url="$1"
+
+    # Enforce URL policy
+    if ! validate_url "$url"; then
+        return 1
+    fi
+
     local attempt=1
     while [[ $attempt -le $MAX_RETRIES ]]; do
-        local response
-        local curl_exit_code
-        
-        # Use curl for text content (no JSON validation)
-        if response=$(curl -s \
-            --max-time 10 \
-            --connect-timeout 5 \
-            --retry 1 \
-            --retry-delay 1 \
-            --retry-max-time 15 \
-            --fail \
-            --location \
-            --max-redirs 2 \
-            --proto =https,http \
-            --proto-redir =https,http \
-            --user-agent "brew-change/1.0" \
-            --no-progress-meter \
-            "$url" 2>/dev/null); then
-            
-            # Return response if not empty
+        local response=""
+        if response=$(_bc_fetch_with_redirects "$url"); then
             if [[ -n "$response" ]]; then
-                echo "$response"
+                printf '%s\n' "$response"
                 return 0
             fi
-        else
-            curl_exit_code=$?
-            # Only show curl errors for final attempt
-            if [[ $attempt -eq $MAX_RETRIES ]]; then
-                case $curl_exit_code in
-                    6)  echo "Warning: Could not resolve host for URL: $url" >&2 ;;
-                    7)  echo "Warning: Failed to connect to host for URL: $url" >&2 ;;
-                    22) echo "Warning: HTTP error returned for URL: $url" >&2 ;;
-                    28) echo "Warning: Operation timeout for URL: $url" >&2 ;;
-                    35) echo "Warning: SSL connect error for URL: $url" >&2 ;;
-                    60) echo "Warning: SSL certificate problem for URL: $url" >&2 ;;
-                    *)  echo "Warning: Curl error $curl_exit_code for URL: $url" >&2 ;;
-                esac
-            fi
         fi
-        
+
         # Handle retry logic
         if handle_network_error $attempt $MAX_RETRIES "$url"; then
             return 1
         fi
         ((attempt++))
     done
-    
+
     return 1
 }
 
-# Function to fetch URL with robust retries and caching
+# Shared policy-aware authenticated fetch for GitHub API requests.
+# Sends Authorization header ONLY when the host is api.github.com.
+# All requests go through validate_url and manual redirect following.
+#
+# Args:
+#   $1  URL
+#   $2  Auth token (optional; if empty, request is unauthenticated)
+#
+# Stdout: response body on success
+# Returns: 0 on success, 1 on failure
+fetch_url_policy_aware() {
+    local url="$1"
+    local token="${2:-}"
+
+    # Enforce URL policy
+    if ! validate_url "$url"; then
+        return 1
+    fi
+
+    local attempt=1
+
+    while [[ $attempt -le $MAX_RETRIES ]]; do
+        local response=""
+        if response=$(_bc_fetch_with_redirects "$url" "$token"); then
+            if [[ -n "$response" ]]; then
+                printf '%s\n' "$response"
+                return 0
+            fi
+        fi
+
+        if handle_network_error $attempt $MAX_RETRIES "$url"; then
+            return 1
+        fi
+        ((attempt++))
+    done
+
+    return 1
+}
+
+# Function to fetch URL with robust retries, caching, and policy enforcement.
+# Uses validate_url() and manual redirect following (max 2 hops).
 fetch_url_with_retry() {
     local url="$1"
-    local cache_file=$(get_cache_file "$url")
-    
+    local cache_file
+    cache_file=$(get_cache_file "$url")
+
     # Validate URL before processing
     if ! validate_url "$url"; then
         return 1
     fi
-    
+
     # Check cache first
     if is_cache_valid "$cache_file"; then
         local cached_response
@@ -337,70 +584,41 @@ fetch_url_with_retry() {
             fi
         fi
     fi
-    
+
     local attempt=1
     while [[ $attempt -le $MAX_RETRIES ]]; do
-        local response
-        local curl_exit_code
-        
-        # Use curl with comprehensive security and error handling
-        if response=$(curl -s \
-            --max-time 5 \
-            --connect-timeout 3 \
-            --retry 1 \
-            --retry-delay 1 \
-            --retry-max-time 10 \
-            --fail \
-            --location \
-            --max-redirs 2 \
-            --proto =https,http \
-            --proto-redir =https,http \
-            --user-agent "brew-change/1.0" \
-            --no-progress-meter \
-            "$url" 2>/dev/null); then
-            
-            # Validate response
-            if validate_json_response "$response" "$url"; then
-                # Cache validated response atomically
-                if write_cache_atomic "$response" "$cache_file"; then
-                    echo "$response"
-                    return 0
-                else
-                    echo "Warning: Failed to cache response for $url" >&2
-                    echo "$response"
-                    return 0
+        local response=""
+        if response=$(_bc_fetch_with_redirects "$url"); then
+            if [[ -n "$response" ]]; then
+                # Validate response
+                if validate_json_response "$response" "$url"; then
+                    # Cache validated response atomically
+                    if write_cache_atomic "$response" "$cache_file"; then
+                        echo "$response"
+                        return 0
+                    else
+                        echo "Warning: Failed to cache response for $url" >&2
+                        echo "$response"
+                        return 0
+                    fi
                 fi
             fi
-        else
-            curl_exit_code=$?
-            # Only show curl errors for final attempt to reduce noise
-            if [[ $attempt -eq $MAX_RETRIES ]]; then
-                case $curl_exit_code in
-                    6)  echo "Warning: Could not resolve host for URL: $url" >&2 ;;
-                    7)  echo "Warning: Failed to connect to host for URL: $url" >&2 ;;
-                    22) echo "Warning: HTTP error returned for URL: $url" >&2 ;;
-                    28) echo "Warning: Operation timeout for URL: $url" >&2 ;;
-                    35) echo "Warning: SSL connect error for URL: $url" >&2 ;;
-                    60) echo "Warning: SSL certificate problem for URL: $url" >&2 ;;
-                    *)  echo "Warning: Curl error $curl_exit_code for URL: $url" >&2 ;;
-                esac
-            fi
         fi
-        
+
         # Handle retry logic
         if handle_network_error $attempt $MAX_RETRIES "$url"; then
             return 1
         fi
         ((attempt++))
     done
-    
+
     # All retries failed, try to use stale cache if available
     if [[ -f "$cache_file" ]]; then
         echo "Warning: Using stale cache for $url" >&2
         cat "$cache_file"
         return 0
     fi
-    
+
     return 1
 }
 
@@ -529,6 +747,7 @@ test_network_connectivity() {
     )
     
     for url in "${test_urls[@]}"; do
+        validate_url "$url" >/dev/null 2>&1 || continue
         if curl -s --max-time 3 --connect-timeout 2 "$url" >/dev/null 2>&1; then
             return 0
         fi

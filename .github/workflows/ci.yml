@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic:
+    name: Deterministic tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bash jq shellcheck
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install bash jq shellcheck
+
+      - name: Syntax and static analysis
+        run: |
+          BASH_BIN=bash
+          if [[ "${RUNNER_OS}" == "macOS" ]]; then
+            BASH_BIN="$(brew --prefix bash)/bin/bash"
+          fi
+          "$BASH_BIN" -n brew-change lib/*.sh scripts/*.sh tests/*.sh tests/lib/*.sh
+          # Block the existing repository-wide error baseline, then apply
+          # default severity to every script introduced or changed here.
+          shellcheck --severity=error brew-change lib/*.sh scripts/*.sh tests/*.sh tests/lib/*.sh
+          shellcheck scripts/release.sh tests/run-deterministic.sh tests/test-release-preflight.sh
+
+      - name: Run fixture-backed suites
+        run: |
+          BASH_BIN=bash
+          if [[ "${RUNNER_OS}" == "macOS" ]]; then
+            BASH_BIN="$(brew --prefix bash)/bin/bash"
+          fi
+          "$BASH_BIN" tests/run-deterministic.sh

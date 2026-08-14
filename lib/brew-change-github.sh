@@ -243,15 +243,8 @@ fetch_github_release() {
     # Initialize GitHub authentication
     init_github_auth
 
-    # Try authenticated requests first if token exists
-    if [[ -n "$GITHUB_AUTH_TOKEN" ]]; then
-        response=$(curl -s -H "Authorization: token ${GITHUB_AUTH_TOKEN}" --max-time 10 "$release_url" 2>/dev/null)
-    fi
-
-    # Fallback to unauthenticated if auth failed or not available
-    if [[ -z "$response" ]]; then
-        response=$(fetch_url_with_retry "$release_url" 2>/dev/null)
-    fi
+    # Use policy-aware fetch (handles auth + URL validation + redirects)
+    response=$(fetch_url_policy_aware "$release_url" "$GITHUB_AUTH_TOKEN" 2>/dev/null)
 
     # If direct tag lookup failed, try with 'v' prefix if not already present
     if [[ -z "$response" || "$response" == "null" || $(echo "$response" | jq -r '.message' 2>/dev/null) == "Not Found" ]]; then
@@ -259,14 +252,8 @@ fetch_github_release() {
             local vtag="v${tag}"
             local vrelease_url="https://api.github.com/repos/${repo}/releases/tags/${vtag}"
 
-            # Try with v prefix
-            if [[ -n "$GITHUB_AUTH_TOKEN" ]]; then
-                response=$(curl -s -H "Authorization: token ${GITHUB_AUTH_TOKEN}" --max-time 10 "$vrelease_url" 2>/dev/null)
-            fi
-
-            if [[ -z "$response" ]]; then
-                response=$(fetch_url_with_retry "$vrelease_url" 2>/dev/null)
-            fi
+            # Try with v prefix via policy-aware fetch
+            response=$(fetch_url_policy_aware "$vrelease_url" "$GITHUB_AUTH_TOKEN" 2>/dev/null)
 
             # If we found a response with v prefix, update the tag for later use
             if [[ -n "$response" && "$response" != "null" && $(echo "$response" | jq -r '.message // empty' 2>/dev/null) != "Not Found" ]]; then
@@ -280,15 +267,8 @@ fetch_github_release() {
         local latest_releases_url="https://api.github.com/repos/${repo}/releases"
         local latest_response=""
 
-        # Try authenticated for latest releases
-        if [[ -n "$GITHUB_AUTH_TOKEN" ]]; then
-            latest_response=$(curl -s -H "Authorization: token ${GITHUB_AUTH_TOKEN}" --max-time 10 "$latest_releases_url" 2>/dev/null)
-        fi
-
-        # Fallback for latest releases
-        if [[ -z "$latest_response" ]]; then
-            latest_response=$(fetch_url_with_retry "$latest_releases_url" 2>/dev/null)
-        fi
+        # Use policy-aware fetch for latest releases
+        latest_response=$(fetch_url_policy_aware "$latest_releases_url" "$GITHUB_AUTH_TOKEN" 2>/dev/null)
 
         # Find a release that contains our version number (handle various formats)
         if [[ -n "$latest_response" && "$latest_response" != "null" ]]; then
@@ -320,35 +300,23 @@ fetch_github_release() {
     local tag_url="https://api.github.com/repos/${repo}/git/refs/tags/${tag}"
     local tag_response=""
 
-    # Try authenticated for tag lookup
-    if [[ -n "$GITHUB_AUTH_TOKEN" ]]; then
-        tag_response=$(curl -s -H "Authorization: token ${GITHUB_AUTH_TOKEN}" --max-time 10 "$tag_url" 2>/dev/null)
-    fi
-
-    # Fallback for tag lookup
-    if [[ -z "$tag_response" ]]; then
-        tag_response=$(fetch_url_with_retry "$tag_url" 2>/dev/null)
-    fi
+    # Use policy-aware fetch for tag lookup
+    tag_response=$(fetch_url_policy_aware "$tag_url" "$GITHUB_AUTH_TOKEN" 2>/dev/null)
 
     # If we found tag info, create a minimal release-like response
     if [[ -n "$tag_response" && "$tag_response" != "null" && $(echo "$tag_response" | jq -r '.message // empty' 2>/dev/null) != "Not Found" ]]; then
         # Try to get the commit date from the tag
-        local commit_url=$(echo "$tag_response" | jq -r '.object.url // empty' 2>/dev/null)
+        local commit_url
+        commit_url=$(echo "$tag_response" | jq -r '.object.url // empty' 2>/dev/null)
         if [[ -n "$commit_url" && "$commit_url" != "null" && "$commit_url" != "" ]]; then
             local commit_response=""
 
-            # Try authenticated for commit lookup
-            if [[ -n "$GITHUB_AUTH_TOKEN" ]]; then
-                commit_response=$(curl -s -H "Authorization: token ${GITHUB_AUTH_TOKEN}" --max-time 10 "$commit_url" 2>/dev/null)
-            fi
-
-            # Fallback for commit lookup
-            if [[ -z "$commit_response" ]]; then
-                commit_response=$(fetch_url_with_retry "$commit_url" 2>/dev/null)
-            fi
+            # Use policy-aware fetch for commit lookup
+            commit_response=$(fetch_url_policy_aware "$commit_url" "$GITHUB_AUTH_TOKEN" 2>/dev/null)
 
             if [[ -n "$commit_response" && "$commit_response" != "null" ]]; then
-                local commit_date=$(echo "$commit_response" | jq -r '.committer.date // empty' 2>/dev/null)
+                local commit_date
+                commit_date=$(echo "$commit_response" | jq -r '.committer.date // empty' 2>/dev/null)
                 if [[ -n "$commit_date" && "$commit_date" != "null" && "$commit_date" != "" ]]; then
                     # Create a minimal release-like response with tag date
                     echo "{\"tag_name\":\"$tag\",\"published_at\":\"$commit_date\",\"message\":\"Tag $tag\",\"html_url\":\"https://github.com/${repo}/releases/tag/${tag}\"}"

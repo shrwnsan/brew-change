@@ -46,34 +46,117 @@ is_interactive_mode() {
     [[ -t 0 ]]
 }
 
-# Four-option upgrade action prompt with spinner animation
-# Args:
-#   $1: Count of packages with breaking changes
-#   $2: Count of packages without breaking changes (safe)
-#   $3: Total outdated package count
-# Returns (via echo to stdout):
-#   "all", "safe", "choose", or "cancel"
-prompt_upgrade_action() {
-    local breaking_count="$1"
-    local safe_count="$2"
-    local total_count="$3"
+# Convert one prompt response into the upgrade action vocabulary.
+# May return "invalid" for unrecognized single-character input that is
+# not a recognized command (u/c/q or their long forms). Callers that loop
+# must handle "invalid" by reprompting.
+#
+# Empty response: selects "no-signal" only if no_signal_count > 0,
+# otherwise cancels. This applies only to a deliberate empty Enter from
+# the user (not EOF/timeout, which are handled by the caller).
+upgrade_action_from_response() {
+    local response="$1"
+    local no_signal_count="$2"
 
-    # Determine default based on whether breaking changes exist
-    local default_option="a"
-    if [[ "$breaking_count" -gt 0 ]]; then
-        default_option="s"
+    case "$response" in
+        u|upgrade) echo "no-signal" ;;
+        c|choose) echo "choose" ;;
+        q|quit) echo "cancel" ;;
+        ''|$'\n')
+            if [[ "$no_signal_count" -gt 0 ]]; then
+                echo "no-signal"
+            else
+                echo "cancel"
+            fi
+            ;;
+        *) echo "invalid" ;;
+    esac
+}
+
+# Keep a failed read (EOF or timeout) distinct from a deliberate empty Enter.
+upgrade_action_from_read() {
+    local read_succeeded="$1"
+    local response="$2"
+    local no_signal_count="$3"
+
+    if [[ "$read_succeeded" != "true" ]]; then
+        echo "cancel"
+    else
+        upgrade_action_from_response "$response" "$no_signal_count"
     fi
+}
+
+# Stop a spinner child and reap it.
+_stop_spinner() {
+    local spid="${1:-}"
+    [[ -z "$spid" ]] && return 0
+    kill "$spid" 2>/dev/null || true
+    wait "$spid" 2>/dev/null || true
+    if command -v unregister_pid >/dev/null 2>&1; then
+        unregister_pid "$spid"
+    fi
+}
+
+_restore_prompt_terminal() {
+    if [[ -n "${prompt_stty_state:-}" ]]; then
+        stty "$prompt_stty_state" < /dev/tty 2>/dev/null || true
+        prompt_stty_state=""
+    fi
+    if command -v unregister_terminal_state >/dev/null 2>&1; then
+        unregister_terminal_state
+    fi
+}
+
+_cleanup_upgrade_prompt() {
+    _restore_prompt_terminal
+    _stop_spinner "${spinner_pid:-}"
+    spinner_pid=""
+}
+
+_run_saved_trap() {
+    local definition="$1"
+    [[ -z "$definition" ]] && return 0
+    definition="${definition#trap -- }"
+    eval "set -- $definition"
+    eval "$1"
+}
+
+_handle_prompt_signal() {
+    local status="$1"
+    local previous_trap="$2"
+    _cleanup_upgrade_prompt
+    _run_saved_trap "$previous_trap"
+    exit "$status"
+}
+
+_restore_prompt_traps() {
+    trap - INT TERM
+    [[ -n "${prompt_previous_int_trap:-}" ]] && eval "$prompt_previous_int_trap"
+    [[ -n "${prompt_previous_term_trap:-}" ]] && eval "$prompt_previous_term_trap"
+    [[ "${prompt_installed_exit_trap:-false}" == "true" ]] && trap - EXIT
+}
+
+# Restricted upgrade action prompt with spinner animation.
+# Invalid input reprompts. q cancels. EOF/timeout cancels.
+# Empty Enter selects no-signal only if no_signal_count > 0, else cancels.
+#
+# Args:
+#   $1: Count of packages needing attention
+#   $2: Count of no-signal packages
+#   $3: Total outdated package count
+#   $4: Optional variable name to receive the action without a subshell
+# Returns (via the named variable, or stdout when omitted):
+#   "no-signal", "choose", or "cancel"  (never "invalid")
+prompt_upgrade_action() {
+    local no_signal_count="$2"
+    local output_var="${4:-}"
 
     # Build prompt text based on context
     local prompt_text
-    if [[ "$breaking_count" -eq 0 ]]; then
-        # All packages safe — no need for separate safe-only option
-        prompt_text="[a]ll (safe) / [c]hoose / [q]uit? "
-    elif [[ "$safe_count" -eq 0 ]]; then
-        # No safe packages — hide safe-only option
-        prompt_text="[a]ll / [c]hoose / [q]uit? "
+    if [[ "$no_signal_count" -gt 0 ]]; then
+        prompt_text="[u]pgrade no-signal ($no_signal_count) / [c]hoose / [q]uit? "
     else
-        prompt_text="[a]ll / [s]afe-only ($safe_count) / [c]hoose / [q]uit? "
+        prompt_text="[c]hoose / [q]uit? "
     fi
 
     # Helper text
@@ -82,52 +165,84 @@ prompt_upgrade_action() {
     echo "" > /dev/tty
 
     local prompt_width=$(( ${#prompt_text} + 6 ))
+    local spinner_pid=""
+    local prompt_stty_state=""
+    local prompt_previous_int_trap
+    local prompt_previous_term_trap
+    local prompt_installed_exit_trap=false
 
-    # Background spinner subshell: animates independently of the blocking read.
-    # Writes carriage-return overwrites to /dev/tty at ~8 FPS.
-    # Killed when read completes in the foreground.
-    local _PROMPT_ACTION_SPINNING="1"
-    (
-        local chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-        local idx=0
-        local len=${#chars}
-        while [[ "$_PROMPT_ACTION_SPINNING" == "1" ]]; do
-            printf "\r%s %s" "$prompt_text" "${chars:idx:1}" > /dev/tty
-            idx=$(( (idx + 1) % len ))
-            sleep 0.12
-        done
-    ) &
-    local spinner_pid=$!
-
-    # Block on single-character input from the terminal
-    local stty_saved
-    stty_saved="$(stty -g)"
-    stty -icanon -echo 2>/dev/null
-    IFS= read -r -n 1 response 2>/dev/null || response=""
-    stty "$stty_saved" 2>/dev/null
-
-    # Stop spinner and wait for clean exit
-    _PROMPT_ACTION_SPINNING="0"
-    kill "$spinner_pid" 2>/dev/null
-    wait "$spinner_pid" 2>/dev/null
-
-    # Clear any leftover spinner frame, then redraw with user's selection
-    printf "\r%*s\r" "$prompt_width" "" > /dev/tty
-    printf "%s%s" "$prompt_text" "$response" > /dev/tty
-    echo "" > /dev/tty
-
-    # Empty response -> use default
-    if [[ -z "$response" ]]; then
-        response="$default_option"
+    prompt_previous_int_trap="$(trap -p INT)"
+    prompt_previous_term_trap="$(trap -p TERM)"
+    trap '_handle_prompt_signal 130 "$prompt_previous_int_trap"' INT
+    trap '_handle_prompt_signal 143 "$prompt_previous_term_trap"' TERM
+    if [[ -z "$(trap -p EXIT)" ]]; then
+        trap '_cleanup_upgrade_prompt' EXIT
+        prompt_installed_exit_trap=true
     fi
 
-    case "$response" in
-        a|all)    echo "all" ;;
-        s|safe)   echo "safe" ;;   # Accepted even when not shown (backward compat)
-        c|choose) echo "choose" ;;
-        q|quit)   echo "cancel" ;;
-        *)        echo "$default_option" ;;   # Unknown key -> use default instead of cancelling
-    esac
+    while true; do
+        (
+            local chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+            local idx=0
+            local len=${#chars}
+            while true; do
+                printf "\r%s %s" "$prompt_text" "${chars:idx:1}" > /dev/tty
+                idx=$(( (idx + 1) % len ))
+                sleep 0.12
+            done
+        ) < /dev/null &
+        spinner_pid=$!
+        if command -v register_pid >/dev/null 2>&1; then
+            register_pid "$spinner_pid"
+        fi
+
+        prompt_stty_state="$(stty -g < /dev/tty)"
+        if command -v register_terminal_state >/dev/null 2>&1; then
+            register_terminal_state "$prompt_stty_state"
+        fi
+
+        local response=""
+        if ! IFS= read -r -N 1 -t 300 response 2>/dev/null; then
+            _cleanup_upgrade_prompt
+            printf "\r%*s\r" "$prompt_width" "" > /dev/tty
+            local resolved_action
+            resolved_action=$(upgrade_action_from_read "false" "" "$no_signal_count")
+            _restore_prompt_traps
+            if [[ -n "$output_var" ]]; then
+                printf -v "$output_var" '%s' "$resolved_action"
+            else
+                printf '%s\n' "$resolved_action"
+            fi
+            return 0
+        fi
+
+        _cleanup_upgrade_prompt
+
+        local resolved_action
+        resolved_action=$(upgrade_action_from_read "true" "$response" "$no_signal_count")
+
+        case "$resolved_action" in
+            invalid)
+                # Reprompt with hint
+                printf "\r%*s\r" "$prompt_width" "" > /dev/tty
+                echo "Invalid input '$response'. Type u/c/q." > /dev/tty
+                continue
+                ;;
+            *)
+                # Valid action (no-signal, choose, cancel)
+                printf "\r%*s\r" "$prompt_width" "" > /dev/tty
+                printf "%s%s" "$prompt_text" "$response" > /dev/tty
+                echo "" > /dev/tty
+                _restore_prompt_traps
+                if [[ -n "$output_var" ]]; then
+                    printf -v "$output_var" '%s' "$resolved_action"
+                else
+                    printf '%s\n' "$resolved_action"
+                fi
+                return 0
+                ;;
+        esac
+    done
 }
 
 # Interactive per-package selection prompt
@@ -144,12 +259,15 @@ prompt_package_selection() {
     echo "" > /dev/tty
 
     for pkg in "${packages[@]}"; do
-        local default_response="y"
+        local default_response="n"
         local breaking_marker=""
 
         if is_package_breaking "$pkg"; then
-            default_response="n"
             breaking_marker=" ⚠️"
+        elif is_package_default_selected "$pkg"; then
+            default_response="y"
+        else
+            breaking_marker=" ?"
         fi
 
         local prompt_text="  Upgrade $pkg$breaking_marker? [Y/n]: "
@@ -193,7 +311,7 @@ prompt_package_selection() {
 
 # Final confirmation before running brew upgrade
 # Args:
-#   $1: Description of what will be upgraded (e.g., "3 safe packages")
+#   $1: Description of what will be upgraded (e.g., "3 no-signal packages")
 #   $2...: Package names (optional, for display)
 # Returns:
 #   0: User confirmed

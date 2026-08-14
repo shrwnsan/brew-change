@@ -1,0 +1,9 @@
+{
+  "formulae": [
+    {"name": "node", "installed_versions": ["22.6.0"], "current_version": "22.8.0"}
+  ],
+  "casks": [
+    {"name": ["Rectangle", "Rectangle Pro"], "token": "rectangle", "installed_versions": ["0.88"], "current_version": "0.92"},
+    {"name": ["claude-code"], "token": null, "installed_versions": ["2.1.1"], "current_version": "2.1.2"}
+  ]
+}

@@ -20,7 +20,7 @@ brew-change -a
 # Show changelogs with interactive upgrade prompt
 brew-change -u
 
-# Preview upgrades without executing
+# Preview the no-signal package plan without executing it
 brew-change -u --dry-run
 
 # Highlight packages with breaking changes (-b implies -a)
@@ -45,10 +45,19 @@ brew-change --help
 
 - **Smart Package Detection**: GitHub, npm, third-party taps, hybrid packages, and more
 - **Parallel Processing**: Handles multiple packages simultaneously (45-50s for 13 packages)
-- **Breaking Changes Detection**: Automatically highlights packages with breaking changes using `-b` flag
+- **Honest Update Assessment**: Separates packages into attention, no-signal, and unknown instead of claiming an update is safe
+- **Preview Before Mutation**: Shows Homebrew's `upgrade --dry-run` output, warns about dependency/dependent effects, and asks for final confirmation
+- **TTY-Aware Progress**: Animates interactive work while keeping piped output deterministic
+- **Breaking Changes Detection**: Highlights packages with breaking-change evidence using `-b`
 - **Rich Release Info**: Full changelogs, commit history, and helpful links
 - **Revision Support**: Advanced handling of Homebrew revision numbers
 - **Performance Optimized**: 75% faster than original with intelligent caching
+
+### Upgrade behavior
+
+`brew-change -u` defaults only to packages whose fresh release evidence produced no risk signal. Packages marked **attention** or **unknown** are never bulk-selected. Before any upgrade, brew-change previews the exact named package list with Homebrew, then asks for immediate confirmation. Homebrew can still act on dependencies or dependents shown in that preview.
+
+In a pipe or other non-interactive environment, brew-change prints guidance and never starts an upgrade.
 
 ## 📦 Installation
 
@@ -75,8 +84,8 @@ brew-change works seamlessly across all platforms where Homebrew is available:
 |----------|---------------|--------|
 | **macOS (Intel)** | `/usr/local/bin/brew` | ✅ Fully supported |
 | **macOS (Apple Silicon)** | `/opt/homebrew/bin/brew` | ✅ Fully supported |
-| **Linux** | `/home/linuxbrew/.linuxbrew/bin/brew` | ✅ Fully supported |
-| **WSL (Windows Subsystem for Linux)** | `/home/linuxbrew/.linuxbrew/bin/brew` | ✅ Fully supported |
+| **Linux** | Detected with `brew --prefix` | ✅ Fully supported |
+| **WSL (Windows Subsystem for Linux)** | Detected with `brew --prefix` | ✅ Fully supported |
 
 The script automatically detects the correct library path using `brew --prefix`, ensuring compatibility across all Homebrew installations.
 
@@ -118,11 +127,13 @@ rm -rf ~/.cache/brew-change/*
 
 ## 📈 Recent Updates
 
-- **v1.5.8**: Fixed parallel mode - resolved `set -e` inheritance breaking parallel execution
-- **v1.5.7**: Fixed cask version display - handle both string and array names in `-v` flag output
-- **v1.5.6**: Fixed cask detection - use `.name` field for proper cask identification
-- **v1.5.5**: Fixed cask detection - use `.token` field for Homebrew JSON API v2
-- **v1.5.4**: Show `[not installed]` for uninstalled packages
+- **Unreleased trusted-update foundation**: Honest three-state assessments, canonical cask identities, exact package previews, final confirmation, deterministic tests, signal-safe terminal cleanup, and a strict evidence URL policy
+- **v1.11.0–v1.11.5**: Made `-u` interactive by default, added `--dry-run`, and refined prompt/spinner behavior
+- **v1.10.0–v1.10.1**: Improved interactive upgrade UX and ensured Homebrew receives `--yes`
+- **v1.9.0–v1.9.2**: Removed prompt timeouts and simplified prompt formatting
+- **v1.8.0–v1.8.8**: Added selective upgrades and iteratively hardened `/dev/tty` prompt handling and animation
+- **v1.7.0**: Applied the post-refactor code-review fixes
+- **v1.6.0**: Added positional multi-package support
 
 → **Full changelog**: [CHANGELOG.md](CHANGELOG.md)
 

@@ -126,21 +126,20 @@ assert_exit_code "validate_url accepts api.github.com" "0" "$?"
 validate_url "https://formulae.brew.sh/api/formula/test.json" 2>/dev/null
 assert_exit_code "validate_url accepts formulae.brew.sh" "0" "$?"
 
-# fetch_url_with_retry_text should accept non-allowlisted HTTPS domains
+# fetch_url_with_retry_text should reject non-allowlisted HTTPS domains (policy enforced)
 fetch_url_with_retry_text "" 2>/dev/null
 assert_exit_code "fetch_url_with_retry_text rejects empty URL" "1" "$?"
 
 fetch_url_with_retry_text "ftp://evil.com" 2>/dev/null
 assert_exit_code "fetch_url_with_retry_text rejects non-http" "1" "$?"
 
-# Non-allowlisted HTTPS domain should pass the guard (will fail on network, but not on validation)
-# We test the guard by checking it doesn't exit immediately with the "Invalid URL" error
+# Non-allowlisted HTTPS domain should be rejected by the URL policy
 result=$(fetch_url_with_retry_text "https://example.com/nonexistent" 2>&1) || true
-if [[ "$result" != *"Invalid URL"* ]]; then
-    echo -e "${GREEN}PASS${NC}: fetch_url_with_retry_text allows non-allowlisted HTTPS domain"
+if [[ "$result" == *"not allowed"* || "$result" == *"not Allowed"* ]]; then
+    echo -e "${GREEN}PASS${NC}: fetch_url_with_retry_text rejects non-allowlisted HTTPS domain"
     ((pass++))
 else
-    echo -e "${RED}FAIL${NC}: fetch_url_with_retry_text blocked non-allowlisted HTTPS domain"
+    echo -e "${RED}FAIL${NC}: fetch_url_with_retry_text allowed non-allowlisted HTTPS domain"
     ((fail++))
 fi
 
@@ -205,7 +204,11 @@ if [[ -f "$test_cache_file" ]]; then
     content=$(cat "$test_cache_file")
     assert_eq "Cached content matches" '{"test": true}' "$content"
     # Verify permissions
-    perms=$(stat -f "%Lp" "$test_cache_file" 2>/dev/null || stat -c "%a" "$test_cache_file" 2>/dev/null)
+    if stat -c "%a" "$test_cache_file" >/dev/null 2>&1; then
+        perms=$(stat -c "%a" "$test_cache_file")
+    else
+        perms=$(stat -f "%Lp" "$test_cache_file")
+    fi
     assert_eq "Cache file has secure permissions (600)" "600" "$perms"
     rm -f "$test_cache_file"
 else
