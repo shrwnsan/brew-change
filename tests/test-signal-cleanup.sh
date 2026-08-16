@@ -12,8 +12,8 @@
 #
 # Strategy: Directly invoke signal handler functions in subshells. This avoids
 # platform-specific issues with signal delivery to backgrounded bash processes.
-# The end-to-end signal delivery is covered by test-terminal-restoration.py
-# which uses PTY-based process groups.
+# Prompt handler chaining and terminal restoration are covered by
+# test-terminal-restoration.py using a PTY.
 
 set -uo pipefail
 
