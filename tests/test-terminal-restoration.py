@@ -102,8 +102,6 @@ kill -STOP "$$"
 
         if action == "eof":
             process.stdin.close()
-        elif action == signal.SIGINT:
-            os.kill(process.pid, signal.SIGINT)
         elif isinstance(action, int):
             os.kill(process.pid, action)
         else:
@@ -136,14 +134,70 @@ kill -STOP "$$"
         os.unlink(script.name)
 
 
+def prompt_signal_handler_scenario(signal_name, expected_status):
+    """Prompt signal cleanup restores terminal state and chains the handler."""
+    master, slave = pty.openpty()
+    script = tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False)
+    script.write(
+        f'''#!/usr/bin/env bash
+set -uo pipefail
+export BREW_CHANGE_SUBPROCESS=""
+source "{LIB}/brew-change-config.sh"
+source "{LIB}/brew-change-interactive.sh"
+echo READY > /dev/tty
+kill -STOP "$$"
+prompt_stty_state="$(stty -g < /dev/tty)"
+register_terminal_state "$prompt_stty_state"
+stty -echo < /dev/tty
+sleep 300 &
+spinner_pid=$!
+register_pid "$spinner_pid"
+previous_trap="$(trap -p {signal_name})"
+_handle_prompt_signal {expected_status} "$previous_trap"
+'''
+    )
+    script.close()
+
+    def attach_controlling_terminal():
+        os.setsid()
+        fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+
+    process = subprocess.Popen(
+        [BASH, script.name],
+        stdin=slave,
+        stdout=slave,
+        stderr=slave,
+        pass_fds=(slave,),
+        preexec_fn=attach_controlling_terminal,
+    )
+    try:
+        output = read_until(master, b"READY")
+        if b"READY" not in output:
+            raise AssertionError(f"handler never became ready: {output!r}")
+        initial = stty_state(master)
+        os.kill(process.pid, signal.SIGCONT)
+        status = process.wait(timeout=TIMEOUT)
+        final = stty_state(master)
+
+        assert status == expected_status, status
+        assert stable_stty_state(final) == stable_stty_state(initial), (
+            f"terminal changed: {initial!r} -> {final!r}"
+        )
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=2)
+        os.close(slave)
+        os.close(master)
+        os.unlink(script.name)
+
+
 def main():
     cases = [
         (b"u", 0, "no-signal", "success"),
         (b"\n", 0, "no-signal", "Enter default"),
         (b"q", 0, "cancel", "quit"),
         ("eof", 0, "cancel", "EOF"),
-        (signal.SIGINT, 130, None, "INT"),
-        (signal.SIGTERM, 143, None, "TERM"),
     ]
     failures = 0
     for action, status, result, name in cases:
@@ -153,6 +207,17 @@ def main():
         except Exception as exc:
             failures += 1
             print(f"FAIL: {name}: {exc}", flush=True)
+
+    for signal_name, status in (("INT", 130), ("TERM", 143)):
+        try:
+            prompt_signal_handler_scenario(signal_name, status)
+            print(
+                f"PASS: {signal_name} prompt handler restores terminal state",
+                flush=True,
+            )
+        except Exception as exc:
+            failures += 1
+            print(f"FAIL: {signal_name} prompt handler: {exc}", flush=True)
     raise SystemExit(1 if failures else 0)
 
 

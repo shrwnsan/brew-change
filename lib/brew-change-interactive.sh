@@ -202,25 +202,7 @@ prompt_upgrade_action() {
         fi
 
         local response=""
-        local read_succeeded=false
-        local read_status=0
-        local elapsed=0
-        while [[ $elapsed -lt 300 ]]; do
-            if IFS= read -r -N 1 -t 1 response 2>/dev/null; then
-                read_succeeded=true
-                break
-            else
-                read_status=$?
-            fi
-
-            # Bash reports timed reads above 128. Poll once per second so
-            # pending INT/TERM traps are handled promptly on macOS; stop
-            # immediately for EOF and other read failures.
-            [[ $read_status -gt 128 ]] || break
-            elapsed=$((elapsed + 1))
-        done
-
-        if [[ "$read_succeeded" != "true" ]]; then
+        if ! IFS= read -r -N 1 -t 300 response 2>/dev/null; then
             _cleanup_upgrade_prompt
             printf "\r%*s\r" "$prompt_width" "" > /dev/tty
             local resolved_action
