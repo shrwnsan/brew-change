@@ -38,6 +38,7 @@ run_suite "URL policy" bash "$SCRIPT_DIR/test-url-policy.sh"
 run_suite "release preflight" bash "$SCRIPT_DIR/test-release-preflight.sh"
 run_suite "progress renderer" bash "$SCRIPT_DIR/test-progress-renderer.sh"
 run_suite "dashboard fixtures" bash "$SCRIPT_DIR/test-dashboard-fixtures.sh"
+run_suite "dashboard renderer" bash "$SCRIPT_DIR/test-dashboard-render.sh"
 
 printf '\nDeterministic suites: %d passed, %d failed\n' "$passed" "$failed"
 [[ $failed -eq 0 ]]
