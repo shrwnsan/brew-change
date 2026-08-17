@@ -100,6 +100,17 @@ assessment_record_init() {
     ' <<< "$outdated_json" 2>/dev/null >> "$run_dir/assessment.jsonl"
 
     _invalidate_stale_brew_info_cache "$outdated_json"
+
+    # T2.4.3 progress: emit the inventory stage event. Inventory is one
+    # atomic jq batch over the outdated JSON — there are no per-package work
+    # moments, and the event contract reserves package labels for the
+    # evidence/classify stages — so the stage unit is the batch itself:
+    # a single event with total=1 lets the renderer reach its
+    # completed==total termination deterministically.
+    if [[ "${UPGRADE_STATUS_DIR:-}" == "$run_dir" ]] \
+        && declare -F append_progress_event >/dev/null 2>&1; then
+        append_progress_event "inventory" 1 1
+    fi
 }
 
 # Remove cross-run brew info cache entries that are older than the version

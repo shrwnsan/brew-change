@@ -158,6 +158,19 @@ classify_upgrade_evidence() {
         esac
     done
 
+    # T2.4.3 progress: one classify event per package (inventory order),
+    # after the classified assessment.jsonl is committed. The renderer
+    # dedups by package and reaches completed==total deterministically.
+    if [[ "${UPGRADE_STATUS_DIR:-}" == "$status_dir" ]] \
+        && declare -F append_progress_event >/dev/null 2>&1; then
+        local _prog_idx=0
+        for _pkg in ${ordered_pkgs[@]+"${ordered_pkgs[@]}"}; do
+            _prog_idx=$((_prog_idx + 1))
+            append_progress_event "classify" "$_prog_idx" \
+                "${#ordered_pkgs[@]}" "$_pkg"
+        done
+    fi
+
     mv "$out_tmp" "$records_file" || { rm -f "$out_tmp"; return 1; }
     return 0
 }
