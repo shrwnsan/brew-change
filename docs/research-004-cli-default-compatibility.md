@@ -1,6 +1,6 @@
 # T2.6.1 — Default-Behavior Compatibility Strategy (Decision Record)
 
-**Status:** Draft — pending maintainer approval
+**Status:** Ratified by maintainer (2026-08-18) — flip release will be a minor; naming `--dashboard` / `--plain` confirmed
 **Date:** 2026-08-18
 **Decides:** How the Phase 2 default inline dashboard (T2.6.2) reaches users without breaking existing behavior contracts.
 **Inputs:** Current-CLI behavior inventory (this repo, v1.12.1); external conventions research (docker/BuildKit, npm 7, Homebrew 4.0, pip, gh, git).
@@ -31,7 +31,7 @@ The dashboard default changes the first bullet **for interactive use only**. The
 3. **Escape hatches at flip.** `--plain` restores the name-only list for interactive runs; `BREW_CHANGE_PLAIN=1` pins it for rc files. Precedence: flag > env > default. Names follow Homebrew/GNU conventions (T2.6.1 acceptance).
 4. **Transient transition notice.** For one release after the flip, interactive dashboard runs print one stderr line: "Output view changed in vX.Y — use --plain for the old list." Removed the following release; no persistent state (Phase 3 constraint respected).
 5. **Exit codes and flag semantics unchanged.** Legacy flags (`-a`, `-v`, `-b`, `-u`, `-n`) keep their meanings; T2.6.2's regression tests pin them.
-6. **Version for the flip: minor with a leading "Changed defaults" changelog entry** (recommended), since the piped contract is unchanged and v1.11.0 set in-repo precedent. Alternative considered: major bump (npm/Homebrew precedent) — conservative but heavyweight for a single-user-maintained tap tool whose scripted surface is untouched. **Maintainer to ratify this point.**
+6. **Version for the flip: minor with a leading "Changed defaults" changelog entry** (recommended), since the piped contract is unchanged and v1.11.0 set in-repo precedent. Alternative considered: major bump (npm/Homebrew precedent) — conservative but heavyweight for a single-user-maintained tap tool whose scripted surface is untouched. **Ratified: minor bump (2026-08-18).**
 7. **Deprecation policy (documented before release, per T2.6.1 acceptance):** old-default escape hatches are supported until the Phase 3 usability review; removal, if ever, is announced two releases ahead and tracked in this document.
 
 ## 4. Rollout mapping
@@ -42,8 +42,8 @@ The dashboard default changes the first bullet **for interactive use only**. The
 | Flip | Next release (v1.14.0, minor — *pending ratification*) | Dashboard default on TTY; `--plain` / `BREW_CHANGE_PLAIN=1` escape; stderr notice |
 | Settle | Following release | Notice removed; escape hatches per §3.7 policy |
 
-## 5. Open items for maintainer
+## 5. Resolved items (maintainer ratification, 2026-08-18)
 
-1. Ratify minor-vs-major for the flip release (recommendation: minor, §3.6).
-2. Confirm `--plain`/`--dashboard` naming (alternatives: `--no-dashboard`, `--classic`).
-3. Note: the ~133s multi-package runtime is per-package `brew info --json=v2` subprocesses, not evidence fetching (already cached, 1h TTL). Whether inventory may be short-TTL cached is referred to the T2.1.1 spike terms of reference as a freshness-vs-speed design input.
+1. Flip release: **minor** (§3.6 ratified).
+2. Naming: **`--dashboard` / `--plain`** (§3.2, §3.3 ratified).
+3. Referred note: the ~133s multi-package runtime is per-package `brew info --json=v2` subprocesses, not evidence fetching (already cached, 1h TTL). Whether inventory may be short-TTL cached is referred to the T2.1.1 spike terms of reference as a freshness-vs-speed design input.
