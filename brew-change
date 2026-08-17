@@ -142,6 +142,7 @@ source "$LIB_DIR/brew-change-config.sh"
 source "$LIB_DIR/brew-change-utils.sh"
 source "$LIB_DIR/brew-change-interactive.sh"
 source "$LIB_DIR/brew-change-breaking.sh"
+source "$LIB_DIR/brew-change-assessment.sh"
 source "$LIB_DIR/brew-change-github.sh"
 source "$LIB_DIR/brew-change-npm.sh"
 source "$LIB_DIR/brew-change-brew.sh"
@@ -426,6 +427,9 @@ else
             UPGRADE_STATUS_DIR=$(mktemp -d -t brew-change-status.XXXXXX 2>/dev/null)
             export UPGRADE_STATUS_DIR
             register_temp_dir "$UPGRADE_STATUS_DIR"
+            # Inventory stage: emit one initial assessment record per outdated
+            # package into the per-run status dir (T2.1.2 record contract).
+            assessment_record_init "$UPGRADE_STATUS_DIR" "$outdated_packages"
         fi
 
         process_packages_parallel "$outdated_packages" "$PARALLEL_JOBS"

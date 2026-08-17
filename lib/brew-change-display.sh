@@ -303,17 +303,31 @@ is_major_version_transition() {
 }
 
 # Record an inventory-derived major-version risk before any release retrieval
-# path can return early. Retrieval status remains independent of the signal.
+# path can return early. The major-version-transition signal itself is derived
+# by the assessment engine from the record's installed/available versions, so
+# this writer only needs to pin an inventory-sourced retrieval status that
+# stays independent of the signal.
 record_major_version_evidence() {
     local package="$1"
     local current_version="$2"
     local latest_version="$3"
 
     is_major_version_transition "$current_version" "$latest_version" || return 0
-    [[ -n "${UPGRADE_STATUS_DIR:-}" && -d "$UPGRADE_STATUS_DIR" ]] || return 0
 
-    printf '%s\tinventory\tunavailable\t\tmajor version transition detected\tmajor-version-transition\n' \
-        "$package" >> "$UPGRADE_STATUS_DIR/results.tsv"
+    append_assessment_evidence "$package" "inventory" "" "" "unavailable" ""
+}
+
+# Record evidence for a non-GitHub release-notes retrieval outcome. Fresh
+# requires actual notes content plus a retrieval timestamp; anything else
+# degrades to failed (classification stays the engine's job).
+_record_non_github_evidence() {
+    local package="$1" source="$2" url="$3" notes="$4"
+
+    if [[ -n "$notes" && "$notes" != "null" ]]; then
+        append_assessment_evidence "$package" "$source" "$url" "$(date +%s)" "fresh" "$notes"
+    else
+        append_assessment_evidence "$package" "$source" "$url" "" "failed" ""
+    fi
 }
 
 # Function to show package changelog in full format
@@ -391,6 +405,7 @@ show_package_changelog_full() {
                     # Extract release notes (everything except the URL lines)
                     local release_notes=""
                     release_notes=$(echo "$non_github_result" | grep -v -E '^https?://' | sed '/^$/d')
+                    _record_non_github_evidence "$package" "$domain" "$web_url" "$release_notes"
 
                     if [[ -n "$release_notes" && "$release_notes" != "null" ]]; then
                         # Real release notes found - show them
@@ -425,7 +440,7 @@ show_package_changelog_full() {
                     # Show learn more link without the searching message
                     local brew_info=""
                     local homepage=""
-                    if brew_info=$(brew info --json=v2 "$package" 2>/dev/null); then
+                    if brew_info=$(get_brew_info "$package"); then
                         homepage=$(echo "$brew_info" | jq -r '.formulae[0].homepage // .casks[0].homepage // ""' 2>/dev/null || echo "")
 
                         # Convert http to https
@@ -499,6 +514,7 @@ show_package_changelog_full() {
                 # Extract release notes (everything except the URL lines)
                 local release_notes=""
                 release_notes=$(echo "$non_github_result" | grep -v -E '^https?://' | sed '/^$/d')
+                _record_non_github_evidence "$package" "$domain" "$web_url" "$release_notes"
 
                 if [[ -n "$release_notes" && "$release_notes" != "null" ]]; then
                     # Real release notes found - show them
@@ -548,8 +564,6 @@ show_package_changelog_full() {
     local evidence_source="unknown"
     local retrieval_status="failed"
     local retrieved_at=""
-    local evidence_reason="no release notes"
-    local risk_signal=""
 
     if [[ -n "$release_json" && "$release_json" != "null" ]]; then
         local body
@@ -571,41 +585,45 @@ show_package_changelog_full() {
             if [[ "$retrieved_at" =~ ^[1-9][0-9]*$ ]]; then
                 retrieval_status="fresh"
             fi
-            evidence_reason="release notes checked"
         else
             # Metadata alone is not adequate release evidence.
-            evidence_reason="release metadata only"
             retrieval_status="unavailable"
         fi
 
+        # Breaking-change keyword matching now happens in the assessment
+        # engine from the recorded evidence snapshot; only the display
+        # highlight is computed here.
         if [[ "$IDENTIFY_BREAKING" == "true" && -n "$body" && "$body" != "null" ]]; then
             if detect_breaking_changes "$body"; then
                 has_breaking="true"
-                risk_signal="breaking-change-keyword"
-                evidence_reason="breaking change detected in release notes"
             fi
         fi
     fi
 
-    # Detect major version transition as independent risk signal.
-    # Requires numeric major versions; non-numeric/unknown versions are
-    # NOT classified as transitions.
+    # Detect major version transition as independent display signal. The
+    # classification signal is derived by the engine from the record's
+    # installed/available versions.
     if [[ "$has_breaking" == "false" ]]; then
         if is_major_version_transition "$current_version" "$latest_version"; then
             has_breaking="true"
-            risk_signal="major-version-transition"
-            evidence_reason="major version transition detected"
-            # retrieval_status stays as-is; classification is independent
         fi
     fi
 
-    # Write evidence row for upgrade mode tracking (only when UPGRADE_STATUS_DIR is set)
-    # Row schema: package<TAB>source<TAB>retrieval_status<TAB>retrieved_at<TAB>reason<TAB>risk_signal
-    if [[ -n "${UPGRADE_STATUS_DIR:-}" && -d "${UPGRADE_STATUS_DIR}" ]]; then
-        printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-            "$package" "$evidence_source" "$retrieval_status" "$retrieved_at" "$evidence_reason" "$risk_signal" \
-            >> "${UPGRADE_STATUS_DIR}/results.tsv"
+    # Write evidence record for upgrade mode tracking (only when
+    # UPGRADE_STATUS_DIR is set). Workers append partial evidence rows to
+    # evidence.jsonl; classification is derived later from the record stream
+    # (versions + snapshot), not from this row's reason text.
+    local evidence_url=""
+    local evidence_snapshot=""
+    if [[ -n "$release_json" && "$release_json" != "null" ]]; then
+        evidence_url=$(echo "$release_json" | jq -r '.html_url // ""' 2>/dev/null)
+        if [[ -n "$body" && "$body" != "null" ]]; then
+            evidence_snapshot=$(sanitize_output "$body")
+        fi
     fi
+    append_assessment_evidence \
+        "$package" "$evidence_source" "$evidence_url" "$retrieved_at" \
+        "$retrieval_status" "$evidence_snapshot"
 
     # Create package header using shared function
     create_package_header "$package" "$current_version" "$latest_version" "$relative_date" "$package_info" "$has_breaking"

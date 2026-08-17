@@ -88,6 +88,7 @@ process_packages_parallel() {
 
     for (( i=0; i<${#packages[@]}; i+=batch_size )); do
         local pids=()
+        local pid_packages=()
         local temp_files=()
 
         # Process a batch
@@ -128,6 +129,7 @@ process_packages_parallel() {
             ) &
             local bg_pid=$!
             pids+=("$bg_pid")
+            pid_packages+=("$package")
 
             # Register PID for cleanup if available
             if [[ -z "${BREW_CHANGE_SUBPROCESS:-}" ]] && command -v register_pid >/dev/null 2>&1; then
@@ -144,6 +146,12 @@ process_packages_parallel() {
             fi
             # Update progress counter immediately after each job completes
             ((processed++)) || true
+            # Append a T2.4.1 progress event (workers never draw frames; the
+            # renderer owns all terminal output).
+            if declare -F append_progress_event >/dev/null 2>&1; then
+                append_progress_event "evidence" "$processed" "${#packages[@]}" \
+                    "${pid_packages[pid_idx]:-}"
+            fi
             if [[ ${#packages[@]} -gt 1 && -t 2 ]]; then
                 echo -ne "\r\033[KProgress: $processed/${#packages[@]} packages processed...\n" >&2
             fi

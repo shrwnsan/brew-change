@@ -2,8 +2,12 @@
 # Tests for the three-tier upgrade assessment classification.
 # Phase 1, Task 4: Replace binary breaking/safe with attention/no-signal/unknown.
 #
-# Producer schema (TSV per package in results.tsv):
-#   package<TAB>source<TAB>retrieval_status<TAB>retrieved_at<TAB>reason<TAB>risk_signal
+# Since T2.1.2 classification consumes assessment.jsonl records and
+# delegates to classify_assessment_records (the pure engine). Producer rows
+# below use the legacy 6-field shape and are converted to full records by
+# write_results_tsv; risk_signal values map to record semantics:
+#   major-version-transition  -> installed/available major bump
+#   breaking-change-keyword   -> evidence snapshot matching the breaking set
 #
 # Classification rules (from PRD 7.2, plan Task 4):
 #   1. Any trustworthy risk signal -> attention (even if retrieval failed)
@@ -12,11 +16,11 @@
 #
 # Collector:
 #   - Exactly one outcome per canonical inventory token
-#   - Duplicate rows: strongest precedence (attention > no-signal > unknown)
-#   - Rows not in inventory are ignored when inventory is supplied
-#   - Missing producer rows synthesized as unknown
+#   - Duplicate records: strongest precedence (attention > no-signal > unknown)
+#   - Records not in inventory are ignored when inventory is supplied
+#   - Missing records synthesized as unknown
 #   - Counts must sum to canonical inventory count
-#   - outcomes.tsv preserves inventory order
+#   - assessment.jsonl is rewritten in inventory order with classifications
 
 set -uo pipefail
 
@@ -136,7 +140,7 @@ assert_outcomes_count() {
 assert_outcomes_field() {
     local desc="$1" tsv_path="$2" pkg="$3" field_idx="$4" expected="$5"
     local actual
-    actual=$(grep "^${pkg}	" "$tsv_path" | cut -f"$field_idx")
+    actual=$(grep -F "\"package\":\"$pkg\"" "$tsv_path" | head -1 | jq -r "$field_idx")
     if [[ "$expected" == "$actual" ]]; then
         echo -e "${GREEN}PASS${NC}: $desc"
         ((pass++))
@@ -152,9 +156,47 @@ assert_outcomes_field() {
 write_results_tsv() {
     local dir="$1"; shift
     mkdir -p "$dir"
-    : > "$dir/results.tsv"
+    rm -f "$dir/assessment.jsonl" "$dir/evidence.jsonl"
+    : > "$dir/assessment.jsonl"
+    local row pkg source status retrieved_at reason signal snapshot inst avail
     for row in "$@"; do
-        printf '%s\n' "$row" >> "$dir/results.tsv"
+        pkg=$(cut -f1 <<< "$row")
+        source=$(cut -f2 <<< "$row")
+        status=$(cut -f3 <<< "$row")
+        retrieved_at=$(cut -f4 <<< "$row")
+        reason=$(cut -f5 <<< "$row")
+        signal=$(cut -f6 <<< "$row")
+        snapshot=""
+        inst="2.1.0"
+        avail="2.2.0"
+        if [[ "$signal" == "major-version-transition" ]]; then
+            inst="1.9.0"
+            avail="2.0.0"
+        elif [[ "$signal" == "breaking-change-keyword" ]]; then
+            snapshot="BREAKING: detected in release notes"
+        fi
+        jq -cn \
+            --arg package "$pkg" --arg source "$source" --arg status "$status" \
+            --arg retrieved_at "$retrieved_at" --arg snapshot "$snapshot" \
+            --arg inst "$inst" --arg avail "$avail" '
+            {
+                package: $package,
+                display_name: $package,
+                kind: "formula",
+                installed_version: $inst,
+                available_version: $avail,
+                evidence_source: (if $source == "" then null else $source end),
+                evidence_url: null,
+                retrieved_at: (if ($retrieved_at | test("^[1-9][0-9]*$")) then ($retrieved_at | tonumber) else null end),
+                retrieval_status: (if $status == "" then null else $status end),
+                evidence_snapshot: (if $snapshot == "" then null else $snapshot end),
+                classification: "",
+                reasons: [],
+                matched_signals: [],
+                assessment_recommendation: false,
+                operational_eligibility: true,
+                default_selected: false
+            }' >> "$dir/assessment.jsonl"
     done
 }
 
@@ -323,8 +365,8 @@ assert_array_contents "NO_SIGNAL: git only" "git" -- NO_SIGNAL_PKGS
 assert_array_contents "UNKNOWN: firefox synthesized" "firefox" -- UNKNOWN_PKGS
 
 echo ""
-echo "Test 17: no producer rows -> all unknown"
-: > "$TEST_STATUS_DIR/results.tsv"
+echo "Test 17: no producer records -> all unknown"
+rm -f "$TEST_STATUS_DIR/assessment.jsonl"
 INVENTORY_PKGS=("pkg-a" "pkg-b" "pkg-c")
 classify_upgrade_evidence "$TEST_STATUS_DIR" "${INVENTORY_PKGS[@]}"
 assert_array_contents "ATTENTION empty" -- ATTENTION_PKGS
@@ -332,8 +374,8 @@ assert_array_contents "NO_SIGNAL empty" -- NO_SIGNAL_PKGS
 assert_array_contents "all UNKNOWN" "pkg-a" "pkg-b" "pkg-c" -- UNKNOWN_PKGS
 
 echo ""
-echo "Test 18: no results file -> all unknown"
-rm -f "$TEST_STATUS_DIR/results.tsv"
+echo "Test 18: no assessment stream -> all unknown"
+rm -f "$TEST_STATUS_DIR/assessment.jsonl"
 INVENTORY_PKGS=("pkg-x")
 classify_upgrade_evidence "$TEST_STATUS_DIR" "${INVENTORY_PKGS[@]}"
 assert_array_contents "all UNKNOWN from missing file" "pkg-x" -- UNKNOWN_PKGS
@@ -612,16 +654,16 @@ write_results_tsv "$TEST_STATUS_DIR" \
 INVENTORY_PKGS=("bravo" "alpha" "charlie")
 classify_upgrade_evidence "$TEST_STATUS_DIR" "${INVENTORY_PKGS[@]}"
 
-# Check outcomes.tsv preserves inventory order
-if [[ -f "$TEST_STATUS_DIR/outcomes.tsv" ]]; then
-    local_outcomes_line1=$(sed -n '1p' "$TEST_STATUS_DIR/outcomes.tsv" | cut -f1)
-    local_outcomes_line2=$(sed -n '2p' "$TEST_STATUS_DIR/outcomes.tsv" | cut -f1)
-    local_outcomes_line3=$(sed -n '3p' "$TEST_STATUS_DIR/outcomes.tsv" | cut -f1)
-    assert_eq "outcomes row 1 = bravo (inventory order)" "bravo" "$local_outcomes_line1"
-    assert_eq "outcomes row 2 = alpha (inventory order)" "alpha" "$local_outcomes_line2"
-    assert_eq "outcomes row 3 = charlie (inventory order)" "charlie" "$local_outcomes_line3"
+# Check assessment.jsonl preserves inventory order after classification
+if [[ -f "$TEST_STATUS_DIR/assessment.jsonl" ]]; then
+    local_outcomes_line1=$(sed -n '1p' "$TEST_STATUS_DIR/assessment.jsonl" | jq -r '.package')
+    local_outcomes_line2=$(sed -n '2p' "$TEST_STATUS_DIR/assessment.jsonl" | jq -r '.package')
+    local_outcomes_line3=$(sed -n '3p' "$TEST_STATUS_DIR/assessment.jsonl" | jq -r '.package')
+    assert_eq "record row 1 = bravo (inventory order)" "bravo" "$local_outcomes_line1"
+    assert_eq "record row 2 = alpha (inventory order)" "alpha" "$local_outcomes_line2"
+    assert_eq "record row 3 = charlie (inventory order)" "charlie" "$local_outcomes_line3"
 else
-    echo -e "${RED}FAIL${NC}: outcomes.tsv not created"
+    echo -e "${RED}FAIL${NC}: assessment.jsonl not created"
     ((fail++))
 fi
 
@@ -657,35 +699,34 @@ write_results_tsv "$TEST_STATUS_DIR" \
 INVENTORY_PKGS=("git" "node" "firefox")
 classify_upgrade_evidence "$TEST_STATUS_DIR" "${INVENTORY_PKGS[@]}"
 
-if [[ -f "$TEST_STATUS_DIR/outcomes.tsv" ]]; then
-    assert_outcomes_count "outcomes.tsv has 3 rows" "3" "$TEST_STATUS_DIR/outcomes.tsv"
-    assert_outcomes_field "git retrieval_status in outcomes" "$TEST_STATUS_DIR/outcomes.tsv" "git" 3 "fresh"
-    assert_outcomes_field "git classification in outcomes" "$TEST_STATUS_DIR/outcomes.tsv" "git" 7 "no-signal"
-    assert_outcomes_field "node classification in outcomes" "$TEST_STATUS_DIR/outcomes.tsv" "node" 7 "attention"
-    assert_outcomes_field "firefox retrieval_status synthesized" "$TEST_STATUS_DIR/outcomes.tsv" "firefox" 3 "unavailable"
-    assert_outcomes_field "firefox reason synthesized" "$TEST_STATUS_DIR/outcomes.tsv" "firefox" 5 "missing"
-    assert_outcomes_field "firefox risk_signal empty" "$TEST_STATUS_DIR/outcomes.tsv" "firefox" 6 ""
-    assert_outcomes_field "firefox classification synthesized" "$TEST_STATUS_DIR/outcomes.tsv" "firefox" 7 "unknown"
+if [[ -f "$TEST_STATUS_DIR/assessment.jsonl" ]]; then
+    assert_outcomes_count "assessment.jsonl has 3 records" "3" "$TEST_STATUS_DIR/assessment.jsonl"
+    assert_outcomes_field "git retrieval_status in record" "$TEST_STATUS_DIR/assessment.jsonl" "git" '.retrieval_status' "fresh"
+    assert_outcomes_field "git classification in record" "$TEST_STATUS_DIR/assessment.jsonl" "git" '.classification' "no-signal"
+    assert_outcomes_field "node classification in record" "$TEST_STATUS_DIR/assessment.jsonl" "node" '.classification' "attention"
+    assert_outcomes_field "firefox retrieval_status synthesized" "$TEST_STATUS_DIR/assessment.jsonl" "firefox" '.retrieval_status' "unavailable"
+    assert_outcomes_field "firefox reason synthesized" "$TEST_STATUS_DIR/assessment.jsonl" "firefox" '.reasons[0]' "missing"
+    assert_outcomes_field "firefox no matched signals" "$TEST_STATUS_DIR/assessment.jsonl" "firefox" '(.matched_signals | length | tostring)' "0"
+    assert_outcomes_field "firefox classification synthesized" "$TEST_STATUS_DIR/assessment.jsonl" "firefox" '.classification' "unknown"
 else
-    echo -e "${RED}FAIL${NC}: outcomes.tsv not created"
+    echo -e "${RED}FAIL${NC}: assessment.jsonl not created"
     ((fail++))
 fi
 
 echo ""
 echo "Test 39: synthesized rows have structured unknown data"
-rm -f "$TEST_STATUS_DIR/outcomes.tsv"
-: > "$TEST_STATUS_DIR/results.tsv"
+rm -f "$TEST_STATUS_DIR/assessment.jsonl"
 INVENTORY_PKGS=("pkg-a")
 classify_upgrade_evidence "$TEST_STATUS_DIR" "${INVENTORY_PKGS[@]}"
 
-if [[ -f "$TEST_STATUS_DIR/outcomes.tsv" ]]; then
-    assert_outcomes_count "outcomes has 1 synthesized row" "1" "$TEST_STATUS_DIR/outcomes.tsv"
-    assert_outcomes_field "pkg-a retrieval_status = unavailable" "$TEST_STATUS_DIR/outcomes.tsv" "pkg-a" 3 "unavailable"
-    assert_outcomes_field "pkg-a reason = missing" "$TEST_STATUS_DIR/outcomes.tsv" "pkg-a" 5 "missing"
-    assert_outcomes_field "pkg-a risk_signal empty" "$TEST_STATUS_DIR/outcomes.tsv" "pkg-a" 6 ""
-    assert_outcomes_field "pkg-a classification = unknown" "$TEST_STATUS_DIR/outcomes.tsv" "pkg-a" 7 "unknown"
+if [[ -f "$TEST_STATUS_DIR/assessment.jsonl" ]]; then
+    assert_outcomes_count "assessment has 1 synthesized record" "1" "$TEST_STATUS_DIR/assessment.jsonl"
+    assert_outcomes_field "pkg-a retrieval_status = unavailable" "$TEST_STATUS_DIR/assessment.jsonl" "pkg-a" '.retrieval_status' "unavailable"
+    assert_outcomes_field "pkg-a reason = missing" "$TEST_STATUS_DIR/assessment.jsonl" "pkg-a" '.reasons[0]' "missing"
+    assert_outcomes_field "pkg-a no matched signals" "$TEST_STATUS_DIR/assessment.jsonl" "pkg-a" '(.matched_signals | length | tostring)' "0"
+    assert_outcomes_field "pkg-a classification = unknown" "$TEST_STATUS_DIR/assessment.jsonl" "pkg-a" '.classification' "unknown"
 else
-    echo -e "${RED}FAIL${NC}: outcomes.tsv not created for synthesized row"
+    echo -e "${RED}FAIL${NC}: assessment.jsonl not created for synthesized record"
     ((fail++))
 fi
 
@@ -697,11 +738,11 @@ write_results_tsv "$TEST_STATUS_DIR" \
 INVENTORY_PKGS=("helm")
 classify_upgrade_evidence "$TEST_STATUS_DIR" "${INVENTORY_PKGS[@]}"
 
-if [[ -f "$TEST_STATUS_DIR/outcomes.tsv" ]]; then
-    assert_outcomes_field "helm retrieval_status = stale" "$TEST_STATUS_DIR/outcomes.tsv" "helm" 3 "stale"
-    assert_outcomes_field "helm classification = attention" "$TEST_STATUS_DIR/outcomes.tsv" "helm" 7 "attention"
+if [[ -f "$TEST_STATUS_DIR/assessment.jsonl" ]]; then
+    assert_outcomes_field "helm retrieval_status = stale" "$TEST_STATUS_DIR/assessment.jsonl" "helm" '.retrieval_status' "stale"
+    assert_outcomes_field "helm classification = attention" "$TEST_STATUS_DIR/assessment.jsonl" "helm" '.classification' "attention"
 else
-    echo -e "${RED}FAIL${NC}: outcomes.tsv not created"
+    echo -e "${RED}FAIL${NC}: assessment.jsonl not created"
     ((fail++))
 fi
 
@@ -713,11 +754,11 @@ write_results_tsv "$TEST_STATUS_DIR" \
 INVENTORY_PKGS=("postgresql")
 classify_upgrade_evidence "$TEST_STATUS_DIR" "${INVENTORY_PKGS[@]}"
 
-if [[ -f "$TEST_STATUS_DIR/outcomes.tsv" ]]; then
-    assert_outcomes_field "postgresql retrieval_status = failed" "$TEST_STATUS_DIR/outcomes.tsv" "postgresql" 3 "failed"
-    assert_outcomes_field "postgresql classification = attention" "$TEST_STATUS_DIR/outcomes.tsv" "postgresql" 7 "attention"
+if [[ -f "$TEST_STATUS_DIR/assessment.jsonl" ]]; then
+    assert_outcomes_field "postgresql retrieval_status = failed" "$TEST_STATUS_DIR/assessment.jsonl" "postgresql" '.retrieval_status' "failed"
+    assert_outcomes_field "postgresql classification = attention" "$TEST_STATUS_DIR/assessment.jsonl" "postgresql" '.classification' "attention"
 else
-    echo -e "${RED}FAIL${NC}: outcomes.tsv not created"
+    echo -e "${RED}FAIL${NC}: assessment.jsonl not created"
     ((fail++))
 fi
 
@@ -864,19 +905,26 @@ fi
 
 echo ""
 echo "Test 51: major-version evidence is recorded before release retrieval"
-: > "$TEST_STATUS_DIR/results.tsv"
+rm -f "$TEST_STATUS_DIR/assessment.jsonl" "$TEST_STATUS_DIR/evidence.jsonl"
+: > "$TEST_STATUS_DIR/assessment.jsonl"
 export UPGRADE_STATUS_DIR="$TEST_STATUS_DIR"
 record_major_version_evidence "postgresql" "16.4" "17.0"
-major_row=$(cat "$TEST_STATUS_DIR/results.tsv")
-assert_eq "major evidence row" \
-    $'postgresql\tinventory\tunavailable\t\tmajor version transition detected\tmajor-version-transition' \
-    "$major_row"
+consolidate_assessment_records "$TEST_STATUS_DIR"
+major_status=$(jq -r 'select(.package == "postgresql") | .retrieval_status' "$TEST_STATUS_DIR/assessment.jsonl")
+major_source=$(jq -r 'select(.package == "postgresql") | .evidence_source' "$TEST_STATUS_DIR/assessment.jsonl")
+assert_eq "major evidence status pinned" "unavailable" "$major_status"
+assert_eq "major evidence source recorded" "inventory" "$major_source"
 
 echo ""
 echo "Test 52: non-numeric versions do not emit major-version evidence"
-: > "$TEST_STATUS_DIR/results.tsv"
+rm -f "$TEST_STATUS_DIR/evidence.jsonl"
 record_major_version_evidence "example" "HEAD" "latest"
-assert_eq "non-numeric evidence remains empty" "" "$(cat "$TEST_STATUS_DIR/results.tsv")"
+if [[ -f "$TEST_STATUS_DIR/evidence.jsonl" ]]; then
+    assert_eq "non-numeric evidence remains empty" "0" "$(wc -l < "$TEST_STATUS_DIR/evidence.jsonl" | tr -d ' ')"
+else
+    echo -e "${GREEN}PASS${NC}: non-numeric evidence writes nothing"
+    ((pass++))
+fi
 unset UPGRADE_STATUS_DIR
 
 echo ""

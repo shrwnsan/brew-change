@@ -3,63 +3,73 @@
 # Handles the interactive selective upgrade flow triggered by -u/--upgrade flag
 # Use -n/--dry-run with -u to preview without executing
 
-# Three-tier outcome arrays (Task 4)
+# Three-tier outcome arrays (Task 4). Since T2.1.2 these are DERIVED views
+# built from classified assessment records; presentation still consumes them.
 ATTENTION_PKGS=()
 NO_SIGNAL_PKGS=()
 UNKNOWN_PKGS=()
 
-_classify_evidence_rank() {
-    local retrieval_status="$1"
-    local retrieved_at="$2"
-    local risk_signal="$3"
+# Ensure the pure assessment engine is available even when this module is
+# sourced standalone (tests). brew-change sources it before this module.
+if ! declare -F classify_assessment_records >/dev/null 2>&1; then
+    _UPGRADE_MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    # shellcheck disable=SC1091 # dynamic sibling path
+    [[ -f "$_UPGRADE_MODULE_DIR/brew-change-assessment.sh" ]] && \
+        source "$_UPGRADE_MODULE_DIR/brew-change-assessment.sh"
+    unset _UPGRADE_MODULE_DIR
+fi
 
-    if [[ -n "$risk_signal" ]]; then
-        printf '3\n'
-    elif [[ "$retrieval_status" =~ ^(fresh|cached-fresh)$ ]] && [[ "$retrieved_at" =~ ^[1-9][0-9]*$ ]]; then
-        printf '2\n'
-    else
-        printf '1\n'
-    fi
+_classification_rank() {
+    case "$1" in
+        attention) printf '3\n' ;;
+        no-signal) printf '2\n' ;;
+        *)         printf '1\n' ;;
+    esac
 }
 
-_evidence_rank_to_classification() {
-    case "$1" in
-        3) printf 'attention\n' ;;
-        2) printf 'no-signal\n' ;;
-        *) printf 'unknown\n' ;;
-    esac
+# Synthesize a full-schema unknown record for an inventory package that has
+# no record (no producer evidence at all).
+_synthesize_missing_record() {
+    local pkg="$1"
+
+    jq -cn --arg package "$pkg" '
+    {
+        package: $package,
+        display_name: $package,
+        kind: "formula",
+        installed_version: "",
+        available_version: "",
+        evidence_source: "",
+        evidence_url: "",
+        retrieved_at: null,
+        retrieval_status: "unavailable",
+        evidence_snapshot: "",
+        classification: "unknown",
+        reasons: ["missing"],
+        matched_signals: [],
+        assessment_recommendation: false,
+        operational_eligibility: false,
+        default_selected: false
+    }'
 }
 
 # ---------------------------------------------------------------------------
 # classify_upgrade_evidence
 #
-# Reads producer TSV rows from status_dir/results.tsv and classifies each
-# package into ATTENTION_PKGS, NO_SIGNAL_PKGS, or UNKNOWN_PKGS.
-#
-# Producer row schema (6 fields, TSV):
-#   package  source  retrieval_status  retrieved_at  reason  risk_signal
-#
-# Classification rules (PRD 7.2):
-#   1. Any non-empty risk_signal                -> attention
-#   2. retrieval_status in {fresh,cached-fresh}
-#      AND retrieved_at is a non-empty positive
-#      integer AND risk_signal is empty          -> no-signal
-#   3. Everything else                            -> unknown
-#
-# Deduplication: when results.tsv contains multiple rows for the same
-# package, the strongest classification wins (attention > no-signal > unknown).
-#
-# Inventory filtering: when an inventory is supplied (positional args after
-# status_dir), rows whose package is NOT in the inventory are ignored.
-# Missing inventory tokens are synthesized as unknown.
-#
-# Outcomes: an outcomes.tsv is written to status_dir with one row per
-# inventory token, preserving inventory order.
-#   Schema: package<TAB>source<TAB>retrieval_status<TAB>retrieved_at
-#           <TAB>reason<TAB>risk_signal<TAB>classification
+# Consumes the approved-contract record stream in status_dir:
+#   1. Stage boundary: consolidate_assessment_records merges worker evidence
+#      rows (evidence.jsonl) into assessment.jsonl via temp + atomic mv.
+#   2. Delegates classification to the pure engine
+#      (classify_assessment_records; PRD 7.2 precedence) with tolerant read:
+#      malformed lines become unknown.
+#   3. Builds the derived presentation arrays with strongest-precedence
+#      dedup (attention > no-signal > unknown) and inventory filtering;
+#      missing inventory tokens are synthesized as unknown.
+#   4. Rewrites assessment.jsonl with the classified records (atomic),
+#      preserving inventory order when an inventory is supplied.
 #
 # Args:
-#   $1: Path to the temporary directory containing results.tsv
+#   $1: Path to the run status directory containing assessment.jsonl
 #   $2..: (Optional) inventory package names for missing-row synthesis
 # Populates global arrays:
 #   ATTENTION_PKGS[], NO_SIGNAL_PKGS[], UNKNOWN_PKGS[]
@@ -73,127 +83,90 @@ classify_upgrade_evidence() {
     NO_SIGNAL_PKGS=()
     UNKNOWN_PKGS=()
 
-    local results_file="${status_dir}/results.tsv"
-    local _pkg
+    local records_file="${status_dir}/assessment.jsonl"
+    [[ -f "$records_file" ]] || : > "$records_file"
 
+    # Stage boundary: merge evidence rows before classification. (Standalone
+    # sourcing of this module without brew.sh implies no evidence stream.)
+    if declare -F consolidate_assessment_records >/dev/null 2>&1; then
+        consolidate_assessment_records "$status_dir" || return 1
+    fi
+
+    local classified_tmp="${status_dir}/.classified.$$"
+    if ! classify_assessment_records "$records_file" > "$classified_tmp"; then
+        rm -f "$classified_tmp"
+        return 1
+    fi
+
+    local _pkg
     # Build set of inventory tokens for fast lookup and deduplication.
     local -A in_inventory=()
-    for _pkg in "${inventory_pkgs[@]}"; do
+    for _pkg in ${inventory_pkgs[@]+"${inventory_pkgs[@]}"}; do
         in_inventory["$_pkg"]=1
     done
 
-    # Per-package best classification and best row data.
-    # Precedence: attention (3) > no-signal (2) > unknown (1).
-    # Value 0 = not yet seen.
-    local -A best_rank
-    local -A best_source best_retrieval_status best_retrieved_at best_reason best_risk_signal
-    for _pkg in "${inventory_pkgs[@]}"; do
-        best_rank["$_pkg"]=0
+    # Per-package best classification rank (attention 3 > no-signal 2 >
+    # unknown 1; 0 = not yet seen) and the winning classified record line.
+    local -A best_rank=()
+    local -A best_line=()
+
+    local line pkg_name classification row_rank
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ -z "$line" ]] && continue
+        pkg_name=$(printf '%s' "$line" | jq -r '.package // empty' 2>/dev/null)
+        [[ -z "$pkg_name" ]] && continue
+
+        # With inventory: skip records not in inventory.
+        if [[ ${#inventory_pkgs[@]} -gt 0 ]]; then
+            [[ -z "${in_inventory["$pkg_name"]:-}" ]] && continue
+        fi
+
+        classification=$(printf '%s' "$line" | jq -r '.classification // "unknown"' 2>/dev/null)
+        row_rank=$(_classification_rank "$classification")
+
+        if [[ "$row_rank" -ge "${best_rank["$pkg_name"]:-0}" ]]; then
+            best_rank["$pkg_name"]="$row_rank"
+            best_line["$pkg_name"]="$line"
+        fi
+    done < "$classified_tmp"
+    rm -f "$classified_tmp"
+
+    # Emit classified records (inventory order when supplied) and build the
+    # derived presentation arrays.
+    local out_tmp="${status_dir}/.assessment.out.$$"
+    : > "$out_tmp"
+
+    local -a ordered_pkgs=()
+    if [[ ${#inventory_pkgs[@]} -gt 0 ]]; then
+        ordered_pkgs=("${inventory_pkgs[@]}")
+    else
+        ordered_pkgs=("${!best_line[@]}")
+    fi
+
+    for _pkg in ${ordered_pkgs[@]+"${ordered_pkgs[@]}"}; do
+        line="${best_line["$_pkg"]:-}"
+        if [[ -z "$line" ]]; then
+            line=$(_synthesize_missing_record "$_pkg")
+        fi
+        printf '%s\n' "$line" >> "$out_tmp"
+
+        classification=$(printf '%s' "$line" | jq -r '.classification // "unknown"' 2>/dev/null)
+        case "$classification" in
+            attention) ATTENTION_PKGS+=("$_pkg") ;;
+            no-signal) NO_SIGNAL_PKGS+=("$_pkg") ;;
+            *)         UNKNOWN_PKGS+=("$_pkg") ;;
+        esac
     done
 
-    if [[ -f "$results_file" ]]; then
-        while IFS= read -r line || [[ -n "$line" ]]; do
-            [[ -z "$line" ]] && continue
-
-            local pkg_name source retrieval_status retrieved_at reason risk_signal
-            pkg_name=$(cut -f1 <<< "$line")
-            source=$(cut -f2 <<< "$line")
-            retrieval_status=$(cut -f3 <<< "$line")
-            retrieved_at=$(cut -f4 <<< "$line")
-            reason=$(cut -f5 <<< "$line")
-            risk_signal=$(cut -f6 <<< "$line")
-
-            [[ -z "$pkg_name" ]] && continue
-
-            # With inventory: skip rows not in inventory.
-            if [[ ${#inventory_pkgs[@]} -gt 0 ]]; then
-                [[ -z "${in_inventory["$pkg_name"]:-}" ]] && continue
-            fi
-
-            # Classify this row.
-            local row_rank
-            row_rank=$(_classify_evidence_rank "$retrieval_status" "$retrieved_at" "$risk_signal")
-
-            # Apply strongest-precedence dedup.
-            if [[ "$row_rank" -ge "${best_rank["$pkg_name"]:-0}" ]]; then
-                best_rank["$pkg_name"]="$row_rank"
-                best_source["$pkg_name"]="$source"
-                best_retrieval_status["$pkg_name"]="$retrieval_status"
-                best_retrieved_at["$pkg_name"]="$retrieved_at"
-                best_reason["$pkg_name"]="$reason"
-                best_risk_signal["$pkg_name"]="$risk_signal"
-            fi
-        done < "$results_file"
-    fi
-
-    # Build outcome arrays and outcomes.tsv in inventory order.
-    # When no inventory is supplied, iterate over packages seen in results.
-    : > "${status_dir}/outcomes.tsv"
-
-    if [[ ${#inventory_pkgs[@]} -gt 0 ]]; then
-        # Inventory-driven: iterate in inventory order.
-        for _pkg in "${inventory_pkgs[@]}"; do
-            local rank="${best_rank["$_pkg"]:-0}"
-            if [[ "$rank" -eq 0 ]]; then
-                # Synthesized missing row: no producer data available.
-                rank=1
-                best_source["$_pkg"]=""
-                best_retrieval_status["$_pkg"]="unavailable"
-                best_retrieved_at["$_pkg"]=""
-                best_reason["$_pkg"]="missing"
-                best_risk_signal["$_pkg"]=""
-            fi
-
-            local classification
-            classification=$(_evidence_rank_to_classification "$rank")
-
-            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-                "$_pkg" \
-                "${best_source["$_pkg"]}" \
-                "${best_retrieval_status["$_pkg"]}" \
-                "${best_retrieved_at["$_pkg"]}" \
-                "${best_reason["$_pkg"]}" \
-                "${best_risk_signal["$_pkg"]}" \
-                "$classification" \
-                >> "${status_dir}/outcomes.tsv"
-
-            case "$classification" in
-                attention) ATTENTION_PKGS+=("$_pkg") ;;
-                no-signal) NO_SIGNAL_PKGS+=("$_pkg") ;;
-                *)         UNKNOWN_PKGS+=("$_pkg") ;;
-            esac
-        done
-    else
-        # No inventory: iterate over packages that had rows.
-        for _pkg in "${!best_rank[@]}"; do
-            local rank="${best_rank["$_pkg"]}"
-            local classification
-            classification=$(_evidence_rank_to_classification "$rank")
-
-            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-                "$_pkg" \
-                "${best_source["$_pkg"]}" \
-                "${best_retrieval_status["$_pkg"]}" \
-                "${best_retrieved_at["$_pkg"]}" \
-                "${best_reason["$_pkg"]}" \
-                "${best_risk_signal["$_pkg"]}" \
-                "$classification" \
-                >> "${status_dir}/outcomes.tsv"
-
-            case "$classification" in
-                attention) ATTENTION_PKGS+=("$_pkg") ;;
-                no-signal) NO_SIGNAL_PKGS+=("$_pkg") ;;
-                *)         UNKNOWN_PKGS+=("$_pkg") ;;
-            esac
-        done
-    fi
+    mv "$out_tmp" "$records_file" || { rm -f "$out_tmp"; return 1; }
+    return 0
 }
 
 # Collect upgrade status from parallel processing subshells (backward compat).
 # Wraps classify_upgrade_evidence; callers that already have the inventory list
 # should call classify_upgrade_evidence directly.
 # Args:
-#   $1: Path to the temporary directory containing results.tsv
+#   $1: Path to the run status directory containing assessment.jsonl
 collect_upgrade_status() {
     local status_dir="$1"
     classify_upgrade_evidence "$status_dir"
