@@ -180,6 +180,12 @@ prompt_upgrade_action() {
         prompt_installed_exit_trap=true
     fi
 
+    local total_timeout="${BREW_CHANGE_PROMPT_TIMEOUT:-300}"
+    local countdown_window=10
+    if (( countdown_window > total_timeout )); then
+        countdown_window=$total_timeout
+    fi
+
     while true; do
         (
             local chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -201,17 +207,55 @@ prompt_upgrade_action() {
             register_terminal_state "$prompt_stty_state"
         fi
 
+        # Read in slices so the final countdown window is visible. A failed
+        # read slice only means "no key yet"; the timeout is announced
+        # instead of exiting silently.
+        local waited=0
         local response=""
-        if ! IFS= read -r -N 1 -t 300 response 2>/dev/null; then
+        local timed_out=false
+        while true; do
+            local remaining=$(( total_timeout - waited ))
+            local slice
+            if (( remaining <= countdown_window )); then
+                slice=1
+            else
+                slice=$(( remaining - countdown_window ))
+            fi
+            if IFS= read -r -N 1 -t "$slice" response 2>/dev/null; then
+                # Drain the rest of the typed line (e.g. the Enter after
+                # the keypress) so it cannot leak into a later line-based
+                # prompt such as the final y/N confirmation.
+                local _discard=""
+                IFS= read -r -t 0.1 _discard 2>/dev/null || true
+                break
+            fi
+            waited=$(( waited + slice ))
+            remaining=$(( total_timeout - waited ))
+            if (( remaining <= 0 )); then
+                timed_out=true
+                break
+            fi
+            if (( remaining <= countdown_window )); then
+                # Countdown phase: stop the spinner and own the line.
+                _cleanup_upgrade_prompt
+                printf "\rStill there? Inactivity timeout exiting in... %d  " "$remaining" > /dev/tty
+                prompt_width=50
+            fi
+        done
+
+        if [[ "$timed_out" == "true" ]]; then
             _cleanup_upgrade_prompt
-            printf "\r%*s\r" "$prompt_width" "" > /dev/tty
-            local resolved_action
-            resolved_action=$(upgrade_action_from_read "false" "" "$no_signal_count")
+            printf "\rStill there? Inactivity timeout exiting in... now\n" > /dev/tty
+            local human="$(( total_timeout / 60 ))m"
+            if (( total_timeout < 60 )); then
+                human="${total_timeout}s"
+            fi
+            echo "Upgrade cancelled (inactivity timeout after ${human})." > /dev/tty
             _restore_prompt_traps
             if [[ -n "$output_var" ]]; then
-                printf -v "$output_var" '%s' "$resolved_action"
+                printf -v "$output_var" '%s' "cancel"
             else
-                printf '%s\n' "$resolved_action"
+                printf '%s\n' "cancel"
             fi
             return 0
         fi
