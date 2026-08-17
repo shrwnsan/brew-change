@@ -791,7 +791,7 @@ Acceptance:
 
 #### T2.6.1 — Choose compatibility path for old simple list
 
-**State:** Blocked by Phase 1 acceptance; required before Phase 2 entry  
+**State:** Complete — decision ratified 2026-08-18, see [research-004-cli-default-compatibility.md](research-004-cli-default-compatibility.md)  
 **Complexity:** S  
 **Owner:** Maintainer/product decision
 
