@@ -602,7 +602,7 @@ T2.6.1 is a pre-entry decision task: it becomes Ready after Phase 1 acceptance a
 
 #### T2.1.1 — Spike structured record representation
 
-**State:** Blocked by Phase 2 entry gate  
+**State:** Complete — JSON Lines contract approved 2026-08-18, see [research-005-assessment-record-contract.md](research-005-assessment-record-contract.md)  
 **Complexity:** M  
 **Owner:** Experienced contributor  
 **Writes:** Prefer test/spike artifacts; do not commit throwaway production abstraction
