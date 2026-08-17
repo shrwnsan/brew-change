@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-08-17
+
+### Fixed
+- Drain the rest of the typed line after the single-key upgrade-mode prompt so a stale Enter can no longer auto-decline the final y/N confirmation.
+
+### Changed
+- The 5-minute prompt inactivity timeout now announces itself: the final 10 seconds count down and the exit states its reason instead of exiting silently. Overridable via `BREW_CHANGE_PROMPT_TIMEOUT`.
+
 ## [1.12.0] - 2026-08-17
 
 ### Changed
