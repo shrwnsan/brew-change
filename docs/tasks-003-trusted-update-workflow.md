@@ -602,7 +602,7 @@ T2.6.1 is a pre-entry decision task: it becomes Ready after Phase 1 acceptance a
 
 #### T2.1.1 — Spike structured record representation
 
-**State:** Complete — JSON Lines contract approved 2026-08-18, see [research-005-assessment-record-contract.md](research-005-assessment-record-contract.md)  
+**State:** Complete — JSONL contract approved (#84)
 **Complexity:** M  
 **Owner:** Experienced contributor  
 **Writes:** Prefer test/spike artifacts; do not commit throwaway production abstraction
@@ -629,7 +629,7 @@ Acceptance:
 
 #### T2.1.2 — Implement normalized assessment record
 
-**State:** Blocked by T2.1.1  
+**State:** Complete — record pipeline + brew-info caching merged (#89)
 **Complexity:** L  
 **Owner:** Integrator  
 **Likely writes:** inventory, evidence, assessment, and parallel modules
@@ -645,7 +645,7 @@ Acceptance:
 
 #### T2.2.1 — Isolate evidence-to-assessment behavior
 
-**State:** Blocked by T2.1.1  
+**State:** Complete — classification engine merged (#86)
 **Complexity:** M  
 **Junior-safe:** Yes after contract approval  
 **Writes:** assessment/breaking module and tests
@@ -658,7 +658,7 @@ Acceptance:
 
 #### T2.2.2 — Define version-transition reasons
 
-**State:** Blocked by T2.1.1  
+**State:** Complete — merged with T2.2.1 (#86)
 **Complexity:** S  
 **Owner:** Product/integrator review
 
@@ -672,7 +672,7 @@ Acceptance:
 
 #### T2.3.1 — Approve static output fixtures
 
-**State:** Blocked by T2.1.1  
+**State:** Complete — golden fixtures merged (#90)
 **Complexity:** M  
 **Owner:** Product/integrator review  
 **Writes:** Golden fixtures or test expectations
@@ -696,7 +696,7 @@ Acceptance:
 
 #### T2.3.2 — Implement grouped static renderer
 
-**State:** Blocked by T2.1.2 and T2.3.1  
+**State:** Complete — byte-exact renderer merged (#91)
 **Complexity:** M  
 **Junior-safe:** Yes with approved fixtures  
 **Writes:** `lib/brew-change-display.sh`, renderer tests
@@ -713,7 +713,7 @@ Acceptance:
 
 #### T2.4.1 — Specify progress event contract
 
-**State:** Complete — contract approved 2026-08-18, see [research-006-progress-event-contract.md](research-006-progress-event-contract.md)  
+**State:** Complete — contract approved (#85)
 **Complexity:** S  
 **Owner:** Integrator
 
@@ -721,7 +721,7 @@ Events must represent stage, completed count, total count, and optional source/p
 
 #### T2.4.2 — Implement TTY progress renderer
 
-**State:** Blocked by T2.4.1 and Phase 1 signal work  
+**State:** Complete — merged (#87), Linux portability fix (#88)
 **Complexity:** L  
 **Writes:** interactive/presentation module and pseudo-terminal tests
 
@@ -735,7 +735,7 @@ Acceptance:
 
 #### T2.4.3 — Integrate worker progress events
 
-**State:** Blocked by T2.1.2 and T2.4.2  
+**State:** Complete — merged (#92)
 **Complexity:** M  
 **Writes:** `lib/brew-change-parallel.sh` and progress integration tests
 
