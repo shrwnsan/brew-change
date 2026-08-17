@@ -84,7 +84,7 @@ An implementation task is done only when:
 
 ### T0.1.1 — Record baseline state
 
-**State:** Ready  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** S  
 **Owner:** Integrator  
 **Write target:** Implementation log or PR description; no production files required
@@ -113,7 +113,7 @@ brew --version | head -1
 
 ### T0.1.2 — Run and classify baseline verification
 
-**State:** Blocked by T0.1.1  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** M  
 **Owner:** Integrator
 
@@ -133,7 +133,7 @@ Acceptance:
 
 ### T0.1.3 — Prepare verified pre-upgrade tag
 
-**State:** Blocked by T0.1.2 and maintainer confirmation  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** S  
 **Owner:** Maintainer/integrator  
 **Suggested tag:** `pre-dashboard-v1.11.5`
@@ -164,7 +164,7 @@ Acceptance:
 
 #### T1.1.1 — Add a mock Homebrew command harness
 
-**State:** Ready after phase entry  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** M  
 **Junior-safe:** Yes  
 **Likely writes:** `tests/lib/test-utils.sh`, test fixture location chosen by implementer
@@ -191,7 +191,7 @@ Verification:
 
 #### T1.1.2 — Convert installed-variant tests to fixtures
 
-**State:** Blocked by T1.1.1  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** S  
 **Junior-safe:** Yes  
 **Writes:** `tests/test-variant-resolution.sh`
@@ -204,7 +204,7 @@ Acceptance:
 
 #### T1.1.3 — Add production-path cask fixtures
 
-**State:** Blocked by T1.1.1  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** M  
 **Junior-safe:** Yes  
 **Writes:** New or existing cask/parallel tests; avoid production writes
@@ -224,7 +224,7 @@ Acceptance:
 
 #### T1.1.4 — Add deterministic HTTP and time harness
 
-**State:** Blocked by T1.1.1  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** M  
 **Junior-safe:** Yes  
 **Writes:** Test harness and network/cache fixtures
@@ -247,7 +247,7 @@ Acceptance:
 
 #### T1.2.1 — Define canonical outdated-package extraction
 
-**State:** Blocked by T1.1.3  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** M  
 **Owner:** Integrator or experienced contributor  
 **Likely writes:** `lib/brew-change-brew.sh`, consumers in parallel/upgrade modules
@@ -276,7 +276,7 @@ Verification:
 
 #### T1.3.1 — Specify current-flow assessment statuses
 
-**State:** Ready after phase entry  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** S  
 **Owner:** Integrator  
 **Write target:** Test names and implementation notes; may update upgrade tests
@@ -304,7 +304,7 @@ Acceptance:
 
 #### T1.3.2 — Separate unknown from no-signal in summaries
 
-**State:** Blocked by T1.3.1  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** M  
 **Junior-safe:** Yes with fixtures  
 **Writes:** Status-producing evidence/display paths, `lib/brew-change-upgrade.sh`, focused tests
@@ -318,7 +318,7 @@ Acceptance:
 
 #### T1.3.3 — Make default selection classification-driven
 
-**State:** Blocked by T1.3.2  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** M  
 **Writes:** `lib/brew-change-upgrade.sh`, focused tests
 
@@ -333,7 +333,7 @@ Acceptance:
 
 #### T1.4.1 — Normalize prompt action return values
 
-**State:** Ready after phase entry  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** S  
 **Junior-safe:** Yes  
 **Writes:** `lib/brew-change-interactive.sh`, prompt tests
@@ -349,7 +349,7 @@ Acceptance:
 
 #### T1.4.2 — Validate CLI flag combinations before work begins
 
-**State:** Ready after phase entry  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** S  
 **Junior-safe:** Yes  
 **Writes:** `brew-change`, argument tests
@@ -370,7 +370,7 @@ Acceptance:
 
 #### T1.4.3 — Integrate exact-plan final confirmation
 
-**State:** Blocked by T1.2.1, T1.3.3, T1.4.1, T1.4.4, and T1.4.5  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** M  
 **Owner:** Integrator  
 **Writes:** `lib/brew-change-upgrade.sh`, `lib/brew-change-interactive.sh`, execution tests
@@ -386,7 +386,7 @@ Acceptance:
 
 #### T1.4.4 — Add fake execution capture
 
-**State:** Blocked by T1.1.1  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** M  
 **Junior-safe:** Yes  
 **Writes:** Test harness and upgrade tests
@@ -401,7 +401,7 @@ Acceptance:
 
 #### T1.4.5 — Add Homebrew-resolved upgrade preview
 
-**State:** Blocked by T1.2.1 and T1.4.4  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** M  
 **Owner:** Integrator  
 **Writes:** `lib/brew-change-upgrade.sh`, mocked execution tests
@@ -422,7 +422,7 @@ Acceptance:
 
 #### T1.5.1 — Separate EXIT cleanup from signal termination
 
-**State:** Ready after phase entry  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** M  
 **Writes:** `lib/brew-change-config.sh`, signal tests
 
@@ -435,7 +435,7 @@ Acceptance:
 
 #### T1.5.2 — Prove prompt terminal restoration
 
-**State:** Blocked by T1.5.1  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** M  
 **Writes:** `lib/brew-change-interactive.sh` if needed, pseudo-terminal test
 
@@ -450,7 +450,7 @@ Acceptance:
 
 #### T1.6.1 — Specify generic URL destination policy
 
-**State:** Ready after phase entry  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** M  
 **Owner:** Security review/integrator  
 **Write target:** Tests first, then implementation notes
@@ -472,7 +472,7 @@ Acceptance:
 
 #### T1.6.2 — Enforce destination policy with fixtures
 
-**State:** Blocked by T1.1.4, T1.3.1, and T1.6.1  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** M  
 **Writes:** `lib/brew-change-utils.sh`, network validation tests
 
@@ -488,7 +488,7 @@ Acceptance:
 
 #### T1.7.1 — Add static-analysis configuration
 
-**State:** Ready after phase entry  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** S  
 **Junior-safe:** Yes  
 **Writes:** static-analysis config/exclusions only if necessary
@@ -501,7 +501,7 @@ Acceptance:
 
 #### T1.7.2 — Add deterministic CI workflow
 
-**State:** Blocked by T1.1.1, T1.1.2, T1.1.3, T1.1.4, and T1.7.1  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** M  
 **Writes:** `.github/workflows/` workflow
 
@@ -520,7 +520,7 @@ Acceptance:
 
 #### T1.7.3 — Add release-script preflight
 
-**State:** Ready after phase entry  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** M  
 **Writes:** `scripts/release.sh`, release-script tests or dry-run harness
 
@@ -541,7 +541,7 @@ Acceptance:
 
 #### T1.7.4 — Repair release and contributor documentation
 
-**State:** Ready after phase entry  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** M  
 **Junior-safe:** Yes  
 **Writes:** `README.md`, `CHANGELOG.md`, `tests/README.md`, `tests/QUICK_START.md`, `CONTRIBUTING.md`, relevant roadmap references
@@ -556,7 +556,7 @@ Acceptance:
 
 ### T1.8.1 — Phase 1 integration and regression review
 
-**State:** Integration; blocked by all Phase 1 workstreams  
+**State:** Complete — shipped in v1.12.0; prompt fixes in v1.12.1
 **Complexity:** L  
 **Owner:** Integrator
 
@@ -577,6 +577,16 @@ Exit evidence:
 - Cask identities are canonical in production paths.
 - Signal and terminal tests pass.
 - CI is green.
+
+
+### T1.8.1 Exit evidence (recorded 2026-08-18)
+
+- Baseline: `v1.11.5` (last pre-Phase-1 release); local annotated marker `pre-dashboard-v1.11.5` retained unpushed.
+- Deterministic verification at release: 14 suites, 0 failed (`tests/run-deterministic.sh`), including the prompt-behavior PTY suite added in v1.12.1; ShellCheck clean; CI green on ubuntu-latest and macos-latest for tags v1.12.0 and v1.12.1.
+- Releases: v1.12.0 (2026-08-17, Phase 1 trusted update workflow, PR #77–#79) and v1.12.1 (2026-08-17, prompt fixes: stale-Enter confirmation auto-decline and inactivity-timeout countdown, PR #80–#81).
+- Distribution: `shrwnsan/homebrew-tap` formula at 1.12.1 (tap PRs #18, #19), validated end-to-end via `brew upgrade` (Homebrew-verified sha256), `brew test`, and `brew audit` (clean).
+- Post-release field verification: two user-observed v1.12.0 prompt defects were root-caused (single-char read leaving Enter in the tty buffer; silent 300s prompt timeout) and fixed in v1.12.1 with PTY regression tests (`tests/test-prompt-behavior.py`, stable on macOS and Linux bash).
+- Deviations: `BREW_CHANGE_PROMPT_TIMEOUT` env override added for testability (undocumented knob, default 300s). Phase 1 task states in this document were recorded complete retrospectively.
 
 ## 6. Phase 2 — Default Inline Dashboard
 
