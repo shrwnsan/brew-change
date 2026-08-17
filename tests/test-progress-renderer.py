@@ -157,6 +157,9 @@ kill -STOP "$$"
             process.kill()
             process.wait(timeout=2)
             raise AssertionError(f"scenario did not exit: {output!r}")
+        # Drain once more after exit: the final output bytes can still be
+        # in the PTY buffer when the process is reaped.
+        output += drain(master, 0.3)
         final = stty_state(master)
         return output, piped_stdout, status, initial, final
     finally:

@@ -156,12 +156,16 @@ render_progress() {
     local line
     local -i last_draw_us=0 last_event_us=0
     local saw_event=false
-    local fd
-    exec {fd}<"$file"
+    # Lines already consumed. The file is re-opened and re-read each poll
+    # cycle instead of held open on a persistent fd: after EOF, a
+    # regular-file read never un-blocks in bash (notably on Linux), so
+    # appended events would never be seen. Fresh opens see appends
+    # on every platform.
+    local -i processed=0
+    local -a fresh_lines=()
 
     if [[ "$animate" == "true" ]]; then
         progress_animating=true
-        progress_fd="$fd"
         progress_previous_int_trap="$(trap -p INT)"
         progress_previous_term_trap="$(trap -p TERM)"
         trap '_handle_progress_signal 130 "$progress_previous_int_trap"' INT
@@ -179,7 +183,10 @@ render_progress() {
     fi
 
     while true; do
-        if IFS=$ read -r -u "$fd" line; then
+        mapfile -t fresh_lines < "$file"
+        while (( processed < ${#fresh_lines[@]} )); do
+            line="${fresh_lines[processed]}"
+            processed=$((processed + 1))
             if _progress_parse_line "$line"; then
                 saw_event=true
                 _progress_now_us
@@ -212,9 +219,8 @@ render_progress() {
                 fi
             fi
             # Malformed or unknown-stage lines are skipped as no-ops.
-        else
-            sleep 0.05
-        fi
+        done
+        sleep 0.05
 
         _progress_now_us
         if [[ "$animate" == "true" ]]; then
@@ -247,8 +253,6 @@ render_progress() {
         _restore_progress_terminal
         _restore_progress_traps
     fi
-    eval "exec ${fd}<&-"
-    progress_fd=""
     progress_animating=false
     _progress_dump_state
     return 0
