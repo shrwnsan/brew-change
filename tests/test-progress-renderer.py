@@ -300,14 +300,20 @@ def test_redraw_bounded():
         + "wait \"$writer_pid\"\n"
         + 'printf \'DONE\\n\' > /dev/tty\n'
     )
+    started = time.monotonic()
     output, _, status, _, _ = run_scenario(body)
+    duration_s = time.monotonic() - started
     shutil.rmtree(run_dir, ignore_errors=True)
     frames = FRAMES_RE.findall(output)
     assert status == 0, (status, output)
     assert len(frames) > 1, f"animation never redrew: {output!r}"
-    assert len(frames) <= 25, (
-        f"redraw not bounded: {len(frames)} frames for a >=2s run "
-        f"(expected <=25 at a 150ms floor; unbounded would be ~200): "
+    # Cap derived from measured wall clock: at the 150ms floor the frame
+    # count is bounded by duration, not by the event count (~200). A small
+    # allowance covers scheduler jitter on loaded CI runners.
+    cap = int(duration_s * 1000 / 150) + 10
+    assert len(frames) <= cap, (
+        f"redraw not bounded: {len(frames)} frames over {duration_s:.1f}s "
+        f"(cap {cap} at a 150ms floor; unbounded would be ~200): "
         f"{frames!r}"
     )
 
