@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-08-17
+
 ### Changed
 - **Trusted update assessment**: Replace binary safe/breaking language with attention, no-signal, and unknown. Attention and unknown packages are never bulk/default selected.
 - **Upgrade execution**: Preview the exact named package plan with Homebrew, warn about dependencies/dependents, then require immediate final confirmation before passing the same package arguments to the mutation command.
