@@ -124,6 +124,9 @@ kill -STOP "$$"
         status = wait_while_draining(time.monotonic() + TIMEOUT)
         if status is None:
             raise AssertionError(f"scenario did not exit: {output!r}")
+        # Drain once more after exit: the final output bytes can still be in
+        # the PTY buffer when the process is reaped.
+        output += drain(master, seconds=0.5)
         return output, status
     finally:
         if process.poll() is None:
@@ -169,7 +172,7 @@ def test_stale_enter_is_drained():
         'printf \'DONE\\n\' > /dev/tty\n'
     )
     output, status = run_scenario(
-        body, write_after_ready=[(b"[q]uit?", b"u\n", 0.1)]
+        body, write_after_ready=[(b"[q]uit?", b"u\n", 0.5)]
     )
     assert status == 0, (status, output)
     assert b"RESULT=no-signal" in output, output
@@ -193,15 +196,15 @@ def test_confirmation_not_auto_declined_by_stale_enter():
     output, status = run_scenario(
         body,
         write_after_ready=[
-            (b"[q]uit?", b"u\n", 0.1),
+            (b"[q]uit?", b"u\n", 0.5),
             # y arrives only after the confirmation prompt is visible; a
             # stale Enter would have declined it before y ever arrives.
             (b"Proceed?", b"y\n", 0.5),
         ],
     )
     assert b"CONFIRMED=1" in output, (
-        b"confirmation was declined without user input: " + output
-    )
+        f"confirmation was declined without user input (status={status}): "
+    ).encode() + output
 
 
 def test_inactivity_countdown_announces_timeout():
