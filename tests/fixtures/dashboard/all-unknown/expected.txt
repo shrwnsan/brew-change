@@ -1,0 +1,9 @@
+4 outdated · 0 attention · 0 no-signal · 4 unknown
+
+Unknown (4)
+  docker             4.34.0 → 4.35.0  Unknown          Rate limited; no usable …
+  firefox            139.0 → 140.0    Unknown          Release notes unavailable
+  some-private-cask  2.0 → 2.1        Unknown          Source type not supported
+  weird-cask         1.0 → 1.1        Unknown          Evidence body could not …
+
+[r] Review details  [s] Select packages  [q] Quit

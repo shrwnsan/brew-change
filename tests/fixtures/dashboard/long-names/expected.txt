@@ -1,0 +1,10 @@
+3 outdated · 1 attention · 2 no-signal · 0 unknown
+
+Needs attention (1)
+  node                                         22.6.0 → 25.0.0   Needs attention
+
+No risk signal found (2)
+  some-other-quite-long-formula-name           1.2.3 → 1.3.0     No risk signal
+  visual-studio-code-insiders@nightly-channel  2026.… → 2026.…   No risk signal
+
+[r] Review details  [s] Select packages  [u] Upgrade no-signal (2)  [q] Quit
