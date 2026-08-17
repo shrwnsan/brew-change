@@ -31,6 +31,7 @@ run_suite "upgrade flow" bash "$SCRIPT_DIR/test-upgrade-flow.sh"
 run_suite "parallel progress" bash "$SCRIPT_DIR/test-parallel-progress.sh"
 run_suite "signal cleanup" bash "$SCRIPT_DIR/test-signal-cleanup.sh"
 run_suite "terminal restoration" python3 "$SCRIPT_DIR/test-terminal-restoration.py"
+run_suite "prompt behavior" python3 "$SCRIPT_DIR/test-prompt-behavior.py"
 run_suite "URL policy" bash "$SCRIPT_DIR/test-url-policy.sh"
 run_suite "release preflight" bash "$SCRIPT_DIR/test-release-preflight.sh"
 
