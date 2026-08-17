@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # Version information
-readonly VERSION="1.12.0"
+readonly VERSION="1.12.1"
 
 # ---------------------------------------------------------------------------
 # Early validation: handle side-effect-free options before any brew/auth/cache
