@@ -713,7 +713,7 @@ Acceptance:
 
 #### T2.4.1 — Specify progress event contract
 
-**State:** Blocked by T2.1.1  
+**State:** Complete — contract approved 2026-08-18, see [research-006-progress-event-contract.md](research-006-progress-event-contract.md)  
 **Complexity:** S  
 **Owner:** Integrator
 
