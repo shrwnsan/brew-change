@@ -149,6 +149,7 @@ source "$LIB_DIR/brew-change-brew.sh"
 source "$LIB_DIR/brew-change-non-github.sh"
 source "$LIB_DIR/brew-change-display.sh"
 source "$LIB_DIR/brew-change-parallel.sh"
+source "$LIB_DIR/brew-change-progress.sh"
 source "$LIB_DIR/brew-change-upgrade.sh"
 
 # Verify dependencies
@@ -430,6 +431,32 @@ else
             # Inventory stage: emit one initial assessment record per outdated
             # package into the per-run status dir (T2.1.2 record contract).
             assessment_record_init "$UPGRADE_STATUS_DIR" "$outdated_packages"
+
+            # T2.4.3: live progress UI during evidence/classify. The renderer
+            # is the only code that draws terminal frames. render_progress
+            # returns whenever the current stage reaches its total plus the
+            # idle window, so the caller re-invokes it in a bounded loop
+            # until a sentinel marks the run complete (caller-side cancel
+            # path; see the stop logic before run_upgrade_prompt). The
+            # BREW_CHANGE_PARALLEL_MODE export above guards worker
+            # subprocesses, not the parent UI, so it is cleared here; the
+            # renderer still self-gates on [[ -t 1 ]] and non-TTY runs never
+            # start this loop at all.
+            progress_renderer_pid=""
+            if [[ -t 1 ]] && declare -F render_progress >/dev/null 2>&1; then
+                (
+                    export BREW_CHANGE_PARALLEL_MODE=
+                    while [[ ! -f "$UPGRADE_STATUS_DIR/.progress_done" ]] \
+                        && kill -0 "$PPID" 2>/dev/null; do
+                        render_progress "$UPGRADE_STATUS_DIR"
+                        sleep 0.1
+                    done
+                ) &
+                progress_renderer_pid=$!
+                if command -v register_pid >/dev/null 2>&1; then
+                    register_pid "$progress_renderer_pid"
+                fi
+            fi
         fi
 
         process_packages_parallel "$outdated_packages" "$PARALLEL_JOBS"
@@ -445,6 +472,27 @@ else
 
             # Collect evidence and classify with missing-row synthesis
             classify_upgrade_evidence "$UPGRADE_STATUS_DIR" "${inventory_tokens[@]+"${inventory_tokens[@]}"}"
+
+            # T2.4.3: the renderer must terminate BEFORE any prompt or
+            # dashboard output is drawn. classify_upgrade_evidence has just
+            # written the final stage events, so the renderer satisfies its
+            # total+idle contract on its own; drop the sentinel, wait a
+            # bounded time, and cancel as a backstop.
+            if [[ -n "$progress_renderer_pid" ]]; then
+                : > "$UPGRADE_STATUS_DIR/.progress_done"
+                for _progress_wait in 1 2 3 4 5 6 7 8 9 10 \
+                    11 12 13 14 15 16 17 18 19 20; do
+                    kill -0 "$progress_renderer_pid" 2>/dev/null || break
+                    sleep 0.1
+                done
+                kill "$progress_renderer_pid" 2>/dev/null || true
+                wait "$progress_renderer_pid" 2>/dev/null || true
+                if command -v unregister_pid >/dev/null 2>&1; then
+                    unregister_pid "$progress_renderer_pid"
+                fi
+                progress_renderer_pid=""
+            fi
+
             run_upgrade_prompt "$outdated_packages"
         else
             echo "Run 'brew upgrade' to upgrade all packages, or 'brew upgrade <package>' for individual packages."

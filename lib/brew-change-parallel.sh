@@ -152,9 +152,6 @@ process_packages_parallel() {
                 append_progress_event "evidence" "$processed" "${#packages[@]}" \
                     "${pid_packages[pid_idx]:-}"
             fi
-            if [[ ${#packages[@]} -gt 1 && -t 2 ]]; then
-                echo -ne "\r\033[KProgress: $processed/${#packages[@]} packages processed...\n" >&2
-            fi
         done
 
         # Output all temp files for this batch with proper separators
@@ -182,12 +179,12 @@ process_packages_parallel() {
         fi
     done
 
-    # Clear progress line and show summary for multi-package processing
-    if [[ ${#packages[@]} -gt 1 && -t 2 ]]; then
-        echo -ne "\r\033[K" >&2
-        echo "" >&2
-        local end_time=$(date +%s)
+    # Summary for multi-package processing. The live progress line belongs
+    # to the T2.4.2 renderer (progress.jsonl); no other code draws frames.
+    if [[ ${#packages[@]} -gt 1 ]]; then
+        local end_time
+        end_time=$(date +%s)
         local duration=$((end_time - start_time))
-        echo "Completed processing $processed packages in ${duration}s" >&2
+        echo "Completed processing $processed packages in ${duration}s"
     fi
 }
