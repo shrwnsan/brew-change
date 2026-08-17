@@ -32,9 +32,15 @@ _record_now_epoch() {
     fi
 }
 
-# File mtime in epoch seconds (macOS/BSD stat, then GNU stat).
+# File mtime in epoch seconds (macOS/BSD stat, then GNU stat). The first
+# command's output is validated numerically rather than chained on exit
+# status: GNU stat treats -f as filesystem mode, fails, and still writes
+# a filesystem dump to stdout that would pollute the fallback's result.
 _record_file_mtime() {
-    stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || printf '0\n'
+    local m
+    m=$(stat -f %m "$1" 2>/dev/null) || true
+    [[ "$m" =~ ^[0-9]+$ ]] || m=$(stat -c %Y "$1" 2>/dev/null)
+    printf '%s\n' "${m:-0}"
 }
 
 # INVENTORY: emit one initial 16-key record per outdated package to
