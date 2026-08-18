@@ -803,7 +803,7 @@ Acceptance:
 
 #### T2.6.2 — Switch zero-argument default to dashboard
 
-**State:** Integration; blocked by T2.2.1, T2.2.2, T2.3.2, T2.4.3, T2.5.2, T2.5.3, and T2.6.1  
+**State:** Complete (v1.14.0) — per research-004 §3.2/§4 the flip applies to interactive `-u` runs (dashboard default on TTY, --plain / BREW_CHANGE_PLAIN=1 escape hatches, one-release stderr notice, explicit --dashboard becomes a no-op); bare zero-argument invocation intentionally remains the simple list. The acceptance line "brew-change runs the dashboard" is reconciled to that staged scope.  
 **Complexity:** L  
 **Owner:** Integrator  
 **Writes:** `brew-change`, help, README, regression tests

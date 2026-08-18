@@ -141,6 +141,7 @@ cat > "$diffdir/edge.jsonl" <<'EOF'
 {"package":"multi","display_name":"multi","kind":"formula","installed_version":"1.0.0","available_version":"2.0.0","evidence_source":"github","evidence_url":null,"retrieved_at":1723900000,"retrieval_status":"fresh","evidence_snapshot":null,"classification":"attention","reasons":["Reason one","Reason two"],"matched_signals":["breaking-change","major-version"],"assessment_recommendation":false,"operational_eligibility":true,"default_selected":false}
 {"package":"nosig","display_name":"nosig","kind":"formula","installed_version":"1.0.0","available_version":"2.0.0","evidence_source":"github","evidence_url":null,"retrieved_at":1723900000,"retrieval_status":"fresh","evidence_snapshot":null,"classification":"no-signal","reasons":["Release notes checked"],"matched_signals":[],"assessment_recommendation":true,"operational_eligibility":true,"default_selected":true}
 {"package":"weird","display_name":"weird","kind":"cask","installed_version":"1.0","available_version":"1.1","evidence_source":"vendor","evidence_url":null,"retrieved_at":null,"retrieval_status":"stale","evidence_snapshot":null,"classification":"unknown","reasons":["Evidence is stale"],"matched_signals":[],"assessment_recommendation":false,"operational_eligibility":true,"default_selected":false}
+{"package":"gone","display_name":"gone","kind":"formula","installed_version":"1.0.0","available_version":"2.0.0","evidence_source":"none","evidence_url":null,"retrieved_at":null,"retrieval_status":"unavailable","evidence_snapshot":null,"classification":"unknown","reasons":["Evidence unavailable"],"matched_signals":[],"assessment_recommendation":false,"operational_eligibility":true,"default_selected":false}
 EOF
 
 edge_out="$diffdir/edge.txt"
@@ -148,34 +149,59 @@ render_dashboard_records "$diffdir/edge.jsonl" 80 > "$edge_out"
 
 # attention with multiple signals: comma-joined tokens, verbatim.
 line=$(grep '  multi ' "$edge_out")
-if [[ $line == *'Needs attention  breaking-change, major-version'* ]]; then
+if [[ $line == *'  breaking-change, major-version' ]]; then
     pass
 else
     fail "multiple signals not comma-joined in: '$line'"
 fi
 
-# attention with empty matched_signals: first reason, tail-preserving "…".
+# attention with empty matched_signals: first reason rendered (label-free
+# layout widens the reason budget, so the sentence now fits untruncated).
 line=$(grep '  fallback ' "$edge_out")
-if [[ $line == *'…'* && $line == *'fallback reason sentence' && $line != *'A fairly'* ]]; then
+if [[ $line == *'A fairly long fallback reason sentence' ]]; then
     pass
 else
-    fail "empty-signals fallback is not tail-preserving: '$line'"
+    fail "empty-signals fallback reason not rendered: '$line'"
 fi
 
-# no-signal row: no reason content; row ends at the label.
+# no-signal row: no reason content; row ends at the versions column.
 line=$(grep '  nosig ' "$edge_out")
-if [[ $line =~ ^(  .*  )No\ risk\ signal$ ]]; then
+if [[ $line =~ ^\ \ nosig\ +1\.0\.0\ →\ 2\.0\.0$ ]]; then
     pass
 else
     fail "no-signal row carries reason content: '$line'"
 fi
 
-# unknown row: bare retrieval_status token only (^[a-z-]+$ vocabulary).
+# unknown row with a non-unavailable status: bare retrieval_status token
+# (^([a-z-]+)$ vocabulary).
 line=$(grep '  weird ' "$edge_out")
-if [[ $line =~ ^(  .*  Unknown  +)([a-z-]+)$ && ${BASH_REMATCH[2]} == stale ]]; then
+if [[ $line =~ ^\ \ weird\ +1\.0\ →\ 1\.1\ +stale$ ]]; then
     pass
 else
     fail "unknown row reason is not the bare status token: '$line'"
+fi
+
+# unknown row with status exactly "unavailable": token suppressed, row ends
+# at the versions column (ratified label-free redesign).
+line=$(grep '  gone ' "$edge_out")
+if [[ $line =~ ^\ \ gone\ +1\.0\.0\ →\ 2\.0\.0$ ]]; then
+    pass
+else
+    fail "unknown unavailable row must show no token: '$line'"
+fi
+
+# Label-free rows: the classification strings appear only in group headers,
+# never inside a package row (any group, any fixture render).
+bad_label=""
+# shellcheck disable=SC2086
+while IFS=: read -r n w; do
+    bad_label+="$(render_dashboard_records "$FIXTURE_DIR/$n/input.jsonl" "$w" \
+        | awk '/^  [^ ]/ && /Needs attention|No risk signal|Unknown/')"
+done < <(printf '%s\n' $SCENARIOS)
+if [[ -z $bad_label ]]; then
+    pass
+else
+    fail "package row carries a classification label: '$bad_label'"
 fi
 
 # Joined token list overflowing the budget: single "…", cut at a token
@@ -187,7 +213,7 @@ long_out="$diffdir/long.txt"
 render_dashboard_records "$diffdir/long.jsonl" 80 > "$long_out"
 line=$(grep '  aa ' "$long_out")
 n_ell=$(printf '%s' "$line" | grep -o '…' | wc -l)
-if [[ $line == *'alpha-signal-token…' && $line != *beta* && $n_ell -eq 1 ]]; then
+if [[ $line == *'alpha-signal-token, beta-signal-token…' && $line != *gamma* && $n_ell -eq 1 ]]; then
     pass
 else
     fail "overflowing token list not truncated at a token boundary: '$line'"

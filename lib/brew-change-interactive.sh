@@ -133,7 +133,15 @@ _restore_prompt_traps() {
     trap - INT TERM
     [[ -n "${prompt_previous_int_trap:-}" ]] && eval "$prompt_previous_int_trap"
     [[ -n "${prompt_previous_term_trap:-}" ]] && eval "$prompt_previous_term_trap"
-    [[ "${prompt_installed_exit_trap:-false}" == "true" ]] && trap - EXIT
+    # Use an explicit if (not a trailing && chain): when no EXIT trap was
+    # installed the test evaluates false, and a false-returning final
+    # command makes the whole function return 1 — under the launcher's
+    # set -e that aborted the CLI with exit 1 on a plain quit (found by
+    # the T2.6.2 --plain full-CLI PTY tests).
+    if [[ "${prompt_installed_exit_trap:-false}" == "true" ]]; then
+        trap - EXIT
+    fi
+    return 0
 }
 
 # Restricted upgrade action prompt with spinner animation.

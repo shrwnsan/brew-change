@@ -124,8 +124,10 @@ _dashboard_countdown_note() { # suffix (e.g. "12  " or "now\n")
     local width=${dashboard_last_line_width:-0}
     (( ${#text} > width )) && width=$(( ${#text} ))
     _dashboard_note "\r%*s\r%s" "$width" "" "$text"
-    (( ${#text} > ${dashboard_last_line_width:-0} )) \
-        && dashboard_last_line_width=$(( ${#text} ))
+    if (( ${#text} > ${dashboard_last_line_width:-0} )); then
+        dashboard_last_line_width=$(( ${#text} ))
+    fi
+    return 0
 }
 
 _dashboard_timeout_notice() {
@@ -299,7 +301,9 @@ _dashboard_compact_reason() { # reason
 # dashboard rows):
 #   attention -> matched_signals tokens comma-joined (fallback: compact
 #                first reason when no signals matched);
-#   unknown   -> retrieval_status token only;
+#   unknown   -> retrieval_status token, except "unavailable" (the dominant
+#                no-action case), which is suppressed exactly as in the
+#                dashboard's Unknown group;
 #   no-signal -> no suffix.
 _dashboard_review_token() { # json-record
     local record="$1" token
@@ -312,7 +316,8 @@ _dashboard_review_token() { # json-record
             fi
             ;;
         unknown)
-            token=$(jq -r '.retrieval_status // "unavailable"' <<< "$record")
+            token=$(jq -r '.retrieval_status // ""' <<< "$record")
+            [[ "$token" == "unavailable" ]] && token=""
             ;;
         *)
             token=""

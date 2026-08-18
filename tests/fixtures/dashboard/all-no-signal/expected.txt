@@ -1,9 +1,9 @@
 4 outdated · 0 attention · 4 no-signal · 0 unknown
 
 No risk signal found (4)
-  bat           0.24.0 → 0.25.0  No risk signal
-  fd            10.2.0 → 10.3.0  No risk signal
-  git           2.49.0 → 2.50.1  No risk signal
-  jq            1.7.1 → 1.8.0    No risk signal
+  bat           0.24.0 → 0.25.0
+  fd            10.2.0 → 10.3.0
+  git           2.49.0 → 2.50.1
+  jq            1.7.1 → 1.8.0
 
 [r] Review details  [s] Select packages  [u] Upgrade no-signal (4)  [q] Quit

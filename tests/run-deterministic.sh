@@ -41,6 +41,7 @@ run_suite "progress integration" bash "$SCRIPT_DIR/test-progress-integration.sh"
 run_suite "dashboard fixtures" bash "$SCRIPT_DIR/test-dashboard-fixtures.sh"
 run_suite "dashboard renderer" bash "$SCRIPT_DIR/test-dashboard-render.sh"
 run_suite "dashboard actions" bash "$SCRIPT_DIR/test-dashboard-actions.sh"
+run_suite "errexit hardening" bash "$SCRIPT_DIR/test-errexit-hardening.sh"
 
 printf '\nDeterministic suites: %d passed, %d failed\n' "$passed" "$failed"
 [[ $failed -eq 0 ]]

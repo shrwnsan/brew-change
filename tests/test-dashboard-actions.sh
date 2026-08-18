@@ -183,6 +183,18 @@ drive "$NO_SIGNALS_RECORDS" 0 \
     && [[ "$OUT" == *"1) node — major version transition"* ]] \
     && pass || fail "REVIEW attention fallback: compact first reason token"
 
+# Unknown "unavailable" status token is suppressed in the review list too
+# (same rule as the dashboard's Unknown group); the row carries no suffix.
+UNAVAIL_RECORDS="$TMPDIR_TEST/unavail.jsonl"
+jq -c 'if .classification == "unknown" then .retrieval_status = "unavailable"
+        else . end' "$RECORDS" > "$UNAVAIL_RECORDS"
+KEY_QUEUE=(r q)
+LINE_QUEUE=(b)
+drive "$UNAVAIL_RECORDS" 0 \
+    && grep -q '^ *5) docker$' <<< "$OUT" \
+    && [[ "$OUT" != *'docker — unavailable'* ]] \
+    && pass || fail "REVIEW unknown unavailable: token suppressed"
+
 # Very long differential tokens are printed in full (no truncation)
 LONG_TOKEN_RECORDS="$TMPDIR_TEST/long-token.jsonl"
 LONG_REASON='an extremely long release-note reason sentence that keeps going and going far beyond any normal terminal width'
@@ -444,6 +456,67 @@ if grep -q '"retrieval_status":"fresh"' <(_quiet_evidence_rows default); then
     pass
 else
     fail "default (unset): evidence recording missing"
+fi
+
+# --- T2.6.2 default flip: piped full-CLI runs are unchanged -----------------
+# Non-TTY runs ignore the view entirely (research-004 §3.1): plain
+# deterministic prompt-flow output, no dashboard, no notice — with or
+# without the view flags.
+printf '\n--- default flip: piped full-CLI runs ---\n'
+FLIP_HARNESS_OK=1
+if [[ -f "$ROOT_DIR/tests/lib/test-utils.sh" ]]; then
+    # shellcheck disable=SC1091
+    source "$ROOT_DIR/tests/lib/test-utils.sh"
+    _flip_piped_run() { # args...; sets _FLIP_STDOUT/_FLIP_STDERR/_FLIP_EXIT
+        setup_command_harness
+        configure_fake_command brew \
+            "$SCRIPT_DIR/fixtures/homebrew/outdated-mixed.json" "" 0
+        configure_fake_command curl "" "" 0
+        export BREW_CHANGE_TEST_NOW=1800000000
+        local out_file="$COMMAND_HARNESS_ROOT/out"
+        local err_file="$COMMAND_HARNESS_ROOT/err"
+        local ec=0
+        "$ROOT_DIR/brew-change" "$@" >"$out_file" 2>"$err_file" || ec=$?
+        _FLIP_STDOUT="$(cat "$out_file")"
+        _FLIP_STDERR="$(cat "$err_file")"
+        _FLIP_EXIT="$ec"
+        unset BREW_CHANGE_TEST_NOW
+        teardown_command_harness
+    }
+
+    _flip_piped_run -u
+    [[ "$_FLIP_EXIT" == "0" \
+        && "$_FLIP_STDOUT" == *"Non-interactive mode. Upgrade skipped."* \
+        && "$_FLIP_STDOUT" != *"[s] Select packages"* \
+        && "$_FLIP_STDERR" != *"output view changed"* ]] \
+        && pass || fail "piped -u default: plain output, no dashboard, no notice"
+
+    _flip_piped_run -u --plain
+    [[ "$_FLIP_EXIT" == "0" \
+        && "$_FLIP_STDOUT" == *"Non-interactive mode. Upgrade skipped."* \
+        && "$_FLIP_STDERR" != *"output view changed"* ]] \
+        && pass || fail "piped -u --plain: plain output, no notice"
+
+    # Explicit former opt-in env, piped: still ignored in favor of plain.
+    setup_command_harness
+    configure_fake_command brew \
+        "$SCRIPT_DIR/fixtures/homebrew/outdated-mixed.json" "" 0
+    configure_fake_command curl "" "" 0
+    export BREW_CHANGE_TEST_NOW=1800000000
+    ec=0
+    BREW_CHANGE_DASHBOARD=1 "$ROOT_DIR/brew-change" -u \
+        >"$COMMAND_HARNESS_ROOT/out" 2>"$COMMAND_HARNESS_ROOT/err" || ec=$?
+    _FLIP_STDOUT="$(cat "$COMMAND_HARNESS_ROOT/out")"
+    _FLIP_STDERR="$(cat "$COMMAND_HARNESS_ROOT/err")"
+    unset BREW_CHANGE_TEST_NOW
+    teardown_command_harness
+    [[ "$ec" == "0" \
+        && "$_FLIP_STDOUT" == *"Non-interactive mode. Upgrade skipped."* \
+        && "$_FLIP_STDOUT" != *"[s] Select packages"* \
+        && "$_FLIP_STDERR" != *"output view changed"* ]] \
+        && pass || fail "piped -u with BREW_CHANGE_DASHBOARD=1: flag ignored, no notice"
+else
+    fail "test-utils.sh missing for piped flip checks"
 fi
 
 # --- Terminal hygiene (PTY): real readers, stty/signals/countdown ----------
