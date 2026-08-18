@@ -172,23 +172,36 @@ else
     pass
 fi
 
-# Differential reasons (ratified design): group headers state the
-# classification, so no-signal rows carry NO reason content (rows end at the
-# label) and unknown rows' reason — when the column survives degradation — is
-# a bare retrieval-status token from the ^[a-z-]+$ vocabulary.
+# Label-free rows + differential reasons (ratified design): group headers
+# state the classification, so NO package row may carry the classification
+# strings; no-signal rows carry NO reason content (rows end at the versions
+# column); unknown rows' reason — when the column survives degradation — is a
+# bare retrieval-status token from the ^[a-z-]+$ vocabulary, except that the
+# dominant no-action token "unavailable" is suppressed entirely.
 for s in mixed all-no-signal all-unknown long-names narrow-60 no-color; do
     r="$FIXTURE_DIR/$s/expected.txt"
-    bad_ns=$(awk '/^No risk signal found \(/{f=1;next} f && /^$/{f=0} f && $0 !~ /^  .*  No risk signal$/' "$r")
+    bad_label=$(awk '/^  [^ ]/ && /Needs attention|No risk signal|Unknown/' "$r")
+    if [[ -z $bad_label ]]; then
+        pass
+    else
+        fail "$s: package row carries a classification label: '$bad_label'"
+    fi
+    bad_ns=$(awk '/^No risk signal found \(/{f=1;next} f && /^$/{f=0} f && $0 !~ /^  [^ ]+ +.* → [^ ]+$/' "$r")
     if [[ -z $bad_ns ]]; then
         pass
     else
         fail "$s: no-signal row carries reason text: '$bad_ns'"
     fi
-    bad_unk=$(awk '/^Unknown \(/{f=1;next} f && /^$/{f=0} f && $0 !~ /^  .*  Unknown( +[a-z-]+)?$/' "$r")
+    bad_unk=$(awk '/^Unknown \(/{f=1;next} f && /^$/{f=0} f {
+        if ($0 !~ /→/) { print; next }
+        if (match($0, /  [a-z][a-z-]*$/)) {
+            if (substr($0, RSTART + 2) == "unavailable") print
+        }
+    }' "$r")
     if [[ -z $bad_unk ]]; then
         pass
     else
-        fail "$s: unknown row reason is not a bare status token: '$bad_unk'"
+        fail "$s: unknown row reason is not a bare non-unavailable status token: '$bad_unk'"
     fi
 done
 

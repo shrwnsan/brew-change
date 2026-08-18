@@ -1,9 +1,9 @@
 4 outdated · 0 attention · 0 no-signal · 4 unknown
 
 Unknown (4)
-  docker             4.34.0 → 4.35.0  Unknown          rate-limited
-  firefox            139.0 → 140.0    Unknown          unavailable
-  some-private-cask  2.0 → 2.1        Unknown          unsupported
-  weird-cask         1.0 → 1.1        Unknown          malformed
+  docker             4.34.0 → 4.35.0  rate-limited
+  firefox            139.0 → 140.0
+  some-private-cask  2.0 → 2.1        unsupported
+  weird-cask         1.0 → 1.1        malformed
 
 [r] Review details  [s] Select packages  [q] Quit

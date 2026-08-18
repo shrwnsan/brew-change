@@ -7,6 +7,12 @@
 # -> unknown groups (empty groups omitted, rows alphabetical), one line per
 # package, and a static footer.
 #
+# Label-free rows (ratified redesign): group headers state the
+# classification, so rows are 2 indent + name + 2 + versions + 2 + reason
+# with no per-row label column. Unknown rows additionally suppress the
+# status token when it is exactly "unavailable" (the dominant no-action
+# case); other tokens (rate-limited, stale, ...) still render.
+#
 # Contract properties:
 #   - Pure output: reads the record file, writes the view to stdout, returns
 #     0. No prompts, no file writes, no color, no emoji, no terminal queries.
@@ -107,16 +113,9 @@ _dashboard_trunc_tail() { # string width
     fi
 }
 
-# Classify -> row label (color-independent; the label carries the meaning).
-_dashboard_label() { # classification
-    case "$1" in
-        attention) printf 'Needs attention' ;;
-        no-signal) printf 'No risk signal' ;;
-        *)         printf 'Unknown' ;;
-    esac
-}
-
-# Classify -> group header.
+# Classify -> group header. Group headers are the only place the
+# classification words appear (ratified label-free redesign: rows carry no
+# classification label column).
 _dashboard_group_header() { # classification
     case "$1" in
         attention) printf 'Needs attention' ;;
@@ -167,9 +166,9 @@ render_dashboard_records() {
             (( ${#pair} > vers_nat )) && vers_nat=${#pair}
         done < <(jq -r '[.package, .installed_version, .available_version] | @tsv' "$records")
 
-        local label_w=15 vers_cap=26 vers_floor=12 reason_min=12
+        local vers_cap=26 vers_floor=12 reason_min=12
         local vw0=$(( vers_nat < vers_cap ? vers_nat : vers_cap ))
-        local fixed=$(( 2 + name_w + 2 + vw0 + 2 + label_w + 2 ))
+        local fixed=$(( 2 + name_w + 2 + vw0 + 2 ))
         local reason_budget=$(( width - fixed ))
         local show_reason=true show_versions=true
 
@@ -177,7 +176,7 @@ render_dashboard_records() {
             show_reason=false
             # Re-grow the versions column into the space the reason freed,
             # still capped and never below the structural floor.
-            vw=$(( width - (2 + name_w + 2 + 2 + label_w) ))
+            vw=$(( width - (2 + name_w + 2 + 2) ))
             (( vw > vw0 )) && vw=$vw0
             if (( vw < vers_floor )); then
                 show_versions=false
@@ -204,8 +203,6 @@ render_dashboard_records() {
             header=$(_dashboard_group_header "$cls")
             printf '%s (%d)\n' "$header" "$count"
 
-            local label
-            label=$(_dashboard_label "$cls")
             # NOTE: mode precedes reason because tab is IFS whitespace — an
             # empty reason field at the end simply leaves `reason` unset
             # instead of shifting the columns.
@@ -218,25 +215,25 @@ render_dashboard_records() {
                     inst_s=$(_dashboard_trunc "$inst" "$side")
                     avail_s=$(_dashboard_trunc "$avail" "$side")
                     pair="$(_dashboard_pad "$inst_s → $avail_s" "$vw")"
-                    row+="$pair  "
+                    row+="$pair"
                 fi
-                if $show_reason; then
-                    if [[ -n $reason ]]; then
-                        row+="$(_dashboard_pad "$label" "$label_w")"
-                        # Differential reasons (ratified design): compact
-                        # tokens when present, tail-preserving truncation for
-                        # the rare empty-signals sentence fallback.
-                        if [[ $mode == fallback ]]; then
-                            reason=$(_dashboard_trunc_tail "$reason" "$reason_budget")
-                        else
-                            reason=$(_dashboard_trunc_words "$reason" "$reason_budget")
-                        fi
-                        row+="  $reason"
+                if $show_reason && [[ -n $reason ]]; then
+                    # Differential reasons (ratified label-free design):
+                    # compact tokens when present, tail-preserving
+                    # truncation for the rare empty-signals sentence
+                    # fallback. Rows without reason content (no-signal, or
+                    # unknown with the dominant "unavailable" status) end at
+                    # the versions column with no trailing padding.
+                    if [[ $mode == fallback ]]; then
+                        reason=$(_dashboard_trunc_tail "$reason" "$reason_budget")
                     else
-                        row+=$label
+                        reason=$(_dashboard_trunc_words "$reason" "$reason_budget")
                     fi
+                    row+="  $reason"
                 else
-                    row+=$label
+                    # rstrip trailing padding so reason-less rows end at the
+                    # last version character.
+                    row="${row%"${row##*[! ]}"}"
                 fi
                 printf '%s\n' "$row"
             done < <(jq -r --arg cls "$cls" \
@@ -246,6 +243,9 @@ render_dashboard_records() {
                         and (((.matched_signals // []) | length) == 0)
                      then "fallback" else "plain" end),
                     (if .classification == "no-signal" then ""
+                     elif .classification == "unknown"
+                        and ((.retrieval_status // "unavailable") == "unavailable")
+                     then ""
                      elif .classification == "unknown" then (.retrieval_status // "")
                      elif ((.matched_signals // []) | length) > 0
                      then ((.matched_signals // []) | join(", "))

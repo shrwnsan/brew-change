@@ -16,4 +16,4 @@
 
 Known cost: color users get no extra redundancy (e.g. a red attention glyph).
 If the usability review (T3.4.1) wants emoji markers, they go in group headers
-only, never in row labels or reasons, and this fixture pair stays identical.
+only, never in row reasons, and this fixture pair stays identical.

@@ -183,6 +183,18 @@ drive "$NO_SIGNALS_RECORDS" 0 \
     && [[ "$OUT" == *"1) node — major version transition"* ]] \
     && pass || fail "REVIEW attention fallback: compact first reason token"
 
+# Unknown "unavailable" status token is suppressed in the review list too
+# (same rule as the dashboard's Unknown group); the row carries no suffix.
+UNAVAIL_RECORDS="$TMPDIR_TEST/unavail.jsonl"
+jq -c 'if .classification == "unknown" then .retrieval_status = "unavailable"
+        else . end' "$RECORDS" > "$UNAVAIL_RECORDS"
+KEY_QUEUE=(r q)
+LINE_QUEUE=(b)
+drive "$UNAVAIL_RECORDS" 0 \
+    && grep -q '^ *5) docker$' <<< "$OUT" \
+    && [[ "$OUT" != *'docker — unavailable'* ]] \
+    && pass || fail "REVIEW unknown unavailable: token suppressed"
+
 # Very long differential tokens are printed in full (no truncation)
 LONG_TOKEN_RECORDS="$TMPDIR_TEST/long-token.jsonl"
 LONG_REASON='an extremely long release-note reason sentence that keeps going and going far beyond any normal terminal width'

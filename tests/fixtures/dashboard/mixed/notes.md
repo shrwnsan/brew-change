@@ -8,7 +8,7 @@
 N outdated · A attention · B no-signal · C unknown      <- line 1, no "Summary:" prefix
 
 Needs attention (A)                                     <- groups in fixed order
-  <name> <inst> → <avail> <label> <reason>
+  <name> <inst> → <avail> <reason>
 No risk signal found (B)
 Unknown (C)
 
@@ -21,8 +21,10 @@ Unknown (C)
 - Group headers repeat the count so the summary line and body can be
   cross-checked at a glance.
 - Column budget at 80 cols: 2 indent + name (width = longest name, min 12) +
-  2 + versions (width = longest "inst → avail", capped at 26) + 2 + label
-  (fixed 15) + 2 + reason (remainder).
+  2 + versions (width = longest "inst → avail", capped at 26) + 2 + reason
+  (remainder). There is no per-row classification label column — group
+  headers already state the classification (ratified label-free redesign),
+  and the reclaimed 17 columns widen the reason budget.
 - Reason truncates with a single trailing "…" when it exceeds the remainder,
   preferring a token boundary (never mid-word when avoidable). One-line reason
   only; no release-note dumps — full evidence is reachable via
@@ -37,24 +39,30 @@ what differs *within* a group:
   `matched_signals`, comma-joined (e.g. `major-version-transition`,
   `breaking-change-note`). If an attention record has no matched signals, the
   reason falls back to the first reason sentence, tail-preserving-truncated.
-- **no-signal** rows carry no reason content at all — the column is empty and
-  the row ends at the label.
-- **unknown** rows show only the `retrieval_status` token (`rate-limited`,
-  `unavailable`, …) — never a "…; …" status sentence.
+- **no-signal** rows carry no reason content at all — the row ends at the
+  versions column (rstripped, no trailing padding).
+- **unknown** rows show only the `retrieval_status` token — never a "…; …"
+  status sentence — **except** when the token is exactly `unavailable`: that
+  is the dominant no-action case and is suppressed (row ends at the
+  versions). Rare actionable tokens (`rate-limited`, `stale`, `missing`,
+  `malformed`, `unsupported`, `failed`) still render.
 
 Full sentences remain in the `[r]` review view; only compact dashboard rows
 changed.
 
-## Labels (color-independent by construction)
+## Labels (headers only, color-independent by construction)
 
-- attention → `Needs attention`
-- no-signal → group header `No risk signal found`, row label `No risk signal`
-- unknown → group header `Unknown`, row label `Unknown`; the one-line reason
-  is the bare `retrieval_status` token naming the evidence failure.
+- attention → group header `Needs attention`
+- no-signal → group header `No risk signal found`
+- unknown → group header `Unknown`
 
-Unknown vs no-signal can never be confused: different group, different label
-word, and every unknown row carries an explicit retrieval-status token while
-every no-signal row carries no reason at all.
+Rows carry no classification label (ratified label-free redesign): the
+classification strings `Needs attention` / `No risk signal` / `Unknown` must
+appear only in group headers, never inside a package row.
+
+Unknown vs no-signal rows stay distinguishable without labels: separate
+groups in fixed order, and unknown rows may carry an explicit non-unavailable
+retrieval-status token while no-signal rows never carry reason content.
 
 ## Footer
 
