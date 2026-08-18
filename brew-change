@@ -34,6 +34,9 @@ Options:
   -u, --upgrade        Show changelogs with interactive upgrade prompt (implies -a, -b)
                         Use --dry-run to preview without executing
   -n, --dry-run        Preview upgrade without executing (use with -u)
+      --dashboard      Opt in to the interactive dashboard for -u runs
+                        (also via BREW_CHANGE_DASHBOARD=1; ignored when
+                        stdout is not a terminal)
   -h, --help           Show this help message
       --version        Show version information
 
@@ -50,6 +53,7 @@ Examples:
   brew-change --id-breaking     # Same as -a -b (long form)
   brew-change -u                # Show changelogs + interactive upgrade prompt
   brew-change -u --dry-run      # Show changelogs + upgrade summary (no execution)
+  brew-change -u --dashboard    # Interactive dashboard: review, select, upgrade
   brew-change --version         # Show version information
 
 EOF
@@ -78,7 +82,7 @@ for _arg in "${ORIGINAL_ARGS[@]}"; do
         -u|--upgrade)
             _PRE_PARSE_HAS_UPGRADE="true"
             ;;
-        -a|--all|-v|--verbose|-b|--id-breaking) ;;
+        -a|--all|-v|--verbose|-b|--id-breaking|--dashboard) ;;
         -*)
             _PRE_PARSE_HAS_INVALID="true"
             _PRE_PARSE_INVALID_OPT="$_arg"
@@ -152,6 +156,7 @@ source "$LIB_DIR/brew-change-display.sh"
 source "$LIB_DIR/brew-change-parallel.sh"
 source "$LIB_DIR/brew-change-progress.sh"
 source "$LIB_DIR/brew-change-upgrade.sh"
+source "$LIB_DIR/brew-change-dashboard-ui.sh"
 
 # Verify dependencies
 if ! verify_dependencies; then
@@ -170,6 +175,7 @@ SHOW_VERSIONS="false"
 IDENTIFY_BREAKING="false"
 UPGRADE_MODE="false"
 DRY_RUN_MODE="false"
+DASHBOARD_MODE="false"
 PACKAGES=()
 
 # Re-parse original arguments for full flag resolution
@@ -190,6 +196,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -n|--dry-run)
             DRY_RUN_MODE="true"
+            shift
+            ;;
+        --dashboard)
+            DASHBOARD_MODE="true"
             shift
             ;;
         -v|--verbose)
@@ -494,7 +504,18 @@ else
                 progress_renderer_pid=""
             fi
 
-            run_upgrade_prompt "$outdated_packages"
+            # T2.5.2 opt-in dashboard mode (ratified staged rollout):
+            # --dashboard / BREW_CHANGE_DASHBOARD=1 gate the interactive
+            # dashboard for -u runs; bare default behavior is unchanged.
+            # When stdout is not a TTY the flag is ignored in favor of the
+            # plain prompt flow (piped runs never enter the dashboard).
+            if [[ "$DASHBOARD_MODE" == "true" || -n "${BREW_CHANGE_DASHBOARD:-}" ]] \
+                && [[ -t 1 ]] \
+                && declare -F run_dashboard_mode >/dev/null 2>&1; then
+                run_dashboard_mode "$UPGRADE_STATUS_DIR/assessment.jsonl"
+            else
+                run_upgrade_prompt "$outdated_packages"
+            fi
         else
             echo "Run 'brew upgrade' to upgrade all packages, or 'brew upgrade <package>' for individual packages."
         fi

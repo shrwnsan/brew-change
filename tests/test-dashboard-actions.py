@@ -1,0 +1,371 @@
+#!/usr/bin/env python3
+"""Bounded PTY tests for the dashboard action loop's real terminal readers.
+
+Covers (per T2.5.2):
+- `u` path reaches the Phase-1 exact-plan boundary: fake brew log shows the
+  named `brew upgrade --dry-run` call; declining returns to the dashboard.
+- A stale Enter after `r` is drained and cannot corrupt the review view.
+- Inactivity timeout announces a countdown and exits 0.
+- EOF (^D) exits 0.
+- INT exits 130 with the terminal restored.
+"""
+
+import errno
+import fcntl
+import json
+import os
+import pty
+import select
+import shutil
+import signal
+import subprocess
+import tempfile
+import termios
+import time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LIB = os.path.join(ROOT, "lib")
+TIMEOUT = 15
+BASH = shutil.which("bash") or "/bin/bash"
+
+RECORDS = [
+    {
+        "package": "node",
+        "display_name": "node",
+        "kind": "formula",
+        "installed_version": "22.6.0",
+        "available_version": "25.0.0",
+        "evidence_source": "github",
+        "evidence_url": "https://example.com/node/releases",
+        "retrieved_at": int(time.time()) - 600,
+        "retrieval_status": "fresh",
+        "evidence_snapshot": "excerpt: Major version transition (22 to 25)",
+        "classification": "attention",
+        "reasons": ["Major version transition (22 to 25)"],
+        "matched_signals": ["major-version-transition"],
+    },
+    {
+        "package": "bat",
+        "display_name": "bat",
+        "kind": "formula",
+        "installed_version": "0.24.0",
+        "available_version": "0.25.0",
+        "evidence_source": "github",
+        "evidence_url": "https://example.com/bat/releases",
+        "retrieved_at": int(time.time()) - 600,
+        "retrieval_status": "fresh",
+        "evidence_snapshot": "excerpt: Release notes checked",
+        "classification": "no-signal",
+        "reasons": ["Release notes checked"],
+        "matched_signals": [],
+    },
+    {
+        "package": "docker",
+        "display_name": "docker",
+        "kind": "cask",
+        "installed_version": "4.34.0",
+        "available_version": "4.35.0",
+        "evidence_source": "",
+        "evidence_url": None,
+        "retrieved_at": None,
+        "retrieval_status": "unavailable",
+        "evidence_snapshot": None,
+        "classification": "unknown",
+        "reasons": ["Release notes unavailable"],
+        "matched_signals": [],
+    },
+]
+
+
+def make_fake_brew(tmp, outdated):
+    """Fake brew executable; logs every invocation, serves outdated JSON."""
+    bindir = os.path.join(tmp, "bin")
+    os.makedirs(bindir)
+    log = os.path.join(tmp, "brew.log")
+    outdated_file = os.path.join(tmp, "outdated.json")
+    with open(outdated_file, "w") as fh:
+        json.dump(outdated, fh)
+    path = os.path.join(bindir, "brew")
+    with open(path, "w") as fh:
+        fh.write(
+            "#!/usr/bin/env bash\n"
+            'echo "brew $*" >> "$FAKE_BREW_LOG"\n'
+            'case "$1" in\n'
+            '  outdated) cat "$FAKE_BREW_OUTDATED";;\n'
+            "esac\n"
+            "exit 0\n"
+        )
+    os.chmod(path, 0o755)
+    return bindir, log, outdated_file
+
+
+def read_until(fd, marker, timeout=TIMEOUT, sink=None):
+    data = b"" if sink is None else sink
+    deadline = time.monotonic() + timeout
+    while marker not in data and time.monotonic() < deadline:
+        ready, _, _ = select.select([fd], [], [], 0.05)
+        if not ready:
+            continue
+        try:
+            chunk = os.read(fd, 4096)
+        except OSError as exc:
+            if exc.errno == errno.EIO:
+                break
+            raise
+        if not chunk:
+            break
+        data += chunk
+    return data
+
+
+def drain(fd, seconds=0.5):
+    data = b""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        ready, _, _ = select.select([fd], [], [], 0.05)
+        if not ready:
+            continue
+        try:
+            chunk = os.read(fd, 4096)
+        except OSError:
+            break
+        if not chunk:
+            break
+        data += chunk
+    return data
+
+
+def run_scenario(body, extra_env=None, write_after_ready=None):
+    """Run body in a bash PTY; returns (output, exit_status)."""
+    master, slave = pty.openpty()
+    env = {"BREW_CHANGE_SUBPROCESS": ""}
+    if extra_env:
+        env.update(extra_env)
+    script = tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False)
+    script.write(
+        f'''#!/usr/bin/env bash
+set -uo pipefail
+export BREW_CHANGE_SUBPROCESS=""
+'''
+        + "".join(f"export {k}='{v}'\n" for k, v in (extra_env or {}).items())
+        + f'''
+source "{LIB}/brew-change-config.sh"
+source "{LIB}/brew-change-interactive.sh"
+source "{LIB}/brew-change-upgrade.sh"
+source "{LIB}/brew-change-dashboard-ui.sh"
+echo READY > /dev/tty
+kill -STOP "$$"
+{body}
+'''
+    )
+    script.close()
+
+    def attach_controlling_terminal():
+        os.environ.update(env)
+        os.setsid()
+        fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+
+    process = subprocess.Popen(
+        [BASH, script.name],
+        stdin=slave,
+        stdout=slave,
+        stderr=slave,
+        pass_fds=(slave,),
+        preexec_fn=attach_controlling_terminal,
+    )
+    output = b""
+
+    def wait_while_draining(deadline):
+        nonlocal output
+        while time.monotonic() < deadline:
+            try:
+                return process.wait(timeout=0.05)
+            except subprocess.TimeoutExpired:
+                pass
+            output += drain(master, seconds=0.05)
+        return None
+
+    try:
+        output += read_until(master, b"READY")
+        if b"READY" not in output:
+            raise AssertionError(f"scenario never became ready: {output!r}")
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            stat = subprocess.run(
+                ["ps", "-o", "stat=", "-p", str(process.pid)],
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            if stat.startswith("T"):
+                break
+            time.sleep(0.02)
+        else:
+            raise AssertionError(f"scenario never stopped: {output!r}")
+        os.kill(process.pid, signal.SIGCONT)
+        for marker, payload, delay in write_after_ready or []:
+            output += read_until(master, marker, timeout=8)
+            time.sleep(delay)
+            os.write(master, payload)
+        status = wait_while_draining(time.monotonic() + TIMEOUT)
+        if status is None:
+            raise AssertionError(f"scenario did not exit: {output!r}")
+        output += drain(master, seconds=0.5)
+        return output, status
+    finally:
+        if process.poll() is None:
+            process.kill()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+        os.close(slave)
+        os.close(master)
+        os.unlink(script.name)
+
+
+def write_records(tmp):
+    records = os.path.join(tmp, "records.jsonl")
+    with open(records, "w") as fh:
+        for record in RECORDS:
+            fh.write(json.dumps(record) + "\n")
+    return records
+
+
+def refresh_none():
+    return (
+        'test_refresh() { echo "REFRESH-CALLED" > /dev/tty; echo none; }\n'
+    )
+
+
+def test_u_reaches_preview_and_decline_returns():
+    """u -> named dry-run preview -> decline -> back to dashboard -> q exits 0."""
+    with tempfile.TemporaryDirectory() as tmp:
+        records = write_records(tmp)
+        outdated = {
+            "formulae": [{"name": "node"}, {"name": "bat"}],
+            "casks": [{"token": "docker"}],
+        }
+        bindir, log, outdated_file = make_fake_brew(tmp, outdated)
+        body = (
+            f'export PATH="{bindir}:$PATH"\n'
+            f'export FAKE_BREW_LOG="{log}"\n'
+            f'export FAKE_BREW_OUTDATED="{outdated_file}"\n'
+            "export BREW_CHANGE_PROMPT_TIMEOUT=60\n"
+            'export DRY_RUN_MODE=""\n'
+            + refresh_none()
+            + f'run_dashboard_mode "{records}" test_refresh\n'
+            'printf "EXIT=%s\\n" "$?" > /dev/tty\n'
+        )
+        output, status = run_scenario(
+            body,
+            write_after_ready=[
+                (b"[q]uit (Enter = u):", b"u\n", 0.3),
+                (b"dry-run", b"n\n", 0.3),
+                (b"[q]uit (Enter = u):", b"q\n", 0.3),
+            ],
+        )
+        assert status == 0, (status, output)
+        # The exact-plan boundary ran a NAMED dry-run over the no-signal set.
+        assert b"Preview: brew upgrade --dry-run bat" in output, output
+        with open(log) as fh:
+            calls = fh.read()
+        assert "upgrade --dry-run bat" in calls, calls
+        # Decline: no mutation, refresh not called, dashboard re-rendered.
+        assert b"Upgrade cancelled." in output, output
+        assert "upgrade --yes" not in calls, calls
+        assert b"REFRESH-CALLED" not in output, output
+
+
+def test_stale_enter_after_r_does_not_corrupt_review():
+    """The Enter that submits 'r' is drained before the review line read."""
+    with tempfile.TemporaryDirectory() as tmp:
+        records = write_records(tmp)
+        body = (
+            "export BREW_CHANGE_PROMPT_TIMEOUT=60\n"
+            + refresh_none()
+            + f'run_dashboard_mode "{records}" test_refresh\n'
+            'printf "EXIT=%s\\n" "$?" > /dev/tty\n'
+        )
+        output, status = run_scenario(
+            body,
+            write_after_ready=[
+                (b"[q]uit (Enter = u):", b"r\n", 0.3),
+                (b"Review packages (3):", b"bat\n", 0.3),
+                (b"Evidence snapshot:", b"\n", 0.3),
+                (b"Review packages (3):", b"b\n", 0.3),
+                (b"[q]uit (Enter = u):", b"q\n", 0.3),
+            ],
+        )
+        assert status == 0, (status, output)
+        # Detail rendered from the record, uncorrupted by the stale Enter.
+        assert b"--- bat ---" in output, output
+        assert b"Evidence URL:     https://example.com/bat/releases" in output, output
+        assert b"Retrieval status: fresh" in output, output
+        assert b"Invalid input" not in output, output
+
+
+def test_inactivity_timeout_counts_down_and_exits_zero():
+    with tempfile.TemporaryDirectory() as tmp:
+        records = write_records(tmp)
+        body = (
+            "export BREW_CHANGE_PROMPT_TIMEOUT=3\n"
+            + f'run_dashboard_mode "{records}" test_refresh\n'
+            'printf "EXIT=%s\\n" "$?" > /dev/tty\n'
+        )
+        output, status = run_scenario(body)
+        assert status == 0, (status, output)
+        assert b"Still there?" in output, output
+        assert b"exiting in" in output, output
+        assert b"inactivity timeout" in output, output
+
+
+def test_eof_exits_zero():
+    with tempfile.TemporaryDirectory() as tmp:
+        records = write_records(tmp)
+        body = (
+            "export BREW_CHANGE_PROMPT_TIMEOUT=60\n"
+            + f'run_dashboard_mode "{records}" test_refresh\n'
+            'printf "EXIT=%s\\n" "$?" > /dev/tty\n'
+        )
+        output, status = run_scenario(
+            body,
+            write_after_ready=[(b"[q]uit (Enter = u):", b"\x04", 0.3)],
+        )
+        assert status == 0, (status, output)
+
+
+def test_int_exits_130_and_restores_terminal():
+    with tempfile.TemporaryDirectory() as tmp:
+        records = write_records(tmp)
+        body = (
+            "export BREW_CHANGE_PROMPT_TIMEOUT=60\n"
+            + f'run_dashboard_mode "{records}" test_refresh\n'
+        )
+        output, status = run_scenario(
+            body,
+            write_after_ready=[(b"[q]uit (Enter = u):", b"\x03", 0.3)],
+        )
+        assert status == 130, (status, output)
+
+
+def main():
+    tests = [
+        test_u_reaches_preview_and_decline_returns,
+        test_stale_enter_after_r_does_not_corrupt_review,
+        test_inactivity_timeout_counts_down_and_exits_zero,
+        test_eof_exits_zero,
+        test_int_exits_130_and_restores_terminal,
+    ]
+    failures = 0
+    for test in tests:
+        try:
+            test()
+            print(f"PASS: {test.__name__}", flush=True)
+        except Exception as exc:
+            failures += 1
+            print(f"FAIL: {test.__name__}: {exc}", flush=True)
+    raise SystemExit(1 if failures else 0)
+
+
+if __name__ == "__main__":
+    main()

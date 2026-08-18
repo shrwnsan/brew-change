@@ -1,0 +1,321 @@
+#!/usr/bin/env bash
+# T2.5.2 — dashboard action-state machine conformance (research-007 §1).
+#
+# Deterministic state×input coverage: the terminal readers
+# (_dashboard_read_key/_dashboard_read_line) are overridden with scripted
+# queues so every DASHBOARD/REVIEW/SELECT/UPGRADE outcome is exercised
+# without a TTY; execution goes through a recording override of
+# run_upgrade_with_preview (the sole boundary). The real readers' terminal
+# hygiene (stty/signals/timeout/stale Enter) is covered by the PTY suite
+# this script invokes last (tests/test-dashboard-actions.py).
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# shellcheck disable=SC1091
+source "$ROOT_DIR/lib/brew-change-dashboard-ui.sh"
+
+FIXTURE="$SCRIPT_DIR/fixtures/dashboard/mixed/input.jsonl"
+
+passed=0
+failed=0
+pass() { passed=$(( passed + 1 )); }
+fail() { failed=$(( failed + 1 )); printf 'FAIL: %s\n' "$1" >&2; }
+
+TMPDIR_TEST="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR_TEST"' EXIT
+
+# Small deterministic record set: attention (node, postgresql@16),
+# no-signal (bat, curl), unknown (docker) — in that record order.
+RECORDS="$TMPDIR_TEST/records.jsonl"
+jq -c 'select(.package == "node" or .package == "postgresql@16"
+             or .package == "bat" or .package == "curl"
+             or .package == "docker")' "$FIXTURE" > "$RECORDS"
+ALL_UNKNOWN="$TMPDIR_TEST/all-unknown.jsonl"
+jq -c 'select(.classification == "unknown")' "$FIXTURE" > "$ALL_UNKNOWN"
+
+# Expected canonical sets (record order).
+NS_SET="bat curl"
+ALL_SET="node postgresql@16 bat curl docker"
+
+# ---------------------------------------------------------------------------
+# Test-time reader overrides: scripted queues; exhausted queue = EOF.
+# ---------------------------------------------------------------------------
+KEY_QUEUE=()
+KEY_I=0
+_dashboard_read_key() { # varname
+    local __var="$1"
+    if (( KEY_I >= ${#KEY_QUEUE[@]} )); then
+        return 1
+    fi
+    printf -v "$__var" '%s' "${KEY_QUEUE[$KEY_I]}"
+    KEY_I=$(( KEY_I + 1 ))
+    return 0
+}
+
+LINE_QUEUE=()
+LINE_I=0
+_dashboard_read_line() { # varname
+    local __var="$1"
+    if (( LINE_I >= ${#LINE_QUEUE[@]} )); then
+        return 1
+    fi
+    printf -v "$__var" '%s' "${LINE_QUEUE[$LINE_I]}"
+    LINE_I=$(( LINE_I + 1 ))
+    return 0
+}
+
+# Route cosmetic /dev/tty messages to stdout so assertions can see them.
+_dashboard_say() { echo "$1"; }
+# shellcheck disable=SC2059 # format passthrough mirrors the module helper
+_dashboard_note() { printf "$@"; }
+
+# Execution-boundary recorder.
+UPGRADE_CALLS="$TMPDIR_TEST/upgrade-calls"
+run_upgrade_with_preview() {
+    printf '%s\n' "$*" >> "$UPGRADE_CALLS"
+    return "${UPGRADE_RC:-0}"
+}
+
+# Inventory fetch recorder (also flags any refetch from REVIEW).
+FETCH_LOG="$TMPDIR_TEST/fetch-log"
+FETCH_JSON="{}"
+_dashboard_fetch_outdated_json() {
+    echo "fetch" >> "$FETCH_LOG"
+    echo "$FETCH_JSON"
+}
+
+REFRESH_LOG="$TMPDIR_TEST/refresh-log"
+test_refresh() {
+    echo "refresh" >> "$REFRESH_LOG"
+    echo "none"
+}
+
+# Drive run_dashboard_mode in a subshell (it always exits) and capture
+# stdout+exit status: drive <records> <expected_status>
+drive() {
+    local rec="$1"; local expect_status="$2"
+    KEY_I=0 LINE_I=0
+    : > "$UPGRADE_CALLS"; : > "$FETCH_LOG"; : > "$REFRESH_LOG"
+    OUT="$( run_dashboard_mode "$rec" test_refresh 2>&1 )"
+    STATUS=$?
+    if [[ "$STATUS" != "$expect_status" ]]; then
+        fail "drive($rec): exit $STATUS, expected $expect_status
+$OUT"
+        return 1
+    fi
+    return 0
+}
+
+upgrade_args() { tr '\n' ' ' < "$UPGRADE_CALLS" | sed 's/ $//'; }
+
+# --- DASHBOARD -------------------------------------------------------------
+
+# q -> exit 0, no mutation
+KEY_QUEUE=(q)
+drive "$RECORDS" 0 \
+    && [[ "$OUT" == *"Dashboard closed."* ]] \
+    && [[ ! -s "$UPGRADE_CALLS" ]] \
+    && pass || fail "DASHBOARD q: exit 0, closed, no upgrade call"
+
+# EOF (empty queue) -> exit 0
+KEY_QUEUE=()
+drive "$RECORDS" 0 && [[ ! -s "$UPGRADE_CALLS" ]] \
+    && pass || fail "DASHBOARD EOF: exit 0, no upgrade call"
+
+# invalid -> hint, reprompt; then q
+KEY_QUEUE=(x q)
+drive "$RECORDS" 0 && [[ "$OUT" == *"Invalid input 'x'. Type r/s/u/q"* ]] \
+    && pass || fail "DASHBOARD invalid: hint then reprompt"
+
+# r -> REVIEW list; b -> back; q -> exit 0
+KEY_QUEUE=(r q)
+LINE_QUEUE=(b)
+drive "$RECORDS" 0 \
+    && [[ "$OUT" == *"Review packages (5):"* ]] \
+    && [[ "$OUT" == *"1) node — Needs attention"* ]] \
+    && [[ "$OUT" == *"5) docker — Unknown"* ]] \
+    && pass || fail "DASHBOARD r: review list renders, b returns"
+
+# u -> UPGRADE with the exact no-signal set; inventory unchanged -> decline
+# path: no refresh, records kept, dashboard re-rendered; then q
+KEY_QUEUE=(u q)
+FETCH_JSON='{"formulae":[{"name":"bat"},{"name":"curl"},{"name":"node"},{"name":"postgresql@16"},{"name":"docker"}],"casks":[]}'
+drive "$RECORDS" 0 \
+    && [[ "$(upgrade_args)" == "$NS_SET" ]] \
+    && [[ ! -s "$REFRESH_LOG" ]] \
+    && [[ "$(grep -c 'Needs attention' <<< "$OUT")" -ge 1 ]] \
+    && pass || fail "DASHBOARD u: no-signal set only, no refresh on unchanged inventory"
+
+# Enter == u when the no-signal set is non-empty
+KEY_QUEUE=($'\n' q)
+drive "$RECORDS" 0 && [[ "$(upgrade_args)" == "$NS_SET" ]] \
+    && pass || fail "DASHBOARD Enter: upgrades no-signal set"
+
+# Enter with an empty no-signal set -> quit semantics (exit 0)
+KEY_QUEUE=($'\n')
+drive "$ALL_UNKNOWN" 0 \
+    && [[ "$OUT" == *"Dashboard closed."* ]] \
+    && [[ ! -s "$UPGRADE_CALLS" ]] \
+    && pass || fail "DASHBOARD Enter (no no-signal): exit 0, no upgrade"
+
+# u with an empty no-signal set -> hint, no execution
+KEY_QUEUE=(u q)
+drive "$ALL_UNKNOWN" 0 \
+    && [[ "$OUT" == *"No no-signal packages to upgrade"* ]] \
+    && [[ ! -s "$UPGRADE_CALLS" ]] \
+    && pass || fail "DASHBOARD u (no no-signal): hint, no execution"
+
+# UPGRADE completion (named set no longer outdated) -> refresh -> empty
+# dashboard -> "No outdated packages." -> exit 0
+KEY_QUEUE=(u)
+FETCH_JSON='{"formulae":[],"casks":[]}'
+drive "$RECORDS" 0 \
+    && [[ "$(upgrade_args)" == "$NS_SET" ]] \
+    && [[ -s "$REFRESH_LOG" ]] \
+    && [[ "$OUT" == *"No outdated packages."* ]] \
+    && pass || fail "UPGRADE completion: refresh called, empty dashboard, exit 0"
+
+# UPGRADE preview failure -> back to dashboard, plan discarded, no refresh
+KEY_QUEUE=(u q)
+UPGRADE_RC=1
+drive "$RECORDS" 0 \
+    && [[ ! -s "$REFRESH_LOG" ]] \
+    && [[ "$OUT" == *"[q]uit"* ]] \
+    && pass || fail "UPGRADE failure: returns to dashboard, no refresh"
+UPGRADE_RC=0
+
+# --- REVIEW -----------------------------------------------------------------
+
+# Detail by index: read-only fields from the record; file unchanged; no fetch
+RECORDS_HASH_BEFORE=$(shasum "$RECORDS" | cut -d' ' -f1)
+KEY_QUEUE=(r q)
+LINE_QUEUE=(1 '' b)
+drive "$RECORDS" 0 \
+    && [[ "$OUT" == *"--- node ---"* ]] \
+    && [[ "$OUT" == *"Evidence source:  github"* ]] \
+    && [[ "$OUT" == *"Evidence URL:     https://example.com/node/releases"* ]] \
+    && [[ "$OUT" == *"Retrieval status: fresh"* ]] \
+    && [[ "$OUT" == *"Reason:           Major version transition (22 to 25)"* ]] \
+    && [[ "$OUT" == *"Evidence snapshot:"* ]] \
+    && [[ "$OUT" == *"retrieved"* ]] \
+    && [[ ! -s "$FETCH_LOG" ]] \
+    && [[ "$(shasum "$RECORDS" | cut -d' ' -f1)" == "$RECORDS_HASH_BEFORE" ]] \
+    && pass || fail "REVIEW detail by index: record-driven, read-only, no refetch"
+
+# Detail by name with a punctuated canonical token; URL omitted when null
+KEY_QUEUE=(r q)
+LINE_QUEUE=('postgresql@16' '' b)
+drive "$RECORDS" 0 \
+    && [[ "$OUT" == *"--- postgresql@16 ---"* ]] \
+    && [[ "$OUT" == *"Evidence URL"* ]] \
+    && pass || fail "REVIEW detail by name: canonical token with punctuation"
+KEY_QUEUE=(r q)
+LINE_QUEUE=('docker' '' b)
+drive "$RECORDS" 0 \
+    && [[ "$OUT" == *"--- docker ---"* ]] \
+    && [[ "$OUT" == *"Retrieval status: rate-limited"* ]] \
+    && [[ "$OUT" != *"Evidence URL:"* ]] \
+    && [[ "$OUT" == *"Freshness:        retrieved unknown"* ]] \
+    && pass || fail "REVIEW detail unknown: URL omitted, null freshness"
+
+# Invalid review input -> hint, reprompt
+KEY_QUEUE=(r q)
+LINE_QUEUE=(nope b)
+drive "$RECORDS" 0 \
+    && [[ "$OUT" == *"Invalid input 'nope'"* ]] \
+    && pass || fail "REVIEW invalid: hint, reprompt"
+
+# q inside REVIEW -> exit 0
+KEY_QUEUE=(r)
+LINE_QUEUE=(q)
+drive "$RECORDS" 0 && [[ "$OUT" == *"Dashboard closed."* ]] \
+    && pass || fail "REVIEW q: exit 0"
+
+# EOF inside REVIEW (line queue exhausted) -> exit 0
+KEY_QUEUE=(r)
+LINE_QUEUE=()
+drive "$RECORDS" 0 && [[ ! -s "$UPGRADE_CALLS" ]] \
+    && pass || fail "REVIEW EOF: exit 0"
+
+# --- SELECT -----------------------------------------------------------------
+
+# Defaults: exactly the no-signal tokens, never attention/unknown
+DEFAULTS="$(_dashboard_default_selected_pkgs "$RECORDS" | tr '\n' ' ' | sed 's/ $//')"
+if [[ "$DEFAULTS" == "$NS_SET" ]]; then
+    pass
+else
+    fail "SELECT defaults: got '$DEFAULTS', expected '$NS_SET'"
+fi
+
+# Toggle + Enter -> UPGRADE with the exact staged canonical tokens
+# (defaults bat+curl; add node and docker by index, drop bat by name)
+KEY_QUEUE=(s q)
+LINE_QUEUE=('1' '5' 'bat' '')
+drive "$RECORDS" 0 \
+    && [[ "$(upgrade_args)" == "node curl docker" ]] \
+    && pass || fail "SELECT toggle: staged set passed to the boundary exactly"
+
+# b discards the staged selection; later u uses only the no-signal set
+KEY_QUEUE=(s u q)
+LINE_QUEUE=('1' b)
+drive "$RECORDS" 0 \
+    && [[ "$(upgrade_args)" == "$NS_SET" ]] \
+    && pass || fail "SELECT b: staged selection discarded"
+
+# Empty staged set + Enter -> guard hint, no execution
+KEY_QUEUE=(s q)
+LINE_QUEUE=('3' '4' '')
+drive "$RECORDS" 0 \
+    && [[ "$OUT" == *"Nothing selected."* ]] \
+    && [[ ! -s "$UPGRADE_CALLS" ]] \
+    && pass || fail "SELECT empty confirm: guarded, no execution"
+
+# q inside SELECT -> exit 0
+KEY_QUEUE=(s)
+LINE_QUEUE=(q)
+drive "$RECORDS" 0 && [[ "$OUT" == *"Dashboard closed."* ]] \
+    && pass || fail "SELECT q: exit 0"
+
+# EOF inside SELECT -> exit 0
+KEY_QUEUE=(s)
+LINE_QUEUE=()
+drive "$RECORDS" 0 && [[ ! -s "$UPGRADE_CALLS" ]] \
+    && pass || fail "SELECT EOF: exit 0"
+
+# Invalid select input -> hint
+KEY_QUEUE=(s q)
+LINE_QUEUE=(zz b)
+drive "$RECORDS" 0 \
+    && [[ "$OUT" == *"Invalid input 'zz'"* ]] \
+    && pass || fail "SELECT invalid: hint, reprompt"
+
+# Preselection markers render ([x] no-signal, [ ] attention/unknown)
+KEY_QUEUE=(s q)
+LINE_QUEUE=(b)
+drive "$RECORDS" 0 \
+    && [[ "$OUT" == *"[x]  3) bat — No risk signal"* ]] \
+    && [[ "$OUT" == *"[ ]  1) node — Needs attention"* ]] \
+    && [[ "$OUT" == *"[ ]  5) docker — Unknown"* ]] \
+    && pass || fail "SELECT render: preselection markers"
+
+# --- Full-set sanity: every record token is reachable in SELECT -----------
+FULL="$(_dashboard_all_pkgs "$RECORDS" | tr '\n' ' ' | sed 's/ $//')"
+if [[ "$FULL" == "$ALL_SET" ]]; then
+    pass
+else
+    fail "record tokens: got '$FULL', expected '$ALL_SET'"
+fi
+
+# --- Terminal hygiene (PTY): real readers, stty/signals/countdown ----------
+printf '\n--- dashboard action PTY suite ---\n'
+if python3 "$SCRIPT_DIR/test-dashboard-actions.py"; then
+    pass
+else
+    fail "dashboard action PTY suite"
+fi
+
+printf '\ndashboard actions: %d passed, %d failed\n' "$passed" "$failed"
+[[ $failed -eq 0 ]]

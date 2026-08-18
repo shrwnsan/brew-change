@@ -59,6 +59,14 @@ brew-change --help
 
 In a pipe or other non-interactive environment, brew-change prints guidance and never starts an upgrade.
 
+### Interactive dashboard (opt-in)
+
+Add `--dashboard` (or set `BREW_CHANGE_DASHBOARD=1`) to a `-u` run to use the interactive dashboard instead of the plain prompt: review each package's evidence provenance read-only (`r`), stage an explicit per-package selection (`s`), upgrade the no-signal set (`u`/Enter), or quit (`q`). Without the flag, behavior is unchanged, and the flag is ignored when stdout is not a terminal.
+
+```bash
+brew-change -u --dashboard
+```
+
 ## 📦 Installation
 
 ### Quick Install
