@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-08-18
+
+### Added
+- **Interactive dashboard (opt-in)**: `brew-change -u --dashboard` (or `BREW_CHANGE_DASHBOARD=1`) renders a compact grouped view of outdated packages — review evidence provenance per package, explicitly select packages (no-signal preselected; attention and unknown never preselected), and upgrade through the existing preview-then-confirm boundary. Ignored when output is piped.
+- Normalized assessment records: pipeline stages communicate through a structured JSONL record per package; classifications come from a pure, fixture-tested engine.
+
+### Changed
+- `brew info` results are memoized per run and cached across runs (5-minute TTL with outdated-driven invalidation) — multi-package runs no longer call Homebrew redundantly and repeat runs are substantially faster.
+- The `-u` flow shows a single animated progress line while evidence is gathered; workers no longer write to the terminal.
+
+### Fixed
+- Running from a repository checkout now uses the checkout's own libraries instead of a previously installed release's.
+
 ## [1.12.1] - 2026-08-17
 
 ### Fixed
