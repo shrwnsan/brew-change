@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.1] - 2026-08-18
+
+### Fixed
+- `-u` runs no longer exit silently after "Processing changelog..." once the cross-run brew info cache is populated: a false conditional at the end of the cache-invalidation routine returned failure, which the launcher's error-exit mode treated as fatal.
+
 ## [1.13.0] - 2026-08-18
 
 ### Added
