@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.2] - 2026-08-18
+
+### Fixed
+- The inactivity countdown now clears the full prompt line before redrawing, removing leftover fragments at timeout.
+- Packages whose upstream has no release notes now record `unavailable` evidence status (with the review URL) instead of `missing`.
+- The launcher lib-resolution regression test now exercises the real code path.
+
+### Changed
+- `--dashboard` runs no longer print inline changelog dumps; use Review in the dashboard for details. Plain `-u` output is unchanged.
+
 ## [1.13.1] - 2026-08-18
 
 ### Fixed
