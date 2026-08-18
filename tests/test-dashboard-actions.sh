@@ -309,6 +309,87 @@ else
     fail "record tokens: got '$FULL', expected '$ALL_SET'"
 fi
 
+# --- Dashboard quiet-changelogs: inline per-package dump suppression -------
+# When brew-change dispatches dashboard mode it exports
+# BREW_CHANGE_CHANGELOG_OUTPUT=0 before evidence gathering; the inline
+# changelog dump (the "📦 pkg: ..." blocks) must disappear from stdout while
+# evidence recording stays intact. Default (unset) and explicit =1 keep the
+# dump for plain -u and all non-dashboard modes.
+printf '\n--- dashboard quiet changelog dump ---\n'
+_quiet_dump_run() { # mode (quiet|loud|default); echoes the changelog stdout
+    local mode="$1"
+    local dir="$TMPDIR_TEST/quiet-$mode"
+    mkdir -p "$dir"
+    rm -f "$dir/evidence.jsonl" "$dir/progress.jsonl"
+    (
+        export BREW_CHANGE_SUBPROCESS=true
+        export UPGRADE_STATUS_DIR="$dir"
+        export IDENTIFY_BREAKING=true
+        case "$mode" in
+            quiet) export BREW_CHANGE_CHANGELOG_OUTPUT=0 ;;
+            loud) export BREW_CHANGE_CHANGELOG_OUTPUT=1 ;;
+            default) unset BREW_CHANGE_CHANGELOG_OUTPUT ;;
+        esac
+        # shellcheck disable=SC1091
+        source "$ROOT_DIR/lib/brew-change-config.sh"
+        source "$ROOT_DIR/lib/brew-change-utils.sh"
+        source "$ROOT_DIR/lib/brew-change-breaking.sh"
+        source "$ROOT_DIR/lib/brew-change-assessment.sh"
+        source "$ROOT_DIR/lib/brew-change-github.sh"
+        source "$ROOT_DIR/lib/brew-change-npm.sh"
+        source "$ROOT_DIR/lib/brew-change-brew.sh"
+        source "$ROOT_DIR/lib/brew-change-non-github.sh"
+        source "$ROOT_DIR/lib/brew-change-display.sh"
+        # Deterministic GitHub release stub: no network, fixed snapshot.
+        fetch_github_release() {
+            printf '{"tag_name":"v2.0.0","published_at":"2026-08-01T00:00:00Z","html_url":"https://github.com/example/demo/releases/tag/v2.0.0","body":"## Changes\\n- quiet dump guard"}'
+        }
+        show_package_changelog_full "demo" "1.0.0" "2.0.0" \
+            '{"homepage":"https://github.com/example/demo","urls":{"stable":{"url":"https://github.com/example/demo/archive/v2.0.0.tar.gz"}}}'
+    )
+}
+_quiet_evidence_rows() { # mode; prints evidence.jsonl rows for "demo"
+    jq -c 'select(.package == "demo")' \
+        "$TMPDIR_TEST/quiet-$1/evidence.jsonl" 2>/dev/null || true
+}
+
+QUIET_OUT=$(_quiet_dump_run quiet)
+if [[ "$QUIET_OUT" != *"📦"* && "$QUIET_OUT" != *"Release:"* ]]; then
+    pass
+else
+    fail "quiet flag: stdout still carries the changelog dump"
+fi
+if grep -q '"retrieval_status":"fresh"' <(_quiet_evidence_rows quiet) \
+    && _quiet_evidence_rows quiet | grep -q 'quiet dump guard'; then
+    pass
+else
+    fail "quiet flag: evidence recording missing/empty"
+fi
+
+LOUD_OUT=$(_quiet_dump_run loud)
+if [[ "$LOUD_OUT" == *"📦 demo:"* && "$LOUD_OUT" == *"Release: https://github.com/example/demo/releases/tag/v2.0.0"* ]]; then
+    pass
+else
+    fail "explicit =1: changelog dump missing"
+fi
+if grep -q '"retrieval_status":"fresh"' <(_quiet_evidence_rows loud); then
+    pass
+else
+    fail "explicit =1: evidence recording missing"
+fi
+
+DEFAULT_OUT=$(_quiet_dump_run default)
+if [[ "$DEFAULT_OUT" == *"📦 demo:"* ]]; then
+    pass
+else
+    fail "default (unset): changelog dump missing"
+fi
+if grep -q '"retrieval_status":"fresh"' <(_quiet_evidence_rows default); then
+    pass
+else
+    fail "default (unset): evidence recording missing"
+fi
+
 # --- Terminal hygiene (PTY): real readers, stty/signals/countdown ----------
 printf '\n--- dashboard action PTY suite ---\n'
 if python3 "$SCRIPT_DIR/test-dashboard-actions.py"; then

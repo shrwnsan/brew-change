@@ -99,6 +99,34 @@ def make_fake_brew(tmp, outdated):
     return bindir, log, outdated_file
 
 
+def overlay_lines(data):
+    """Compose visible screen lines from a raw PTY byte stream.
+
+    Applies terminal line-editing semantics: '\\r' returns the cursor to
+    column 0 (later writes overlay earlier ones, chars beyond the new write
+    survive), '\\n' starts a new line. This is what the user actually sees,
+    so leftover prompt fragments are detectable even though the raw stream
+    contains every redraw.
+    """
+    lines, cur, pos = [], bytearray(), 0
+    for ch in data.decode("utf-8", "replace"):
+        if ch == "\n":
+            lines.append(bytes(cur))
+            cur, pos = bytearray(), 0
+        elif ch == "\r":
+            pos = 0
+        else:
+            enc = ch.encode("utf-8")
+            if pos < len(cur):
+                cur[pos : pos + len(enc)] = enc
+            else:
+                cur += enc
+            pos += len(enc)
+    if cur:
+        lines.append(bytes(cur))
+    return lines
+
+
 def read_until(fd, marker, timeout=TIMEOUT, sink=None):
     data = b"" if sink is None else sink
     deadline = time.monotonic() + timeout
@@ -317,6 +345,16 @@ def test_inactivity_timeout_counts_down_and_exits_zero():
         assert b"Still there?" in output, output
         assert b"exiting in" in output, output
         assert b"inactivity timeout" in output, output
+        # The final "now" redraw must clear the full width of the previously
+        # drawn prompt line; no prompt tail may survive on the visible line.
+        now_lines = [
+            line for line in overlay_lines(output) if b"exiting in... now" in line
+        ]
+        assert now_lines, output
+        for line in now_lines:
+            assert b"]uit" not in line, (
+                f"countdown 'now' line retains prompt fragments: {line!r}"
+            )
 
 
 def test_eof_exits_zero():

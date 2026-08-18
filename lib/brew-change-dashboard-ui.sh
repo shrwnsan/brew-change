@@ -111,11 +111,28 @@ _dashboard_note() { # format [args...]
 }
 
 # Announce the inactivity timeout the same way prompt_upgrade_action does.
+# Width of the last line drawn to /dev/tty (the action prompt); countdown
+# redraws must clear at least this width or the prompt tail survives.
+dashboard_last_line_width=0
+
+# Redraw the countdown, clearing the wider of the last drawn line and the
+# countdown text itself before printing.
+_dashboard_countdown_note() { # suffix (e.g. "12  " or "now\n")
+    local text
+    # shellcheck disable=SC2059 # the suffix may carry a \n escape
+    printf -v text 'Still there? Inactivity timeout exiting in... %b' "$1"
+    local width=${dashboard_last_line_width:-0}
+    (( ${#text} > width )) && width=$(( ${#text} ))
+    _dashboard_note "\r%*s\r%s" "$width" "" "$text"
+    (( ${#text} > ${dashboard_last_line_width:-0} )) \
+        && dashboard_last_line_width=$(( ${#text} ))
+}
+
 _dashboard_timeout_notice() {
     local total_timeout="$1"
     local human="$(( total_timeout / 60 ))m"
     (( total_timeout < 60 )) && human="${total_timeout}s"
-    _dashboard_note "\rStill there? Inactivity timeout exiting in... now\n"
+    _dashboard_countdown_note 'now\n'
     _dashboard_say "Dashboard closed (inactivity timeout after ${human})."
 }
 
@@ -164,7 +181,7 @@ _dashboard_read_key() {
                 return 2
             fi
             if (( remaining <= countdown_window )); then
-                _dashboard_note "\rStill there? Inactivity timeout exiting in... %d  " "$remaining"
+                _dashboard_countdown_note "$remaining  "
             fi
         else
             # EOF (^D on an empty line / closed tty).
@@ -204,7 +221,7 @@ _dashboard_read_line() {
                 return 2
             fi
             if (( remaining <= countdown_window )); then
-                _dashboard_note "\rStill there? Inactivity timeout exiting in... %d  " "$remaining"
+                _dashboard_countdown_note "$remaining  "
             fi
         else
             return 1
@@ -567,13 +584,16 @@ _dashboard_render() { # records
         [[ -n "$w" && "$w" =~ ^[0-9]+$ ]] && width="$w"
     fi
     render_dashboard_records "$records" "$width"
-    local ns
+    local ns prompt
     ns=$(jq -sr '[.[] | select(.classification == "no-signal")] | length' "$records" 2>/dev/null)
     if [[ "$ns" =~ ^[0-9]+$ ]] && (( ns > 0 )); then
-        printf '\n[r]eview · [s]elect · [u]pgrade no-signal (%s) · [q]uit (Enter = u): ' "$ns"
+        prompt=$(printf '[r]eview · [s]elect · [u]pgrade no-signal (%s) · [q]uit (Enter = u): ' "$ns")
     else
-        printf '\n[r]eview · [s]elect · [q]uit: '
+        prompt='[r]eview · [s]elect · [q]uit: '
     fi
+    # Remember the prompt width so the inactivity countdown can clear it.
+    dashboard_last_line_width=$(( ${#prompt} ))
+    printf '\n%s' "$prompt"
 }
 
 # Interactive dashboard action loop. Never returns: every terminal outcome

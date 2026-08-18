@@ -330,8 +330,29 @@ _record_non_github_evidence() {
     fi
 }
 
+# Dashboard quiet-changelogs: brew-change exports
+# BREW_CHANGE_CHANGELOG_OUTPUT=0 when dispatching --dashboard mode, before
+# evidence gathering runs. The dashboard's r-Review renders the recorded
+# evidence on demand, so the inline per-package changelog dump would only
+# duplicate it and interleave with the /dev/tty progress line. Only stdout
+# printing is suppressed here; every evidence-recording side effect
+# (append_assessment_evidence / _record_non_github_evidence /
+# record_major_version_evidence) still runs unconditionally.
+_changelog_stdout_enabled() {
+    [[ "${BREW_CHANGE_CHANGELOG_OUTPUT:-1}" != "0" ]]
+}
+
 # Function to show package changelog in full format
 show_package_changelog_full() {
+    if _changelog_stdout_enabled; then
+        _show_package_changelog_full_body "$@"
+    else
+        _show_package_changelog_full_body "$@" >/dev/null
+    fi
+    return $?
+}
+
+_show_package_changelog_full_body() {
     local package="$1"
     local current_version="$2"
     local latest_version="$3"
@@ -458,12 +479,28 @@ show_package_changelog_full() {
                         # Fallback to domain
                         echo "🌐 Learn more: https://$domain"
                     fi
+
+                    # The search ran and terminated with no notes: record that
+                    # outcome honestly as unavailable (no upstream evidence
+                    # exists), not the synthesized "missing" never-checked label.
+                    # No timestamped evidence exists, so retrieved_at stays empty.
+                    local no_notes_url="$homepage"
+                    if [[ -z "$no_notes_url" || "$no_notes_url" == "null" ]]; then
+                        no_notes_url="https://$domain"
+                    fi
+                    append_assessment_evidence "$package" "$domain" "$no_notes_url" "" "unavailable" ""
                 fi
             else
                 echo "🚫 No release notes available."
                 echo ""
                 echo "No GitHub repository found"
                 echo "🌐 Package: More info available via 'brew info $package'"
+                # No GitHub repo and no domain to search: the evidence
+                # search still terminated with no notes, so record
+                # unavailable with the homepage as the review URL if known.
+                no_notes_url="$homepage"
+                [[ -n "$no_notes_url" && "$no_notes_url" != "null" ]] || no_notes_url=""
+                append_assessment_evidence "$package" "non-github" "$no_notes_url" "" "unavailable" ""
             fi
             echo ""
             return 0
@@ -544,6 +581,13 @@ show_package_changelog_full() {
                 fi
             else
                 # Function returned 1 - no release notes found at all
+                # Record the terminal no-notes outcome (see the mirrored
+                # rationale above) before delegating to the shared fallback.
+                local no_notes_url="$homepage"
+                if [[ -z "$no_notes_url" || "$no_notes_url" == "null" ]]; then
+                    no_notes_url="https://$domain"
+                fi
+                append_assessment_evidence "$package" "$domain" "$no_notes_url" "" "unavailable" ""
                 show_non_github_fallback "$package" "$source_url"
             fi
         else
@@ -551,6 +595,12 @@ show_package_changelog_full() {
             echo ""
             echo "No GitHub repository found"
             echo "🌐 Package: More info available via 'brew info $package'"
+            # No GitHub repo and no domain to search: still a terminal
+            # no-notes outcome; record unavailable with the homepage as the
+            # review URL when known.
+            no_notes_url="$homepage"
+            [[ -n "$no_notes_url" && "$no_notes_url" != "null" ]] || no_notes_url=""
+            append_assessment_evidence "$package" "non-github" "$no_notes_url" "" "unavailable" ""
         fi
         echo ""
         return 0
