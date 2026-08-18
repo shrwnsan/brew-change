@@ -749,7 +749,7 @@ Acceptance:
 
 #### T2.5.1 — Approve action-state machine
 
-**State:** Blocked by T2.3.1  
+**State:** Complete — approved 2026-08-18, see [research-007-dashboard-actions.md](research-007-dashboard-actions.md)  
 **Complexity:** M  
 **Owner:** Product/integrator review
 
@@ -776,7 +776,7 @@ Acceptance:
 
 #### T2.5.3 — Define deterministic noninteractive dashboard behavior
 
-**State:** Blocked by T2.1.2 and T2.3.2  
+**State:** Complete — defined 2026-08-18, see [research-007-dashboard-actions.md](research-007-dashboard-actions.md) §2  
 **Complexity:** M  
 **Owner:** Integrator
 
