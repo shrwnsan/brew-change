@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.3] - 2026-08-18
+
+### Changed
+- Dashboard rows carry only what differs within a group: attention rows show matched signal tokens, no-signal rows show no reason, unknown rows show the bare retrieval status (e.g. `unavailable`). The Review detail view keeps full sentences.
+- The review list is grouped like the dashboard (attention first) with continuous numbering and the same token language.
+
 ## [1.13.2] - 2026-08-18
 
 ### Fixed
