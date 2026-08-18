@@ -30,6 +30,14 @@ source "$LIB_DIR/brew-change-breaking.sh"
 source "$LIB_DIR/brew-change-assessment.sh"
 source "$LIB_DIR/brew-change-brew.sh"
 source "$LIB_DIR/brew-change-upgrade.sh"
+source "$LIB_DIR/brew-change-github.sh"
+source "$LIB_DIR/brew-change-npm.sh"
+source "$LIB_DIR/brew-change-non-github.sh"
+source "$LIB_DIR/brew-change-display.sh"
+
+# The launcher sets this flag after sourcing the libs; mirror it so display
+# helpers that reference it under `set -u` resolve deterministically.
+IDENTIFY_BREAKING="${IDENTIFY_BREAKING:-false}"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -236,6 +244,40 @@ event=$(tail -1 "$run_dir/progress.jsonl")
 assert_eq "progress event schema" '{"stage":"evidence","completed":2,"total":3,"package":"git"}' "$event"
 unset_progress=$(UPGRADE_STATUS_DIR= append_progress_event "evidence" 1 3 "x" 2>/dev/null; echo $?)
 assert_eq "progress event no-ops without run dir" "0" "$unset_progress"
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Suite 7: no-notes terminal paths record unavailable, not missing ==="
+setup_run
+assessment_record_init "$run_dir" "$(outdated_json)"
+
+# Non-GitHub package whose evidence search runs but finds nothing.
+wget_info='{"name":"wget","homepage":"https://www.gnu.org/software/wget/","urls":{"stable":{"url":"https://ftp.gnu.org/gnu/wget/wget-1.25.tar.gz"}},"versions":{"stable":"1.25"}}'
+fake_brew_info "{\"formulae\":[$wget_info],\"casks\":[]}"
+fetch_non_github_release_notes() { return 1; }
+
+no_notes_output=$(show_package_changelog_full "wget" "1.24" "1.25" "$wget_info" 2>/dev/null)
+
+assert_eq "no-notes output announces the search" "yes" \
+    "$(printf '%s' "$no_notes_output" | grep -qF 'Searching for release notes' && echo yes || echo no)"
+assert_eq "no-notes output shows the terminal marker" "yes" \
+    "$(printf '%s' "$no_notes_output" | grep -qF 'No release notes available' && echo yes || echo no)"
+
+consolidate_assessment_records "$run_dir"
+classify_upgrade_evidence "$run_dir" >/dev/null 2>&1
+wget_record=$(grep -F '"package":"wget"' "$run_dir/assessment.jsonl" | head -1)
+assert_eq "no-notes package has a consolidated record" "yes" \
+    "$([[ -n "$wget_record" ]] && echo yes || echo no)"
+assert_eq "no-notes retrieval_status is unavailable (search ran, found nothing)" "unavailable" \
+    "$(printf '%s' "$wget_record" | jq -r '.retrieval_status')"
+assert_eq "no-notes evidence_url preserves the review URL" "https://www.gnu.org/software/wget/" \
+    "$(printf '%s' "$wget_record" | jq -r '.evidence_url')"
+assert_eq "no-notes classification stays unknown" "unknown" \
+    "$(printf '%s' "$wget_record" | jq -r '.classification')"
+assert_eq "no-notes reason names unavailable, not missing" "evidence retrieval status: unavailable" \
+    "$(printf '%s' "$wget_record" | jq -r '.reasons[] | select(startswith("evidence retrieval status"))')"
+assert_eq "no timestamped evidence exists for no-notes" "null" \
+    "$(printf '%s' "$wget_record" | jq -r '.retrieved_at')"
 
 # ---------------------------------------------------------------------------
 

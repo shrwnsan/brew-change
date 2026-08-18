@@ -479,12 +479,28 @@ _show_package_changelog_full_body() {
                         # Fallback to domain
                         echo "🌐 Learn more: https://$domain"
                     fi
+
+                    # The search ran and terminated with no notes: record that
+                    # outcome honestly as unavailable (no upstream evidence
+                    # exists), not the synthesized "missing" never-checked label.
+                    # No timestamped evidence exists, so retrieved_at stays empty.
+                    local no_notes_url="$homepage"
+                    if [[ -z "$no_notes_url" || "$no_notes_url" == "null" ]]; then
+                        no_notes_url="https://$domain"
+                    fi
+                    append_assessment_evidence "$package" "$domain" "$no_notes_url" "" "unavailable" ""
                 fi
             else
                 echo "🚫 No release notes available."
                 echo ""
                 echo "No GitHub repository found"
                 echo "🌐 Package: More info available via 'brew info $package'"
+                # No GitHub repo and no domain to search: the evidence
+                # search still terminated with no notes, so record
+                # unavailable with the homepage as the review URL if known.
+                no_notes_url="$homepage"
+                [[ -n "$no_notes_url" && "$no_notes_url" != "null" ]] || no_notes_url=""
+                append_assessment_evidence "$package" "non-github" "$no_notes_url" "" "unavailable" ""
             fi
             echo ""
             return 0
@@ -565,6 +581,13 @@ _show_package_changelog_full_body() {
                 fi
             else
                 # Function returned 1 - no release notes found at all
+                # Record the terminal no-notes outcome (see the mirrored
+                # rationale above) before delegating to the shared fallback.
+                local no_notes_url="$homepage"
+                if [[ -z "$no_notes_url" || "$no_notes_url" == "null" ]]; then
+                    no_notes_url="https://$domain"
+                fi
+                append_assessment_evidence "$package" "$domain" "$no_notes_url" "" "unavailable" ""
                 show_non_github_fallback "$package" "$source_url"
             fi
         else
@@ -572,6 +595,12 @@ _show_package_changelog_full_body() {
             echo ""
             echo "No GitHub repository found"
             echo "🌐 Package: More info available via 'brew info $package'"
+            # No GitHub repo and no domain to search: still a terminal
+            # no-notes outcome; record unavailable with the homepage as the
+            # review URL when known.
+            no_notes_url="$homepage"
+            [[ -n "$no_notes_url" && "$no_notes_url" != "null" ]] || no_notes_url=""
+            append_assessment_evidence "$package" "non-github" "$no_notes_url" "" "unavailable" ""
         fi
         echo ""
         return 0
