@@ -131,14 +131,19 @@ _invalidate_stale_brew_info_cache() {
         sorted=$(printf '%s\n%s\n' "$cached_version" "$outdated_version" | sort -V 2>/dev/null)
         oldest=$(head -1 <<< "$sorted")
         # Outdated reports something newer than the cached info: refetch.
-        [[ "$cached_version" == "$oldest" && "$cached_version" != "$outdated_version" ]] && \
+        # if/then, not [[ ]] && rm: a false test as the function's last
+        # statement returns 1, which errexit (the launcher runs set -euo
+        # pipefail) turns into a silent whole-run exit.
+        if [[ "$cached_version" == "$oldest" && "$cached_version" != "$outdated_version" ]]; then
             rm -f "$cache_file"
+        fi
     done < <(jq -r '
         (.formulae[]? | [.name, .current_version] | @tsv),
         (.casks[]? |
           ((.token // (if (.name | type) == "array" then .name[0] else .name end)) as $tok |
            select($tok != null and $tok != "") | [$tok, .current_version] | @tsv))
     ' <<< "$outdated_json" 2>/dev/null)
+    return 0
 }
 
 # BREW INFO two-layer cache: fetch `brew info --json=v2 <pkg>` at most once
