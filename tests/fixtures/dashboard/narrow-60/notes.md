@@ -8,7 +8,9 @@ desynchronize):
    so reasons are dropped and the label alone carries classification.
    Justification: the reason is the widest, least-dense column and is fully
    reachable via `[r] Review details`; the label is the classification
-   contract and is never dropped.
+   contract and is never dropped. (Under the differential-reasons design the
+   dropped column would hold compact signal/status tokens; the ladder is
+   unchanged, so this fixture renders identically to the sentence era.)
 2. **Versions column shrunk** toward a floor of 12, preserving the
    `inst → avail` structure (see long-names). Below the floor the versions
    column is dropped (name + label only).

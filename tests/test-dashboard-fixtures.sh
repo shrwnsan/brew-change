@@ -172,6 +172,26 @@ else
     pass
 fi
 
+# Differential reasons (ratified design): group headers state the
+# classification, so no-signal rows carry NO reason content (rows end at the
+# label) and unknown rows' reason — when the column survives degradation — is
+# a bare retrieval-status token from the ^[a-z-]+$ vocabulary.
+for s in mixed all-no-signal all-unknown long-names narrow-60 no-color; do
+    r="$FIXTURE_DIR/$s/expected.txt"
+    bad_ns=$(awk '/^No risk signal found \(/{f=1;next} f && /^$/{f=0} f && $0 !~ /^  .*  No risk signal$/' "$r")
+    if [[ -z $bad_ns ]]; then
+        pass
+    else
+        fail "$s: no-signal row carries reason text: '$bad_ns'"
+    fi
+    bad_unk=$(awk '/^Unknown \(/{f=1;next} f && /^$/{f=0} f && $0 !~ /^  .*  Unknown( +[a-z-]+)?$/' "$r")
+    if [[ -z $bad_unk ]]; then
+        pass
+    else
+        fail "$s: unknown row reason is not a bare status token: '$bad_unk'"
+    fi
+done
+
 # no-color: byte-identical to the base render (text labels carry all meaning).
 if cmp -s "$FIXTURE_DIR/mixed/expected.txt" "$FIXTURE_DIR/no-color/expected.txt"; then
     pass

@@ -73,6 +73,40 @@ _dashboard_trunc() { # string width
     fi
 }
 
+# Truncate to at most `width` characters at a token boundary, appending a
+# single "…" when anything was removed — never mid-word when avoidable.
+_dashboard_trunc_words() { # string width
+    local s="$1" w="$2" cut b
+    local LC_ALL
+    _dashboard_utf8_locale LC_ALL
+    if (( ${#s} <= w )); then
+        printf '%s' "$s"
+        return 0
+    fi
+    cut="${s:0:w - 1}"
+    if [[ $cut == *" "* ]]; then
+        b="${cut% *}"          # drop the trailing partial token
+        b="${b%,}"             # ...and its joining comma
+        (( ${#b} >= 1 )) && cut="$b"
+    fi
+    printf '%s…' "$cut"
+}
+
+# Truncate while preserving the tail: a single leading "…" plus the last
+# width-1 characters. Used for sentence fallbacks where the end carries the
+# specifics (e.g. version numbers in "Major version transition (22 to 25)").
+_dashboard_trunc_tail() { # string width
+    local s="$1" w="$2" len
+    local LC_ALL
+    _dashboard_utf8_locale LC_ALL
+    len=${#s}
+    if (( len <= w )); then
+        printf '%s' "$s"
+    else
+        printf '…%s' "${s: len - w + 1}"
+    fi
+}
+
 # Classify -> row label (color-independent; the label carries the meaning).
 _dashboard_label() { # classification
     case "$1" in
@@ -172,8 +206,11 @@ render_dashboard_records() {
 
             local label
             label=$(_dashboard_label "$cls")
-            local pkg inst avail reason row
-            while IFS=$'\t' read -r pkg inst avail reason; do
+            # NOTE: mode precedes reason because tab is IFS whitespace — an
+            # empty reason field at the end simply leaves `reason` unset
+            # instead of shifting the columns.
+            local pkg inst avail mode reason row
+            while IFS=$'\t' read -r pkg inst avail mode reason; do
                 row="  $(_dashboard_pad "$pkg" "$name_w")"
                 if $show_versions; then
                     row+="  "
@@ -184,9 +221,19 @@ render_dashboard_records() {
                     row+="$pair  "
                 fi
                 if $show_reason; then
-                    row+="$(_dashboard_pad "$label" "$label_w")"
                     if [[ -n $reason ]]; then
-                        row+="  $(_dashboard_trunc "$reason" "$reason_budget")"
+                        row+="$(_dashboard_pad "$label" "$label_w")"
+                        # Differential reasons (ratified design): compact
+                        # tokens when present, tail-preserving truncation for
+                        # the rare empty-signals sentence fallback.
+                        if [[ $mode == fallback ]]; then
+                            reason=$(_dashboard_trunc_tail "$reason" "$reason_budget")
+                        else
+                            reason=$(_dashboard_trunc_words "$reason" "$reason_budget")
+                        fi
+                        row+="  $reason"
+                    else
+                        row+=$label
                     fi
                 else
                     row+=$label
@@ -195,7 +242,14 @@ render_dashboard_records() {
             done < <(jq -r --arg cls "$cls" \
                 'select(.classification == $cls)
                  | [.package, .installed_version, .available_version,
-                    (.reasons | join("; "))] | @tsv' "$records" \
+                    (if .classification == "attention"
+                        and (((.matched_signals // []) | length) == 0)
+                     then "fallback" else "plain" end),
+                    (if .classification == "no-signal" then ""
+                     elif .classification == "unknown" then (.retrieval_status // "")
+                     elif ((.matched_signals // []) | length) > 0
+                     then ((.matched_signals // []) | join(", "))
+                     else (((.reasons // [""])[0]) // "") end)] | @tsv' "$records" \
                 | LC_ALL=C sort)
         done
 
