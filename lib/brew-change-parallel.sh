@@ -160,7 +160,9 @@ process_packages_parallel() {
                 cat "${temp_files[j]}"
                 # Add separator for all packages except the last one in this batch
                 if [[ $((j + 1)) -lt ${#temp_files[@]} ]] || [[ $((i + batch_size)) -lt ${#packages[@]} ]]; then
-                    echo "---"
+                    # Same quiet-mode gate as the changelog dump itself
+                    # (dashboard mode suppresses inline output).
+                    [[ "${BREW_CHANGE_CHANGELOG_OUTPUT:-1}" == "0" ]] || echo "---"
                 fi
                 # Clean up
                 rm -f "${temp_files[j]}" 2>/dev/null

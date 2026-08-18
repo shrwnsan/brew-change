@@ -195,15 +195,22 @@ echo "=== Suite: launcher lib resolution ==="
 echo ""
 
 setup_command_harness
-# A "stale install" prefix whose lib/ lacks the checkout's modules.
+# A "stale install" prefix whose lib/ lacks the checkout's modules. The
+# fake brew answers every invocation (including --prefix brew-change)
+# with this path, so LIB_DIR resolution must reject it and fall back to
+# the checkout's own lib/. A bare invocation is used because --version
+# exits in pre-parse BEFORE library resolution runs.
 STALE_PREFIX="$COMMAND_HARNESS_ROOT/stale-prefix"
 mkdir -p "$STALE_PREFIX/lib"
-set_fake_brew_response "prefix brew-change" "text" "$STALE_PREFIX" 0
+printf '%s\n' "$STALE_PREFIX" >"$COMMAND_HARNESS_ROOT/prefix-fixture"
+configure_fake_command brew "$COMMAND_HARNESS_ROOT/prefix-fixture" "" 0
 
-"$BREW_CHANGE" --version >"$COMMAND_HARNESS_ROOT/out" 2>"$COMMAND_HARNESS_ROOT/err"
+"$BREW_CHANGE" >"$COMMAND_HARNESS_ROOT/out" 2>"$COMMAND_HARNESS_ROOT/err"
 RESOLUTION_EXIT=$?
 assert_eq "stale installed prefix does not break repo run" "0" "$RESOLUTION_EXIT"
-assert_contains "repo run uses checkout libs" "brew-change version" "$(cat "$COMMAND_HARNESS_ROOT/out")"
+# The checkout's libs were used (sourcing succeeded) and the run reached
+# the Homebrew inventory stage.
+assert_contains "repo run reached inventory" "brew" "$(cat "$COMMAND_HARNESS_LOG")"
 
 teardown_command_harness
 
