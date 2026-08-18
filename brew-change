@@ -126,15 +126,16 @@ fi
 # Source library functions
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Handle Homebrew installation paths
-if command -v brew &>/dev/null; then
-    # Try to use brew prefix if available (works on macOS, Linux, and WSL)
-    LIB_DIR="$(brew --prefix brew-change 2>/dev/null)/lib"
-fi
-
-# Fallback to relative path if brew prefix failed or brew is not available
-if [[ -z "$LIB_DIR" || ! -d "$LIB_DIR" ]]; then
+# Resolve the library directory. The script's own checkout wins: a repo
+# run must use the checkout's libs, not a previously installed release
+# (an installed copy without the checkout's new modules breaks sourcing,
+# and stale installed libs silently mask checkout changes). Installed
+# use resolves through the Cellar path, which contains lib/, so the
+# brew-prefix lookup only serves unusual symlinked layouts.
+if [[ -d "$SCRIPT_DIR/lib" ]]; then
     LIB_DIR="$SCRIPT_DIR/lib"
+elif command -v brew &>/dev/null; then
+    LIB_DIR="$(brew --prefix brew-change 2>/dev/null)/lib"
 fi
 readonly LIB_DIR
 

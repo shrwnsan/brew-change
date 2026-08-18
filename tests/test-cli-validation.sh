@@ -188,6 +188,26 @@ assert_contains "brew outdated invoked" $'brew\toutdated\t--json=v2' "$local_log
 teardown_command_harness
 
 # ---------------------------------------------------------------------------
+# Suite: launcher prefers the checkout's own lib over an installed prefix
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Suite: launcher lib resolution ==="
+echo ""
+
+setup_command_harness
+# A "stale install" prefix whose lib/ lacks the checkout's modules.
+STALE_PREFIX="$COMMAND_HARNESS_ROOT/stale-prefix"
+mkdir -p "$STALE_PREFIX/lib"
+set_fake_brew_response "prefix brew-change" "text" "$STALE_PREFIX" 0
+
+"$BREW_CHANGE" --version >"$COMMAND_HARNESS_ROOT/out" 2>"$COMMAND_HARNESS_ROOT/err"
+RESOLUTION_EXIT=$?
+assert_eq "stale installed prefix does not break repo run" "0" "$RESOLUTION_EXIT"
+assert_contains "repo run uses checkout libs" "brew-change version" "$(cat "$COMMAND_HARNESS_ROOT/out")"
+
+teardown_command_harness
+
+# ---------------------------------------------------------------------------
 # Cleanup
 # ---------------------------------------------------------------------------
 echo ""
