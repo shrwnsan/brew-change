@@ -215,12 +215,72 @@ test_no_terminal_writes_in_parallel_path() {
     [[ -z "$offenders" ]]
 }
 
+# ---------------------------------------------------------------------------
+# Completion summary deferral: with the renderer active the summary must be
+# handed back (PARALLEL_PENDING_SUMMARY), not printed inline where it would
+# collide with the live spinner frame; without the defer flag the historical
+# inline echo is preserved (non-TTY / renderer-less runs unchanged).
+# ---------------------------------------------------------------------------
+test_deferred_completion_summary() {
+    local run_dir out pending out_file
+    run_dir="$(new_run_dir)"
+    export UPGRADE_STATUS_DIR="$run_dir"
+
+    show_package_changelog() {
+        sleep 0.05
+        printf 'changelog for %s\n' "$1"
+    }
+    adjust_jobs_for_resources() { printf '%s\n' "$1"; }
+    rate_limit_delay() { :; }
+
+    PARALLEL_PENDING_SUMMARY=""
+    # No command substitution: the pending summary is handed back via the
+    # shell global, so the call must run in this shell (stdout to a file).
+    local out_file
+    out_file="$(mktemp "${TMPDIR:-/tmp}/bc-progint-out.XXXXXX")"
+    BREW_CHANGE_DEFER_SUMMARY=1 \
+        process_packages_parallel "$(outdated_json)" 4 > "$out_file" 2>/dev/null
+    pending="$PARALLEL_PENDING_SUMMARY"
+    PARALLEL_PENDING_SUMMARY=""
+    out="$(cat "$out_file")"
+    rm -f "$out_file"
+
+    cleanup_run_dir "$run_dir"
+    unset UPGRADE_STATUS_DIR
+    [[ "$out" != *"Completed processing"* ]] \
+        && [[ "$pending" == "Completed processing 3 packages in "*s ]]
+}
+
+test_inline_completion_summary_without_defer() {
+    local run_dir out out_file
+    run_dir="$(new_run_dir)"
+    export UPGRADE_STATUS_DIR="$run_dir"
+
+    show_package_changelog() {
+        sleep 0.05
+        printf 'changelog for %s\n' "$1"
+    }
+    adjust_jobs_for_resources() { printf '%s\n' "$1"; }
+    rate_limit_delay() { :; }
+
+    out_file="$(mktemp "${TMPDIR:-/tmp}/bc-progint-out.XXXXXX")"
+    process_packages_parallel "$(outdated_json)" 4 > "$out_file" 2>/dev/null
+    out="$(cat "$out_file")"
+    rm -f "$out_file"
+
+    cleanup_run_dir "$run_dir"
+    unset UPGRADE_STATUS_DIR
+    [[ "$out" == *"Completed processing 3 packages in "*s ]]
+}
+
 run_case "inventory event emitted around assessment_record_init" test_inventory_event_emitted
 run_case "no inventory event without UPGRADE_STATUS_DIR" test_no_inventory_event_without_status_dir
 run_case "evidence events per package from parallel workers" test_evidence_events_per_package
 run_case "classify events per package from classification" test_classify_events_per_package
 run_case "renderer returns before subsequent stage output" test_renderer_returns_before_subsequent_output
 run_case "no terminal writes in the parallel processing path" test_no_terminal_writes_in_parallel_path
+run_case "deferred completion summary handed back, not printed" test_deferred_completion_summary
+run_case "inline completion summary without defer flag" test_inline_completion_summary_without_defer
 
 # ---------------------------------------------------------------------------
 # PTY: a completed -u-style flow animates and still reaches its next stage.
@@ -302,6 +362,119 @@ then
     pass_case "PTY: completed -u-style flow reaches next stage after renderer"
 else
     fail_case "PTY: completed -u-style flow reaches next stage after renderer"
+fi
+
+# ---------------------------------------------------------------------------
+# PTY: with the renderer running the brew-change stop sequence (sentinel +
+# bounded wait + kill + clear-line), the completion summary printed after
+# the stop never shares a rendered line with a spinner frame.
+# ---------------------------------------------------------------------------
+printf '\n--- completion summary vs renderer PTY ---\n'
+if python3 - "$LIB_DIR" <<'PYEOF'
+import errno
+import os
+import pty
+import select
+import shutil
+import sys
+import tempfile
+import time
+
+LIB = sys.argv[1]
+TIMEOUT = 20
+BASH = shutil.which("bash") or "/bin/bash"
+
+run_dir = tempfile.mkdtemp(prefix="bc-progint-sum-pty.")
+# Mirrors brew-change: renderer loop until sentinel, then bounded wait +
+# kill backstop + clear-line, then the deferred completion summary.
+script = f"""
+set -u
+source '{LIB}/brew-change-progress.sh'
+(
+  echo '{{"stage":"inventory","completed":1,"total":1}}' >> progress.jsonl
+  sleep 0.3
+  for i in 1 2 3; do
+    echo "{{\\"stage\\":\\"evidence\\",\\"completed\\":$i,\\"total\\":3,\\"package\\":\\"pkg$i\\"}}" >> progress.jsonl
+    sleep 0.3
+  done
+  # Keep the renderer from satisfying its idle contract on its own: the
+  # caller-side sentinel stop below must be what terminates it.
+  for i in 1 2; do
+    echo "{{\\"stage\\":\\"classify\\",\\"completed\\":$i,\\"total\\":3,\\"package\\":\\"pkg$i\\"}}" >> progress.jsonl
+    sleep 0.3
+  done
+) &
+writer=$!
+(
+  while [[ ! -f .progress_done ]] && kill -0 "$writer" 2>/dev/null; do
+    render_progress .
+    sleep 0.1
+  done
+) &
+renderer=$!
+wait "$writer"
+: > .progress_done
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  kill -0 "$renderer" 2>/dev/null || break
+  sleep 0.1
+done
+kill "$renderer" 2>/dev/null || true
+wait "$renderer" 2>/dev/null || true
+if declare -F _progress_clear_line >/dev/null 2>&1; then
+  _progress_clear_line > /dev/tty 2>/dev/null || true
+fi
+echo 'Completed processing 3 packages in 1s'
+echo NEXT_STAGE_REACHED
+"""
+
+try:
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.chdir(run_dir)
+        os.execv(BASH, [BASH, "-c", script])
+
+    data = b""
+    deadline = time.monotonic() + TIMEOUT
+    while b"NEXT_STAGE_REACHED" not in data and time.monotonic() < deadline:
+        ready, _, _ = select.select([fd], [], [], 0.1)
+        if not ready:
+            continue
+        try:
+            chunk = os.read(fd, 4096)
+        except OSError as exc:
+            if exc.errno == errno.EIO:
+                break
+            raise
+        if not chunk:
+            break
+        data += chunk
+    _, status = os.waitpid(pid, 0)
+    code = os.waitpid_status_to_exitcode(status) if hasattr(os, "waitpid_status_to_exitcode") \
+        else (status >> 8)
+finally:
+    shutil.rmtree(run_dir, ignore_errors=True)
+
+assert b"NEXT_STAGE_REACHED" in data, "flow did not reach its next stage"
+assert b"Completed processing 3 packages" in data, "summary missing"
+
+# CR-overlay sense: the summary occupies a rendered line only up to the
+# previous carriage return / newline. No spinner frame glyph may precede
+# the summary on that same rendered segment.
+marker = b"Completed processing 3 packages"
+idx = data.find(marker)
+assert idx >= 0
+line_start = max(data.rfind(b"\r", 0, idx), data.rfind(b"\n", 0, idx)) + 1
+segment = data[line_start:idx]
+spin = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏".encode()
+assert not any(c in segment for c in spin), \
+    f"summary shares a line with a spinner frame: {segment!r}"
+assert code == 0, f"non-zero exit: {code}"
+sys.exit(0)
+PYEOF
+then
+    pass_case "PTY: completion summary starts on a fresh line after renderer stop"
+else
+    fail_case "PTY: completion summary starts on a fresh line after renderer stop"
 fi
 
 printf '\nProgress integration suites: %d passed, %d failed\n' "$pass" "$fail"

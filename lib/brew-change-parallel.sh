@@ -183,10 +183,20 @@ process_packages_parallel() {
 
     # Summary for multi-package processing. The live progress line belongs
     # to the T2.4.2 renderer (progress.jsonl); no other code draws frames.
+    # When the caller has the renderer active it sets
+    # BREW_CHANGE_DEFER_SUMMARY=1: printing here would collide with the
+    # final spinner frame (the renderer clears its line only after its
+    # total+idle termination), so the line is handed back to the caller in
+    # PARALLEL_PENDING_SUMMARY for printing after the renderer is stopped.
     if [[ ${#packages[@]} -gt 1 ]]; then
         local end_time
         end_time=$(date +%s)
         local duration=$((end_time - start_time))
-        echo "Completed processing $processed packages in ${duration}s"
+        if [[ "${BREW_CHANGE_DEFER_SUMMARY:-0}" == "1" ]]; then
+            # shellcheck disable=SC2034  # consumed by the caller (brew-change)
+            PARALLEL_PENDING_SUMMARY="Completed processing $processed packages in ${duration}s"
+        else
+            echo "Completed processing $processed packages in ${duration}s"
+        fi
     fi
 }

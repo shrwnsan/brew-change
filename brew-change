@@ -481,7 +481,15 @@ else
             export BREW_CHANGE_CHANGELOG_OUTPUT=0
         fi
 
+        # With the live renderer active, the completion summary must not
+        # print from inside process_packages_parallel: the renderer owns the
+        # status line until it is stopped below. Defer the line and flush it
+        # after the stop so the summary starts on a fresh terminal line.
+        if [[ -n "$progress_renderer_pid" ]]; then
+            BREW_CHANGE_DEFER_SUMMARY=1
+        fi
         process_packages_parallel "$outdated_packages" "$PARALLEL_JOBS"
+        BREW_CHANGE_DEFER_SUMMARY=0
 
         if [[ "$UPGRADE_MODE" == "true" ]]; then
             # Build canonical inventory token list for evidence collection.
@@ -513,6 +521,20 @@ else
                     unregister_pid "$progress_renderer_pid"
                 fi
                 progress_renderer_pid=""
+                # The kill backstop above may cancel the renderer between
+                # frames; erase the status line so the next output starts
+                # clean even in that window.
+                if declare -F _progress_clear_line >/dev/null 2>&1; then
+                    _progress_clear_line > /dev/tty 2>/dev/null || true
+                fi
+            fi
+
+            # Deferred completion summary from process_packages_parallel:
+            # printed only now that the renderer is stopped and its line is
+            # cleared, so it can never share a line with a spinner frame.
+            if [[ -n "${PARALLEL_PENDING_SUMMARY:-}" ]]; then
+                printf '%s\n' "$PARALLEL_PENDING_SUMMARY"
+                PARALLEL_PENDING_SUMMARY=""
             fi
 
             # T2.5.2 opt-in dashboard mode (ratified staged rollout):
