@@ -238,6 +238,22 @@ unset_progress=$(UPGRADE_STATUS_DIR= append_progress_event "evidence" 1 3 "x" 2>
 assert_eq "progress event no-ops without run dir" "0" "$unset_progress"
 
 # ---------------------------------------------------------------------------
+
+echo "Test: cache invalidation survives set -e with a current cache"
+# Regression: a false [[ ]] && rm at function tail returned 1, and the
+# launcher's set -euo pipefail killed the whole run silently once the
+# cross-run cache was populated.
+CURRENT_JSON='{"formulae":[{"name":"git","current_version":"2.50.0"}],"casks":[]}'
+mkdir -p "$BREW_CHANGE_CACHE_DIR/brew-info"
+cur_enc=$(record_encode_name "git")
+printf '%s' '{"formulae":[{"name":"git","versions":{"stable":"2.50.0"}}],"casks":[]}' \
+    > "$BREW_CHANGE_CACHE_DIR/brew-info/$cur_enc.json"
+(
+    set -e
+    _invalidate_stale_brew_info_cache "$CURRENT_JSON"
+)
+assert_eq "invalidation returns 0 under set -e" "0" "$?"
+
 echo ""
 echo "======================================"
 echo "Record Pipeline Results: $pass passed, $fail failed"
