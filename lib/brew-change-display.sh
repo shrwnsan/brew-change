@@ -330,8 +330,29 @@ _record_non_github_evidence() {
     fi
 }
 
+# Dashboard quiet-changelogs: brew-change exports
+# BREW_CHANGE_CHANGELOG_OUTPUT=0 when dispatching --dashboard mode, before
+# evidence gathering runs. The dashboard's r-Review renders the recorded
+# evidence on demand, so the inline per-package changelog dump would only
+# duplicate it and interleave with the /dev/tty progress line. Only stdout
+# printing is suppressed here; every evidence-recording side effect
+# (append_assessment_evidence / _record_non_github_evidence /
+# record_major_version_evidence) still runs unconditionally.
+_changelog_stdout_enabled() {
+    [[ "${BREW_CHANGE_CHANGELOG_OUTPUT:-1}" != "0" ]]
+}
+
 # Function to show package changelog in full format
 show_package_changelog_full() {
+    if _changelog_stdout_enabled; then
+        _show_package_changelog_full_body "$@"
+    else
+        _show_package_changelog_full_body "$@" >/dev/null
+    fi
+    return $?
+}
+
+_show_package_changelog_full_body() {
     local package="$1"
     local current_version="$2"
     local latest_version="$3"

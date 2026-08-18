@@ -470,6 +470,17 @@ else
             fi
         fi
 
+        # Dashboard quiet-changelogs: when the interactive dashboard will own
+        # the terminal for this run, suppress the inline per-package
+        # changelog dump before evidence gathering starts (the dashboard's
+        # r-Review shows the recorded evidence on demand). Workers inherit
+        # the export; evidence recording is never affected. Default (unset)
+        # keeps the dump for plain -u and all non-dashboard modes.
+        if [[ "$DASHBOARD_MODE" == "true" || -n "${BREW_CHANGE_DASHBOARD:-}" ]] \
+            && [[ -t 1 ]]; then
+            export BREW_CHANGE_CHANGELOG_OUTPUT=0
+        fi
+
         process_packages_parallel "$outdated_packages" "$PARALLEL_JOBS"
 
         if [[ "$UPGRADE_MODE" == "true" ]]; then
