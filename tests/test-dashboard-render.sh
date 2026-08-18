@@ -125,5 +125,73 @@ else
     fail "piped-scenario records must dashboard-render identically to mixed"
 fi
 
+# --- Differential reasons: edge cases on generated records -------------------
+#
+# Group headers state the classification, so row reasons carry only what
+# differs within a group: attention -> matched signal tokens (comma-joined,
+# first-reason tail-preserving fallback when matched_signals is empty),
+# no-signal -> nothing, unknown -> the bare retrieval_status token.
+
+diffdir="$tmpdir/diff-reasons"
+mkdir -p "$diffdir"
+
+# Multiple signals, empty-signals fallback, no-signal row, unknown status row.
+cat > "$diffdir/edge.jsonl" <<'EOF'
+{"package":"fallback","display_name":"fallback","kind":"formula","installed_version":"1.0.0","available_version":"2.0.0","evidence_source":"github","evidence_url":null,"retrieved_at":1723900000,"retrieval_status":"fresh","evidence_snapshot":null,"classification":"attention","reasons":["A fairly long fallback reason sentence"],"matched_signals":[],"assessment_recommendation":false,"operational_eligibility":true,"default_selected":false}
+{"package":"multi","display_name":"multi","kind":"formula","installed_version":"1.0.0","available_version":"2.0.0","evidence_source":"github","evidence_url":null,"retrieved_at":1723900000,"retrieval_status":"fresh","evidence_snapshot":null,"classification":"attention","reasons":["Reason one","Reason two"],"matched_signals":["breaking-change","major-version"],"assessment_recommendation":false,"operational_eligibility":true,"default_selected":false}
+{"package":"nosig","display_name":"nosig","kind":"formula","installed_version":"1.0.0","available_version":"2.0.0","evidence_source":"github","evidence_url":null,"retrieved_at":1723900000,"retrieval_status":"fresh","evidence_snapshot":null,"classification":"no-signal","reasons":["Release notes checked"],"matched_signals":[],"assessment_recommendation":true,"operational_eligibility":true,"default_selected":true}
+{"package":"weird","display_name":"weird","kind":"cask","installed_version":"1.0","available_version":"1.1","evidence_source":"vendor","evidence_url":null,"retrieved_at":null,"retrieval_status":"stale","evidence_snapshot":null,"classification":"unknown","reasons":["Evidence is stale"],"matched_signals":[],"assessment_recommendation":false,"operational_eligibility":true,"default_selected":false}
+EOF
+
+edge_out="$diffdir/edge.txt"
+render_dashboard_records "$diffdir/edge.jsonl" 80 > "$edge_out"
+
+# attention with multiple signals: comma-joined tokens, verbatim.
+line=$(grep '  multi ' "$edge_out")
+if [[ $line == *'Needs attention  breaking-change, major-version'* ]]; then
+    pass
+else
+    fail "multiple signals not comma-joined in: '$line'"
+fi
+
+# attention with empty matched_signals: first reason, tail-preserving "…".
+line=$(grep '  fallback ' "$edge_out")
+if [[ $line == *'…'* && $line == *'fallback reason sentence' && $line != *'A fairly'* ]]; then
+    pass
+else
+    fail "empty-signals fallback is not tail-preserving: '$line'"
+fi
+
+# no-signal row: no reason content; row ends at the label.
+line=$(grep '  nosig ' "$edge_out")
+if [[ $line =~ ^(  .*  )No\ risk\ signal$ ]]; then
+    pass
+else
+    fail "no-signal row carries reason content: '$line'"
+fi
+
+# unknown row: bare retrieval_status token only (^[a-z-]+$ vocabulary).
+line=$(grep '  weird ' "$edge_out")
+if [[ $line =~ ^(  .*  Unknown  +)([a-z-]+)$ && ${BASH_REMATCH[2]} == stale ]]; then
+    pass
+else
+    fail "unknown row reason is not the bare status token: '$line'"
+fi
+
+# Joined token list overflowing the budget: single "…", cut at a token
+# boundary (never mid-token when avoidable).
+cat > "$diffdir/long.jsonl" <<'EOF'
+{"package":"aa","display_name":"aa","kind":"formula","installed_version":"1.0.0","available_version":"2.0.0","evidence_source":"github","evidence_url":null,"retrieved_at":1723900000,"retrieval_status":"fresh","evidence_snapshot":null,"classification":"attention","reasons":["Reason"],"matched_signals":["alpha-signal-token","beta-signal-token","gamma-signal-token"],"assessment_recommendation":false,"operational_eligibility":true,"default_selected":false}
+EOF
+long_out="$diffdir/long.txt"
+render_dashboard_records "$diffdir/long.jsonl" 80 > "$long_out"
+line=$(grep '  aa ' "$long_out")
+n_ell=$(printf '%s' "$line" | grep -o '…' | wc -l)
+if [[ $line == *'alpha-signal-token…' && $line != *beta* && $n_ell -eq 1 ]]; then
+    pass
+else
+    fail "overflowing token list not truncated at a token boundary: '$line'"
+fi
+
 printf 'dashboard renderer: %d passed, %d failed\n' "$passed" "$failed"
 [[ $failed -eq 0 ]]

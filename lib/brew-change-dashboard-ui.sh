@@ -273,16 +273,93 @@ _dashboard_label() { # classification (reuse renderer vocabulary)
     esac
 }
 
-# Render the numbered review index (packages in record order).
+# Review-list group header (same vocabulary as the dashboard groups).
+_dashboard_review_group_header() { # classification
+    case "$1" in
+        attention) printf 'Needs attention' ;;
+        no-signal) printf 'No risk signal found' ;;
+        *)         printf 'Unknown' ;;
+    esac
+}
+
+# Compact one-line rendering of a full-sentence reason for the review-list
+# fallback token: trimmed, trailing period dropped, leading capital lowered.
+_dashboard_compact_reason() { # reason
+    local r="$1"
+    r="${r#"${r%%[![:space:]]*}"}"
+    r="${r%"${r##*[![:space:]]}"}"
+    r="${r%.}"
+    if [[ -n "$r" ]]; then
+        printf '%s%s' \
+            "$(printf '%s' "${r:0:1}" | tr '[:upper:]' '[:lower:]')" "${r:1}"
+    fi
+}
+
+# Differential token for one review-list row (same derivation as the
+# dashboard rows):
+#   attention -> matched_signals tokens comma-joined (fallback: compact
+#                first reason when no signals matched);
+#   unknown   -> retrieval_status token only;
+#   no-signal -> no suffix.
+_dashboard_review_token() { # json-record
+    local record="$1" token
+    case "$(jq -r '.classification // "unknown"' <<< "$record")" in
+        attention)
+            token=$(jq -r '(.matched_signals // []) | join(", ")' <<< "$record")
+            if [[ -z "$token" ]]; then
+                token=$(_dashboard_compact_reason \
+                    "$(jq -r '(.reasons // [])[0] // ""' <<< "$record")")
+            fi
+            ;;
+        unknown)
+            token=$(jq -r '.retrieval_status // "unavailable"' <<< "$record")
+            ;;
+        *)
+            token=""
+            ;;
+    esac
+    printf '%s' "$token"
+}
+
+# Review-list display order: dashboard group order (attention, no-signal,
+# unknown), alphabetical within each group. Empty groups are omitted from
+# the list but simply contribute nothing here either.
+_dashboard_review_order() { # records
+    local records="$1" cls
+    for cls in attention no-signal unknown; do
+        jq -r --arg cls "$cls" 'select(.classification == $cls) | .package' \
+            "$records" 2>/dev/null | LC_ALL=C sort
+    done
+}
+
+# Render the grouped review index: dashboard group headers with counts,
+# continuous numbering across groups, differential tokens per row.
 _dashboard_review_list() { # records
     local records="$1"
-    printf 'Review packages (%s):\n' "$(jq -s 'length' "$records" 2>/dev/null)"
-    local idx=0 pkg cls
-    while IFS=$'\t' read -r pkg cls; do
-        [[ -z "$pkg" ]] && continue
-        idx=$(( idx + 1 ))
-        printf '  %2d) %s — %s\n' "$idx" "$pkg" "$(_dashboard_label "$cls")"
-    done < <(jq -r '[.package, .classification] | @tsv' "$records" 2>/dev/null)
+    printf 'Review packages (%s):\n\n' "$(jq -s 'length' "$records" 2>/dev/null)"
+    local idx=0 cls count line pkg token
+    for cls in attention no-signal unknown; do
+        count=$(jq -rs --arg cls "$cls" \
+            '[.[] | select(.classification == $cls)] | length' \
+            "$records" 2>/dev/null)
+        [[ "$count" =~ ^[0-9]+$ ]] || count=0
+        (( count == 0 )) && continue
+        (( idx > 0 )) && printf '\n'
+        printf '%s (%d)\n' "$(_dashboard_review_group_header "$cls")" "$count"
+        while IFS=$'\t' read -r pkg line; do
+            [[ -z "$pkg" ]] && continue
+            idx=$(( idx + 1 ))
+            token=$(_dashboard_review_token "$line")
+            if [[ -n "$token" ]]; then
+                printf '  %2d) %s — %s\n' "$idx" "$pkg" "$token"
+            else
+                printf '  %2d) %s\n' "$idx" "$pkg"
+            fi
+        done < <(jq -r --arg cls "$cls" \
+            'select(.classification == $cls)
+             | [(.package // ""), (. | tostring)] | @tsv' \
+            "$records" 2>/dev/null | LC_ALL=C sort -t$'\t' -k1,1)
+    done
     printf '\n[b]ack · [q]uit · package number or name for detail\n'
 }
 
@@ -336,8 +413,10 @@ _dashboard_review_detail() { # records package
 # shows the detail, and returns only on `b`. q/EOF/timeout exit 0.
 _dashboard_review_state() { # records
     local records="$1"
+    # Number/name selection resolves against the grouped display order so
+    # the numbers shown in the list stay unambiguous.
     local -a pkgs=()
-    mapfile -t pkgs < <(_dashboard_all_pkgs "$records")
+    mapfile -t pkgs < <(_dashboard_review_order "$records")
 
     local input rc index pkg
     while true; do
