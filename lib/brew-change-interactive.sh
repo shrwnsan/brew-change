@@ -236,16 +236,24 @@ prompt_upgrade_action() {
                 break
             fi
             if (( remaining <= countdown_window )); then
-                # Countdown phase: stop the spinner and own the line.
+                # Countdown phase: stop the spinner and own the line. Clear
+                # the wider of the prompt line and the countdown text so no
+                # prompt tail survives the redraw.
                 _cleanup_upgrade_prompt
-                printf "\rStill there? Inactivity timeout exiting in... %d  " "$remaining" > /dev/tty
-                prompt_width=50
+                local countdown_text
+                printf -v countdown_text \
+                    "Still there? Inactivity timeout exiting in... %d  " "$remaining"
+                (( ${#countdown_text} > prompt_width )) \
+                    && prompt_width=$(( ${#countdown_text} ))
+                printf "\r%*s\r%s" "$prompt_width" "" "$countdown_text" > /dev/tty
             fi
         done
 
         if [[ "$timed_out" == "true" ]]; then
             _cleanup_upgrade_prompt
-            printf "\rStill there? Inactivity timeout exiting in... now\n" > /dev/tty
+            local now_text="Still there? Inactivity timeout exiting in... now"
+            (( ${#now_text} > prompt_width )) && prompt_width=$(( ${#now_text} ))
+            printf "\r%*s\r%s\n" "$prompt_width" "" "$now_text" > /dev/tty
             local human="$(( total_timeout / 60 ))m"
             if (( total_timeout < 60 )); then
                 human="${total_timeout}s"
