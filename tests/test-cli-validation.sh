@@ -215,6 +215,72 @@ assert_contains "repo run reached inventory" "brew" "$(cat "$COMMAND_HARNESS_LOG
 teardown_command_harness
 
 # ---------------------------------------------------------------------------
+# Suite 5: --plain / BREW_CHANGE_PLAIN (T2.6.2 default flip)
+# Piped runs: the view flags never switch views; -u keeps the plain,
+# deterministic prompt-flow output (guidance, no prompt, no upgrade) and
+# the transition notice never appears.
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Suite 5: --plain / BREW_CHANGE_PLAIN (piped) ==="
+echo ""
+
+# Helper: piped -u run under fixtures with optional extra env prefix.
+run_piped_upgrade() {
+    setup_command_harness
+    configure_fake_command brew "$FIXTURE_DIR/outdated-mixed.json" "" 0
+    configure_fake_command curl "" "" 0
+    export BREW_CHANGE_TEST_NOW=1800000000
+    local stderr_file="$COMMAND_HARNESS_ROOT/bc-stderr"
+    local stdout_file="$COMMAND_HARNESS_ROOT/bc-stdout"
+    local exit_code=0
+    env "$@" "$BREW_CHANGE" -u >"$stdout_file" 2>"$stderr_file" || exit_code=$?
+    RUN_BC_EXIT="$exit_code"
+    RUN_BC_STDOUT="$(cat "$stdout_file" 2>/dev/null || true)"
+    RUN_BC_STDERR="$(cat "$stderr_file" 2>/dev/null || true)"
+    unset BREW_CHANGE_TEST_NOW
+    teardown_command_harness
+}
+
+echo "Test 10: --plain parses (not an unknown option)"
+run_piped_upgrade
+assert_eq "--plain exit code" "0" "$RUN_BC_EXIT"
+assert_not_contains "--plain not rejected" "Error: Unknown option" "$RUN_BC_STDERR"
+
+echo ""
+echo "Test 11: -u --plain (piped) reaches the prompt flow, not the dashboard"
+run_piped_upgrade
+assert_eq "-u --plain exit code" "0" "$RUN_BC_EXIT"
+assert_contains "-u --plain prompt-flow guidance" "Non-interactive mode. Upgrade skipped." "$RUN_BC_STDOUT"
+assert_not_contains "-u --plain no dashboard" "Dashboard" "$RUN_BC_STDOUT"
+assert_not_contains "-u --plain no notice" "output view changed" "$RUN_BC_STDERR"
+
+echo ""
+echo "Test 12: BREW_CHANGE_PLAIN=1 (piped) reaches the prompt flow"
+run_piped_upgrade BREW_CHANGE_PLAIN=1
+assert_eq "BREW_CHANGE_PLAIN=1 exit code" "0" "$RUN_BC_EXIT"
+assert_contains "BREW_CHANGE_PLAIN=1 prompt-flow guidance" "Non-interactive mode. Upgrade skipped." "$RUN_BC_STDOUT"
+assert_not_contains "BREW_CHANGE_PLAIN=1 no notice" "output view changed" "$RUN_BC_STDERR"
+
+echo ""
+echo "Test 13: plain -u (piped, no flags) also stays prompt-flow and notice-free"
+run_piped_upgrade
+assert_not_contains "piped default no notice" "output view changed" "$RUN_BC_STDERR"
+
+echo ""
+echo "Test 14: --plain does not bypass invalid-combination rejection"
+run_brew_change_harness --plain --dry-run
+assert_eq "--plain --dry-run (no -u) exit code" "1" "$RUN_BC_EXIT"
+assert_eq "--plain --dry-run no fake commands invoked" "" "$RUN_BC_LOG"
+assert_contains "--plain --dry-run error message" "Error:" "$RUN_BC_STDERR"
+
+echo ""
+echo "Test 15: --plain with an unknown option still fails pre-network"
+run_brew_change_harness -u --plain --bogus
+assert_eq "-u --plain --bogus exit code" "1" "$RUN_BC_EXIT"
+assert_eq "-u --plain --bogus no fake commands invoked" "" "$RUN_BC_LOG"
+assert_contains "-u --plain --bogus error message" "Error: Unknown option" "$RUN_BC_STDERR"
+
+# ---------------------------------------------------------------------------
 # Cleanup
 # ---------------------------------------------------------------------------
 echo ""

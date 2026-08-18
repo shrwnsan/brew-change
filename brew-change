@@ -31,18 +31,30 @@ Options:
   -a, --all            Show detailed changelog for all outdated packages (parallel)
   -v, --verbose        Show outdated packages with version numbers (like 'brew outdated -v')
   -b, --id-breaking    Highlight packages with breaking changes (implies -a)
-  -u, --upgrade        Show changelogs with interactive upgrade prompt (implies -a, -b)
+  -u, --upgrade        Trusted update workflow (implies -a, -b). On a
+                        terminal this runs the interactive dashboard
+                        (review, select, upgrade); use --plain for the
+                        previous prompt flow. Piped runs stay plain and
+                        never prompt or upgrade.
                         Use --dry-run to preview without executing
   -n, --dry-run        Preview upgrade without executing (use with -u)
-      --dashboard      Opt in to the interactive dashboard for -u runs
-                        (also via BREW_CHANGE_DASHBOARD=1; ignored when
-                        stdout is not a terminal)
+      --plain          Use the previous prompt flow for -u instead of the
+                        dashboard (also via BREW_CHANGE_PLAIN=1; the flag
+                        beats the environment variable)
+      --dashboard      No-op since v1.14.0: the dashboard is now the default
+                        for -u runs on a terminal. Accepted (with
+                        BREW_CHANGE_DASHBOARD=1) for compatibility with
+                        the former opt-in; ignored when stdout is not a
+                        terminal
   -h, --help           Show this help message
       --version        Show version information
 
 If no PACKAGE is specified and no flags, shows simple list like 'brew outdated'.
 
 Examples:
+  brew-change -u                # Trusted update workflow: interactive dashboard
+  brew-change -u --plain        # Trusted update workflow with the previous prompt flow
+  brew-change -u --dry-run      # Preview the no-signal plan (no execution)
   brew-change node              # Show changelog for node package
   brew-change node python git   # Show changelogs for multiple packages
   brew-change -a                # Show detailed changelogs for all outdated packages
@@ -51,9 +63,6 @@ Examples:
   brew-change -b                # Same as -a -b (shorthand)
   brew-change -b node python    # Check specific packages for breaking changes
   brew-change --id-breaking     # Same as -a -b (long form)
-  brew-change -u                # Show changelogs + interactive upgrade prompt
-  brew-change -u --dry-run      # Show changelogs + upgrade summary (no execution)
-  brew-change -u --dashboard    # Interactive dashboard: review, select, upgrade
   brew-change --version         # Show version information
 
 EOF
@@ -82,7 +91,7 @@ for _arg in "${ORIGINAL_ARGS[@]}"; do
         -u|--upgrade)
             _PRE_PARSE_HAS_UPGRADE="true"
             ;;
-        -a|--all|-v|--verbose|-b|--id-breaking|--dashboard) ;;
+        -a|--all|-v|--verbose|-b|--id-breaking|--dashboard|--plain) ;;
         -*)
             _PRE_PARSE_HAS_INVALID="true"
             _PRE_PARSE_INVALID_OPT="$_arg"
@@ -176,6 +185,7 @@ IDENTIFY_BREAKING="false"
 UPGRADE_MODE="false"
 DRY_RUN_MODE="false"
 DASHBOARD_MODE="false"
+PLAIN_MODE="false"
 PACKAGES=()
 
 # Re-parse original arguments for full flag resolution
@@ -199,7 +209,14 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --dashboard)
+            # No-op since v1.14.0 (T2.6.2 flip): the dashboard is the
+            # default for -u runs on a TTY. Kept as an accepted flag for
+            # compatibility with the former opt-in rollout.
             DASHBOARD_MODE="true"
+            shift
+            ;;
+        --plain)
+            PLAIN_MODE="true"
             shift
             ;;
         -v|--verbose)
@@ -221,7 +238,24 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Main execution logic
+# ---------------------------------------------------------------------------
+# T2.6.2 default flip (research-004 §3.2/§4): for -u runs on a TTY the
+# interactive dashboard is now the default view. Precedence (escape hatch
+# first, per research-004 §3.3): --plain flag > BREW_CHANGE_PLAIN=1 env >
+# default dashboard. --dashboard / BREW_CHANGE_DASHBOARD=1 are accepted
+# no-ops (the dashboard is already the default). The view applies only to
+# interactive -u runs: non-TTY runs keep today's plain, deterministic
+# behavior regardless of flags (piped contract is inviolable, §3.1).
+VIEW_USE_DASHBOARD="false"
+VIEW_DEFAULT_FLIP="false"
+if [[ "$PLAIN_MODE" == "true" || "${BREW_CHANGE_PLAIN:-}" == "1" ]]; then
+    VIEW_USE_DASHBOARD="false"
+elif [[ -t 1 ]]; then
+    VIEW_USE_DASHBOARD="true"
+    if [[ "$DASHBOARD_MODE" != "true" && -z "${BREW_CHANGE_DASHBOARD:-}" ]]; then
+        VIEW_DEFAULT_FLIP="true"
+    fi
+fi
 if [ ${#PACKAGES[@]} -gt 0 ]; then
     # Show changelog for specific package(s)
     export IDENTIFY_BREAKING  # Make breaking flag available to subprocesses
@@ -476,8 +510,7 @@ else
         # r-Review shows the recorded evidence on demand). Workers inherit
         # the export; evidence recording is never affected. Default (unset)
         # keeps the dump for plain -u and all non-dashboard modes.
-        if [[ "$DASHBOARD_MODE" == "true" || -n "${BREW_CHANGE_DASHBOARD:-}" ]] \
-            && [[ -t 1 ]]; then
+        if [[ "$VIEW_USE_DASHBOARD" == "true" ]]; then
             export BREW_CHANGE_CHANGELOG_OUTPUT=0
         fi
 
@@ -537,14 +570,21 @@ else
                 PARALLEL_PENDING_SUMMARY=""
             fi
 
-            # T2.5.2 opt-in dashboard mode (ratified staged rollout):
-            # --dashboard / BREW_CHANGE_DASHBOARD=1 gate the interactive
-            # dashboard for -u runs; bare default behavior is unchanged.
-            # When stdout is not a TTY the flag is ignored in favor of the
-            # plain prompt flow (piped runs never enter the dashboard).
-            if [[ "$DASHBOARD_MODE" == "true" || -n "${BREW_CHANGE_DASHBOARD:-}" ]] \
-                && [[ -t 1 ]] \
+            # T2.6.2 default flip (research-004 §3.2/§4): for TTY runs the
+            # dashboard is the default -u view; --plain / BREW_CHANGE_PLAIN=1
+            # restore the previous prompt flow. Piped runs always take the
+            # plain prompt flow (which exits without prompting) — the view
+            # resolution above already required a TTY.
+            if [[ "$VIEW_USE_DASHBOARD" == "true" ]] \
                 && declare -F run_dashboard_mode >/dev/null 2>&1; then
+                if [[ "$VIEW_DEFAULT_FLIP" == "true" ]]; then
+                    # Transition notice (research-004 §3.4 spirit): one
+                    # stderr line, only when the dashboard ran because of
+                    # the new default rather than an explicit --dashboard /
+                    # BREW_CHANGE_DASHBOARD=1 opt-in. Never on stdout.
+                    # TODO(T2.6.2): remove in the next release.
+                    printf 'brew-change: output view changed in v1.14.0 — use --plain for the previous view\n' >&2
+                fi
                 run_dashboard_mode "$UPGRADE_STATUS_DIR/assessment.jsonl"
             else
                 run_upgrade_prompt "$outdated_packages"

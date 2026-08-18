@@ -386,6 +386,142 @@ def test_int_exits_130_and_restores_terminal():
         assert status == 130, (status, output)
 
 
+# --- T2.6.2 default flip: full-CLI dispatch under a PTY ----------------------
+#
+# Runs the real ./brew-change -u with fake brew/curl on PATH, stdout on a
+# controlling PTY (so the TTY gate opens), stderr on a separate pipe (so
+# the transition notice's stream is verifiable). The dashboard/prompt
+# readers use /dev/tty, which is the PTY via TIOCSCTTY.
+
+NOTICE = b"brew-change: output view changed in v1.14.0"
+# The dashboard legend/prompt line (rendered for any classification mix);
+# the plain prompt flow instead prints "Select upgrade mode:".
+DASH_PROMPT = b"[s] Select packages"
+PLAIN_PROMPT = b"Select upgrade mode:"
+
+
+def drive_cli_until(args, marker, payload, extra_env=None):
+    """Run the CLI in a PTY, wait for marker, write payload, wait for exit."""
+    # Implemented on top of run_cli_pty's building blocks but with input.
+    tmp = tempfile.mkdtemp()
+    try:
+        outdated = {"formulae": [{"name": "bat"}], "casks": []}
+        bindir, log, outdated_file = make_fake_brew(tmp, outdated)
+        curl = os.path.join(bindir, "curl")
+        with open(curl, "w") as fh:
+            fh.write("#!/usr/bin/env bash\nexit 0\n")
+        os.chmod(curl, 0o755)
+
+        master, slave = pty.openpty()
+        stderr_r, stderr_w = os.pipe()
+        env = {
+            "PATH": bindir + os.pathsep + os.environ.get("PATH", ""),
+            "HOME": tmp,
+            "BREW_CHANGE_PROMPT_TIMEOUT": "60",
+            "BREW_CHANGE_TEST_NOW": str(int(time.time())),
+            # One fetch attempt (no retry backoff) and an isolated cache
+            # keep the full-CLI scenarios fast and hermetic.
+            "BREW_CHANGE_MAX_RETRIES": "1",
+            "BREW_CHANGE_CACHE_DIR": os.path.join(tmp, "cache"),
+            "FAKE_BREW_LOG": log,
+            "FAKE_BREW_OUTDATED": outdated_file,
+        }
+        env.update(extra_env or {})
+
+        def attach_controlling_terminal():
+            os.environ.clear()
+            os.environ.update(env)
+            os.setsid()
+            fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+
+        process = subprocess.Popen(
+            [BASH, os.path.join(ROOT, "brew-change")] + args,
+            stdin=slave,
+            stdout=slave,
+            stderr=stderr_w,
+            pass_fds=(slave, stderr_w),
+            preexec_fn=attach_controlling_terminal,
+        )
+        os.close(stderr_w)
+        stdout = b""
+        status = None
+        try:
+            stdout += read_until(master, marker, timeout=TIMEOUT)
+            assert marker in stdout, f"marker never appeared: {stdout!r}"
+            time.sleep(0.3)
+            os.write(master, payload)
+            deadline = time.monotonic() + TIMEOUT
+            while time.monotonic() < deadline:
+                try:
+                    returncode = process.wait(timeout=0.05)
+                except subprocess.TimeoutExpired:
+                    pass
+                else:
+                    status = returncode
+                    break
+                stdout += drain(master, seconds=0.05)
+            if status is None:
+                raise AssertionError(f"CLI did not exit after input: {stdout!r}")
+            stdout += drain(master, seconds=0.5)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+            os.close(slave)
+            os.close(master)
+        stderr = b""
+        while True:
+            chunk = os.read(stderr_r, 4096)
+            if not chunk:
+                break
+            stderr += chunk
+        os.close(stderr_r)
+        return stdout, stderr, status
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_default_flip_dispatches_dashboard_with_notice():
+    """TTY -u with no view flags: dashboard runs and the notice appears once, on stderr."""
+    stdout, stderr, status = drive_cli_until(["-u"], DASH_PROMPT, b"q\n")
+    assert status == 0, (status, stdout, stderr)
+    assert DASH_PROMPT in stdout, stdout
+    assert PLAIN_PROMPT not in stdout, stdout
+    assert stdout.count(NOTICE) == 0, stdout
+    assert stderr.count(NOTICE) == 1, stderr
+
+
+def test_plain_flag_selects_prompt_flow():
+    """TTY -u --plain: previous prompt flow, no notice anywhere."""
+    stdout, stderr, status = drive_cli_until(["-u", "--plain"], PLAIN_PROMPT, b"q\n")
+    assert status == 0, (status, stdout, stderr)
+    assert PLAIN_PROMPT in stdout, stdout
+    assert DASH_PROMPT not in stdout, stdout
+    assert NOTICE not in stdout and NOTICE not in stderr, (stdout, stderr)
+
+
+def test_plain_env_selects_prompt_flow():
+    """TTY -u with BREW_CHANGE_PLAIN=1: prompt flow, no notice."""
+    stdout, stderr, status = drive_cli_until(
+        ["-u"], PLAIN_PROMPT, b"q\n", extra_env={"BREW_CHANGE_PLAIN": "1"}
+    )
+    assert status == 0, (status, stdout, stderr)
+    assert PLAIN_PROMPT in stdout, stdout
+    assert DASH_PROMPT not in stdout, stdout
+    assert NOTICE not in stdout and NOTICE not in stderr, (stdout, stderr)
+
+
+def test_explicit_dashboard_flag_has_no_notice():
+    """TTY -u --dashboard: dashboard runs (flag now a no-op), no notice."""
+    stdout, stderr, status = drive_cli_until(["-u", "--dashboard"], DASH_PROMPT, b"q\n")
+    assert status == 0, (status, stdout, stderr)
+    assert DASH_PROMPT in stdout, stdout
+    assert NOTICE not in stdout and NOTICE not in stderr, (stdout, stderr)
+
+
 def main():
     tests = [
         test_u_reaches_preview_and_decline_returns,
@@ -393,6 +529,10 @@ def main():
         test_inactivity_timeout_counts_down_and_exits_zero,
         test_eof_exits_zero,
         test_int_exits_130_and_restores_terminal,
+        test_default_flip_dispatches_dashboard_with_notice,
+        test_plain_flag_selects_prompt_flow,
+        test_plain_env_selects_prompt_flow,
+        test_explicit_dashboard_flag_has_no_notice,
     ]
     failures = 0
     for test in tests:

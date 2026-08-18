@@ -59,13 +59,21 @@ brew-change --help
 
 In a pipe or other non-interactive environment, brew-change prints guidance and never starts an upgrade.
 
-### Interactive dashboard (opt-in)
+### Changed defaults (v1.14.0)
 
-Add `--dashboard` (or set `BREW_CHANGE_DASHBOARD=1`) to a `-u` run to use the interactive dashboard instead of the plain prompt: review each package's evidence provenance read-only (`r`), stage an explicit per-package selection (`s`), upgrade the no-signal set (`u`/Enter), or quit (`q`). Without the flag, behavior is unchanged, and the flag is ignored when stdout is not a terminal.
+`brew-change -u` on a terminal now runs the interactive dashboard by default instead of the plain prompt flow: review each package's evidence provenance read-only (`r`), stage an explicit per-package selection (`s`), upgrade the no-signal set (`u`/Enter), or quit (`q`).
 
 ```bash
-brew-change -u --dashboard
+brew-change -u          # dashboard is now the default on a terminal
+brew-change -u --plain  # previous prompt flow (or BREW_CHANGE_PLAIN=1)
 ```
+
+Escape hatches, in precedence order (`--plain` flag > `BREW_CHANGE_PLAIN=1` environment variable > default dashboard):
+
+- `--plain` (or `BREW_CHANGE_PLAIN=1`, e.g. in an rc file) restores the previous prompt flow.
+- `--dashboard` and `BREW_CHANGE_DASHBOARD=1`, the pre-v1.14.0 opt-ins, are accepted as documented no-ops.
+
+For one release after the flip, runs that get the dashboard from the new default (not via the former opt-ins) print a single stderr notice — `brew-change: output view changed in v1.14.0 — use --plain for the previous view` — never on stdout; it will be removed in the following release. Piped or redirected runs are unchanged: plain deterministic output, no prompts, no upgrades, and the flags do not switch views.
 
 ## 📦 Installation
 
