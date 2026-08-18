@@ -130,14 +130,70 @@ KEY_QUEUE=(x q)
 drive "$RECORDS" 0 && [[ "$OUT" == *"Invalid input 'x'. Type r/s/u/q"* ]] \
     && pass || fail "DASHBOARD invalid: hint then reprompt"
 
-# r -> REVIEW list; b -> back; q -> exit 0
+# r -> REVIEW list (grouped, continuous numbering, differential tokens);
+# b -> back; q -> exit 0
+EXPECTED_REVIEW_LIST="Review packages (5):
+
+Needs attention (2)
+   1) node — major-version-transition
+   2) postgresql@16 — breaking-change-note
+
+No risk signal found (2)
+   3) bat
+   4) curl
+
+Unknown (1)
+   5) docker — rate-limited
+
+[b]ack · [q]uit · package number or name for detail"
 KEY_QUEUE=(r q)
 LINE_QUEUE=(b)
 drive "$RECORDS" 0 \
-    && [[ "$OUT" == *"Review packages (5):"* ]] \
-    && [[ "$OUT" == *"1) node — Needs attention"* ]] \
-    && [[ "$OUT" == *"5) docker — Unknown"* ]] \
-    && pass || fail "DASHBOARD r: review list renders, b returns"
+    && [[ "$OUT" == *"$EXPECTED_REVIEW_LIST"* ]] \
+    && pass || fail "DASHBOARD r: grouped review list renders, b returns"
+
+# Single group only: all-unknown records show only the Unknown header
+KEY_QUEUE=(r q)
+LINE_QUEUE=(b)
+drive "$ALL_UNKNOWN" 0 \
+    && [[ "$OUT" == *"Review packages"* ]] \
+    && [[ "$OUT" != *"Needs attention ("* ]] \
+    && [[ "$OUT" != *"No risk signal found ("* ]] \
+    && [[ "$OUT" == *"Unknown ("* ]] \
+    && pass || fail "REVIEW single group: empty groups omitted"
+
+# Numbering stays unambiguous across groups: index 3 (first no-signal row)
+# resolves to bat, index 5 (first unknown row) resolves to docker
+KEY_QUEUE=(r q)
+LINE_QUEUE=('3' '' b)
+drive "$RECORDS" 0 && [[ "$OUT" == *"--- bat ---"* ]] \
+    && pass || fail "REVIEW continuous numbering: 3 -> bat"
+KEY_QUEUE=(r q)
+LINE_QUEUE=('5' '' b)
+drive "$RECORDS" 0 && [[ "$OUT" == *"--- docker ---"* ]] \
+    && pass || fail "REVIEW continuous numbering: 5 -> docker"
+
+# Attention fallback: no matched_signals -> compact first reason as the token
+NO_SIGNALS_RECORDS="$TMPDIR_TEST/no-signals.jsonl"
+jq -c 'select(.package == "node") | .matched_signals = []' "$RECORDS" \
+    > "$NO_SIGNALS_RECORDS"
+KEY_QUEUE=(r q)
+LINE_QUEUE=(b)
+drive "$NO_SIGNALS_RECORDS" 0 \
+    && [[ "$OUT" == *"1) node — major version transition"* ]] \
+    && pass || fail "REVIEW attention fallback: compact first reason token"
+
+# Very long differential tokens are printed in full (no truncation)
+LONG_TOKEN_RECORDS="$TMPDIR_TEST/long-token.jsonl"
+LONG_REASON='an extremely long release-note reason sentence that keeps going and going far beyond any normal terminal width'
+jq -c --arg r "$LONG_REASON" \
+    'select(.package == "node") | .matched_signals = [] | .reasons = [$r]' \
+    "$RECORDS" > "$LONG_TOKEN_RECORDS"
+KEY_QUEUE=(r q)
+LINE_QUEUE=(b)
+drive "$LONG_TOKEN_RECORDS" 0 \
+    && [[ "$OUT" == *"1) node — $LONG_REASON"* ]] \
+    && pass || fail "REVIEW long token: printed in full"
 
 # u -> UPGRADE with the exact no-signal set; inventory unchanged -> decline
 # path: no refresh, records kept, dashboard re-rendered; then q
