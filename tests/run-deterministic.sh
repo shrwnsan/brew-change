@@ -40,6 +40,7 @@ run_suite "progress renderer" bash "$SCRIPT_DIR/test-progress-renderer.sh"
 run_suite "progress integration" bash "$SCRIPT_DIR/test-progress-integration.sh"
 run_suite "dashboard fixtures" bash "$SCRIPT_DIR/test-dashboard-fixtures.sh"
 run_suite "dashboard renderer" bash "$SCRIPT_DIR/test-dashboard-render.sh"
+run_suite "dashboard actions" bash "$SCRIPT_DIR/test-dashboard-actions.sh"
 
 printf '\nDeterministic suites: %d passed, %d failed\n' "$passed" "$failed"
 [[ $failed -eq 0 ]]
