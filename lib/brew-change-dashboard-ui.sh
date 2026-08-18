@@ -124,8 +124,10 @@ _dashboard_countdown_note() { # suffix (e.g. "12  " or "now\n")
     local width=${dashboard_last_line_width:-0}
     (( ${#text} > width )) && width=$(( ${#text} ))
     _dashboard_note "\r%*s\r%s" "$width" "" "$text"
-    (( ${#text} > ${dashboard_last_line_width:-0} )) \
-        && dashboard_last_line_width=$(( ${#text} ))
+    if (( ${#text} > ${dashboard_last_line_width:-0} )); then
+        dashboard_last_line_width=$(( ${#text} ))
+    fi
+    return 0
 }
 
 _dashboard_timeout_notice() {

@@ -133,7 +133,10 @@ _restore_prompt_traps() {
     trap - INT TERM
     [[ -n "${prompt_previous_int_trap:-}" ]] && eval "$prompt_previous_int_trap"
     [[ -n "${prompt_previous_term_trap:-}" ]] && eval "$prompt_previous_term_trap"
-    [[ "${prompt_installed_exit_trap:-false}" == "true" ]] && trap - EXIT
+    if [[ "${prompt_installed_exit_trap:-false}" == "true" ]]; then
+        trap - EXIT
+    fi
+    return 0
 }
 
 # Restricted upgrade action prompt with spinner animation.

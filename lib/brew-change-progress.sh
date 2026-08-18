@@ -123,7 +123,10 @@ _restore_progress_traps() {
         && eval "$progress_previous_int_trap"
     [[ -n "${progress_previous_term_trap:-}" ]] \
         && eval "$progress_previous_term_trap"
-    [[ "${progress_installed_exit_trap:-false}" == "true" ]] && trap - EXIT
+    if [[ "${progress_installed_exit_trap:-false}" == "true" ]]; then
+        trap - EXIT
+    fi
+    return 0
 }
 
 # Render live progress for a run directory (public API).
