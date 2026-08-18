@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-08-18
+
+### Changed
+- **Default view change**: interactive `brew-change -u` runs now use the dashboard by default (was the simple prompt). Use `--plain` or `BREW_CHANGE_PLAIN=1` to restore the previous view; a one-time notice is printed to stderr this release. Piped output and bare `brew-change` are unchanged.
+- Dashboard rows no longer repeat their group's classification label; packages whose status is `unavailable` show no per-row token (actionable statuses like `rate-limited` still do).
+- The parallel completion summary prints on a fresh line after the progress indicator clears.
+
+### Fixed
+- Hardened best-effort function tails against the launcher's error-exit mode, eliminating a class of silent exits (two instances of which previously reached users).
+
 ## [1.13.3] - 2026-08-18
 
 ### Changed
