@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.2] - 2026-08-19
+
 ### Fixed
 - Intermittent crash of the dashboard render under load on macOS: the launcher's locale detection failed silently under `pipefail` (`locale -a | grep -q` dies of SIGPIPE), so no UTF-8 locale was exported and the renderer's per-render locale resets could segfault bash under heavy load. The availability check now greps a captured string, and the render helpers skip locale manipulation entirely when the effective locale (LC_ALL > LC_CTYPE > LANG) already counts characters.
 
