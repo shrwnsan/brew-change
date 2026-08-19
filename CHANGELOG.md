@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.3] - 2026-08-19
+
+### Fixed
+- Review-list rows whose recorded evidence contains double quotes (common in release notes) no longer leak `jq: parse error: Invalid numeric literal` lines into the drawn screen and no longer silently lose their risk token: the record transport doubled backslashes, so `\"` truncated the JSON mid-string and every per-row read failed. The record now round-trips byte-exact, and per-record jq reads in the review token/detail paths degrade to blanks instead of leaking stderr.
+
+### Added
+- Review detail browsing: `[n]ext`/`[p]rev` walk the grouped order, typing a package number/name jumps directly between detail views, and the detail header shows a `(n/N)` position marker. The detail footer states the available keys (was "Press Enter to return to the review list...").
+
 ## [1.14.2] - 2026-08-19
 
 ### Fixed
