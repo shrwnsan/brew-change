@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.4] - 2026-08-19
+
+### Fixed
+- Running `brew-change -u` twice within the brew-info cache TTL (default 300s) no longer prints `No such file or directory` stderr lines during the evidence stage: the per-run memo directory is now created before the first cross-run cache-hit writes into it, not only after the first fetch (#113).
+- A Ctrl-C racing the prompt-to-read transition no longer freezes the dashboard (or the `--plain` prompt) until the read slice expires — up to 290s at the default inactivity timeout. Bash's `read` builtin can swallow a trapped signal arriving between the read's start and its blocking wait; timed read slices are now capped at 1s so the signal deferral is bounded (#114).
+
 ## [1.14.3] - 2026-08-19
 
 ### Fixed
