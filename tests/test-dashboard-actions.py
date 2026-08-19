@@ -363,9 +363,13 @@ def test_invalid_key_reprompts_without_rerender():
     Mirrors the countdown 'now' contract: the error line must clear the full
     width of the previously drawn prompt, so no `]uit` fragment survives on
     the visible line. The dashboard summary must appear exactly once — the
-    reprompt after the invalid key re-prints only the prompt line.
+    reprompt after the invalid key re-prints only the prompt line. The quit
+    key is a phased follow-up write: the key drain would eat it on Linux if
+    sent in the same burst as the invalid key (see drive_cli_until).
     """
-    stdout, _stderr, status = drive_cli_until(["-u"], b"[q]uit", b"x\nq\n")
+    stdout, _stderr, status = drive_cli_until(
+        ["-u"], b"[q]uit", b"x\n", follow=[(b"Invalid input", b"q\n")]
+    )
     assert status == 0, (status, stdout)
     lines = overlay_lines(stdout)
     invalid_lines = [line for line in lines if b"Invalid input" in line]
@@ -422,8 +426,16 @@ DASH_PROMPT = b"[s] Select packages"
 PLAIN_PROMPT = b"Select upgrade mode:"
 
 
-def drive_cli_until(args, marker, payload, extra_env=None):
-    """Run the CLI in a PTY, wait for marker, write payload, wait for exit."""
+def drive_cli_until(args, marker, payload, extra_env=None, follow=None):
+    """Run the CLI in a PTY, wait for marker, write payload, wait for exit.
+
+    follow: optional [(marker, payload), ...] — each payload is written only
+    after its marker appears. Multi-key scenarios need this: the key reader's
+    post-key line drain keeps whatever follows the key on macOS bash but the
+    trailing newline is discarded on Linux, so a follow-up key written in the
+    same burst is consumed by the drain on Linux and never reaches the prompt.
+    Waiting for the reprompt marker proves the drain has finished on both.
+    """
     # Implemented on top of run_cli_pty's building blocks but with input.
     tmp = tempfile.mkdtemp()
     try:
@@ -472,6 +484,13 @@ def drive_cli_until(args, marker, payload, extra_env=None):
             assert marker in stdout, f"marker never appeared: {stdout!r}"
             time.sleep(0.3)
             os.write(master, payload)
+            for follow_marker, follow_payload in follow or []:
+                stdout += read_until(master, follow_marker, timeout=TIMEOUT)
+                assert follow_marker in stdout, (
+                    f"follow marker never appeared: {stdout!r}"
+                )
+                time.sleep(0.3)
+                os.write(master, follow_payload)
             deadline = time.monotonic() + TIMEOUT
             while time.monotonic() < deadline:
                 try:
