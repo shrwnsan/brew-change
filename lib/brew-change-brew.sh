@@ -186,7 +186,13 @@ get_brew_info() {
             local cached_data
             cached_data=$(<"$cache_file")
             if [[ -n "$run_memo" ]]; then
-                printf '%s' "$cached_data" > "$run_memo"
+                # The memo dir must exist on the cache-hit path too: with a
+                # fresh run dir and a warm cross-run cache this write runs
+                # before any fetch has created <run_dir>/brew-info (the fetch
+                # path mkdirs below). The write stays best-effort like the
+                # fetch path's so a memo failure never fails the cache hit.
+                mkdir -p "$UPGRADE_STATUS_DIR/brew-info" 2>/dev/null || true
+                printf '%s' "$cached_data" > "$run_memo" 2>/dev/null || true
             fi
             _BREW_INFO_MEMO["$package"]="$cached_data"
             printf '%s' "$cached_data"
