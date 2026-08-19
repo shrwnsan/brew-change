@@ -219,5 +219,77 @@ else
     fail "overflowing token list not truncated at a token boundary: '$line'"
 fi
 
+# --- Locale-churn regression (intermittent full-CLI PTY stall) ---------------
+#
+# With an ambient UTF-8 locale the render must not consult `locale` at all:
+# character counting is decided from LC_ALL/LANG directly. The old flow ran
+# `locale charmap` (and on failure `locale -a`) and re-assigned LC_ALL on
+# every helper call; each locale-variable create/reset runs setlocale(3)
+# inside bash, and on macOS with Homebrew's libintl that path consults
+# CoreFoundation preferred-language preferences — observed to segfault bash
+# intermittently under heavy process load (the dashboard subshell died
+# before printing the prompt, so the full-CLI PTY test stalled). A logging
+# fake `locale` on PATH proves the zero-fork path; the byte-exact diff
+# proves character counting is preserved.
+mkdir -p "$tmpdir/locale-bin"
+cat > "$tmpdir/locale-bin/locale" <<'LOCALE'
+#!/usr/bin/env bash
+echo "locale $*" >> "$LOCALE_CALLS"
+case "$1" in
+    charmap) printf 'US-ASCII\n' ;;
+    -a)      printf 'en_US.UTF-8\n' ;;
+esac
+LOCALE
+chmod +x "$tmpdir/locale-bin/locale"
+export LOCALE_CALLS="$tmpdir/locale-calls.log"
+: > "$LOCALE_CALLS"
+
+# Fast path: ambient UTF-8 — byte-exact render with zero `locale` forks.
+LC_ALL=en_US.UTF-8 PATH="$tmpdir/locale-bin:$PATH" \
+    render_dashboard_records "$FIXTURE_DIR/mixed/input.jsonl" 80 \
+    > "$tmpdir/fastpath.txt"
+if cmp -s "$tmpdir/fastpath.txt" "$FIXTURE_DIR/mixed/expected.txt"; then
+    pass
+else
+    fail "ambient-UTF-8 render differs from expected.txt"
+fi
+if [[ ! -s "$LOCALE_CALLS" ]]; then
+    pass
+else
+    fail "render consulted locale under ambient UTF-8: $(cat "$LOCALE_CALLS")"
+fi
+
+# Character counting stays correct in the fast path: multi-byte → and …
+# count as one character each, still without consulting `locale`.
+: > "$LOCALE_CALLS"
+dash_len=$(LC_ALL=en_US.UTF-8 PATH="$tmpdir/locale-bin:$PATH" \
+    _dashboard_len "a→b…c")
+if [[ "$dash_len" == "5" && ! -s "$LOCALE_CALLS" ]]; then
+    pass
+else
+    fail "_dashboard_len counted '$dash_len' characters under ambient UTF-8 (expected 5, no locale forks)"
+fi
+
+# Fallback preserved: without a UTF-8 ambient locale the helpers resolve one
+# via `locale charmap`/`locale -a` and then count characters, not bytes.
+dash_len_c=$(env -u LC_ALL -u LANG PATH="$tmpdir/locale-bin:$PATH" \
+    bash -c "source '$ROOT_DIR/lib/brew-change-dashboard.sh'; _dashboard_len 'a→b…c'")
+if [[ "$dash_len_c" == "5" ]]; then
+    pass
+else
+    fail "fallback locale resolution counted '$dash_len_c' characters, expected 5"
+fi
+
+# Precedence: a non-UTF-8 LC_CTYPE must override a UTF-8 LANG (POSIX order),
+# so the fast path must not fire and the fallback must still count chars.
+dash_len_ctype=$(env -u LC_ALL LC_CTYPE=C LANG=en_US.UTF-8 \
+    PATH="$tmpdir/locale-bin:$PATH" \
+    bash -c "source '$ROOT_DIR/lib/brew-change-dashboard.sh'; _dashboard_len 'a→b…c'")
+if [[ "$dash_len_ctype" == "5" ]]; then
+    pass
+else
+    fail "LC_CTYPE=C + UTF-8 LANG counted '$dash_len_ctype' characters, expected 5 (LC_CTYPE must win)"
+fi
+
 printf 'dashboard renderer: %d passed, %d failed\n' "$passed" "$failed"
 [[ $failed -eq 0 ]]

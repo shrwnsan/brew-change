@@ -28,8 +28,29 @@
 #   - Footer degrades by dropping "[s] Select packages" first; "[q] Quit" is
 #     never dropped.
 
+# True when the shell's effective locale already counts characters (UTF-8
+# codeset). Decided from the ambient locale variables without a fork when
+# they carry an explicit UTF-8 codeset (POSIX precedence LC_ALL > LC_CTYPE >
+# LANG; an empty value counts as unset), and without touching any locale
+# variable: every creation, assignment, or reset of a locale variable runs
+# setlocale(3) inside bash, and on macOS with Homebrew's libintl that
+# consults CoreFoundation preferred-language preferences — a path observed
+# to segfault bash intermittently under heavy process load (the intermittent
+# T2.6.2 full-CLI PTY stall). When the ambient locale is already UTF-8,
+# the helpers below need none of those operations.
+_dashboard_locale_counts_chars() {
+    case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+        *[Uu][Tt][Ff]8*|*[Uu][Tt][Ff]-8*) return 0 ;;
+    esac
+    [[ "$(locale charmap 2>/dev/null)" == UTF-8 ]]
+}
+
 # Character length of a string (multi-byte safe under a UTF-8 locale).
 _dashboard_len() { # string -> char count on stdout
+    if _dashboard_locale_counts_chars; then
+        printf '%s' "${#1}"
+        return 0
+    fi
     local LC_ALL
     _dashboard_utf8_locale LC_ALL
     printf '%s' "${#1}"
@@ -69,6 +90,15 @@ _dashboard_pad() { # string width
 # characters were removed. Character-based.
 _dashboard_trunc() { # string width
     local s="$1" w="$2" len
+    if _dashboard_locale_counts_chars; then
+        len=${#s}
+        if (( len <= w )); then
+            printf '%s' "$s"
+        else
+            printf '%s…' "${s:0:w - 1}"
+        fi
+        return 0
+    fi
     local LC_ALL
     _dashboard_utf8_locale LC_ALL
     len=${#s}
@@ -83,6 +113,20 @@ _dashboard_trunc() { # string width
 # single "…" when anything was removed — never mid-word when avoidable.
 _dashboard_trunc_words() { # string width
     local s="$1" w="$2" cut b
+    if _dashboard_locale_counts_chars; then
+        if (( ${#s} <= w )); then
+            printf '%s' "$s"
+            return 0
+        fi
+        cut="${s:0:w - 1}"
+        if [[ $cut == *" "* ]]; then
+            b="${cut% *}"          # drop the trailing partial token
+            b="${b%,}"             # ...and its joining comma
+            (( ${#b} >= 1 )) && cut="$b"
+        fi
+        printf '%s…' "$cut"
+        return 0
+    fi
     local LC_ALL
     _dashboard_utf8_locale LC_ALL
     if (( ${#s} <= w )); then
@@ -103,6 +147,15 @@ _dashboard_trunc_words() { # string width
 # specifics (e.g. version numbers in "Major version transition (22 to 25)").
 _dashboard_trunc_tail() { # string width
     local s="$1" w="$2" len
+    if _dashboard_locale_counts_chars; then
+        len=${#s}
+        if (( len <= w )); then
+            printf '%s' "$s"
+        else
+            printf '…%s' "${s: len - w + 1}"
+        fi
+        return 0
+    fi
     local LC_ALL
     _dashboard_utf8_locale LC_ALL
     len=${#s}
@@ -138,11 +191,19 @@ render_dashboard_records() {
     fi
 
     # Run the whole render in a subshell so the UTF-8 locale override (needed
-    # for character-based slicing) never leaks to the caller.
+    # for character-based slicing) never leaks to the caller. When the
+    # ambient locale already counts characters (the launcher exports a
+    # UTF-8 LC_ALL, and interactive shells carry a UTF-8 LANG), skip the
+    # locale-variable setup entirely: creating/resetting locale variables
+    # runs setlocale(3) inside bash, an intermittent segfault vector under
+    # heavy process load on macOS (Homebrew libintl -> CoreFoundation
+    # preferred languages) — see _dashboard_locale_counts_chars.
     (
-        local LC_ALL
-        _dashboard_utf8_locale LC_ALL
-        export LC_ALL
+        if ! _dashboard_locale_counts_chars; then
+            local LC_ALL
+            _dashboard_utf8_locale LC_ALL
+            export LC_ALL
+        fi
 
         local total att ns unk
         total=$(jq -s 'length' "$records")
