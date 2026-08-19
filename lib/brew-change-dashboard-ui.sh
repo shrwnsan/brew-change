@@ -139,6 +139,17 @@ _dashboard_timeout_notice() {
     _dashboard_say "Dashboard closed (inactivity timeout after ${human})."
 }
 
+# Upper bound (seconds) for a single timed read slice in the readers below.
+# Bash's read builtin can swallow a trapped signal that arrives between the
+# read starting and its blocking wait: the pending INT/TERM trap is then
+# deferred until the read's timeout expires, so a Ctrl-C landing in that
+# window freezes the dashboard for the whole slice. Capping the slice bounds
+# that deferral to this many seconds instead of (total_timeout -
+# countdown_window) — 290s at the default 300s timeout. Inactivity-countdown,
+# EOF and key semantics are unchanged: a slice that expires without input
+# just re-loops.
+DASHBOARD_READ_SLICE_MAX=1
+
 # Read one key from /dev/tty with the Phase-1 input hygiene:
 #   - failed read slices with status >128 mean "no key yet" (keep waiting);
 #   - status 1 means EOF -> caller cancels;
@@ -161,6 +172,7 @@ _dashboard_read_key() {
             slice=1
         else
             slice=$(( remaining - countdown_window ))
+            (( slice > DASHBOARD_READ_SLICE_MAX )) && slice=$DASHBOARD_READ_SLICE_MAX
         fi
         response=""
         rc=0
@@ -193,7 +205,9 @@ _dashboard_read_key() {
     done
 }
 
-# Read one line from /dev/tty with the same timeout/countdown contract.
+# Read one line from /dev/tty with the same timeout/countdown contract
+# (including the DASHBOARD_READ_SLICE_MAX cap and its signal-deferral
+# rationale, documented above _dashboard_read_key).
 # Args: $1 = variable name to receive the line (newline stripped)
 # Returns: 0 line read; 1 EOF; 2 inactivity timeout
 _dashboard_read_line() {
@@ -209,6 +223,7 @@ _dashboard_read_line() {
             slice=1
         else
             slice=$(( remaining - countdown_window ))
+            (( slice > DASHBOARD_READ_SLICE_MAX )) && slice=$DASHBOARD_READ_SLICE_MAX
         fi
         response=""
         rc=0

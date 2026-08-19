@@ -263,11 +263,77 @@ def test_inactivity_countdown_announces_timeout():
         )
 
 
+def test_int_at_prompt_boundary_exits_130():
+    """^C racing the prompt->read transition must still exit 130 quickly.
+
+    Same regression as the dashboard int-boundary probe: bash's read
+    builtin can swallow a trapped signal arriving between the read
+    starting and its blocking wait, deferring the INT trap until the
+    read slice expires. Writing ^C the instant the prompt appears lands
+    in that window; with 1s-capped read slices the exit is bounded to
+    ~1s instead of freezing for the whole first slice (50s at a 60s
+    timeout, 290s at the default).
+    """
+    body = (
+        'result=""\n'
+        "prompt_upgrade_action 3 8 23 result\n"
+        'printf \'RESULT=%s\\n\' "$result" > /dev/tty\n'
+    )
+    output, status = run_scenario(
+        body,
+        extra_env={"BREW_CHANGE_PROMPT_TIMEOUT": "60"},
+        write_after_ready=[(b"[q]uit?", b"\x03", 0.0)],
+    )
+    assert status == 130, (status, output)
+
+
+def test_reader_slices_are_capped():
+    """Every timed read slice prompt_upgrade_action issues must be <= 1s.
+
+    Deterministic contract check: a read() function shadows the builtin
+    inside the scenario and logs each call, asserting the slice sizes
+    without racing the signal. Uncapped slices deferred a swallowed
+    Ctrl-C for total_timeout - countdown_window seconds.
+    """
+    import re
+
+    tmp = tempfile.mkdtemp()
+    try:
+        calls = os.path.join(tmp, "read-calls")
+        body = (
+            "read() { local IFS=' '; printf '%s\\n' \"$*\" >> "
+            f'"{calls}"; return 1; }}\n'
+            'result=""\n'
+            "prompt_upgrade_action 3 8 23 result\n"
+            'printf \'RESULT=%s\\n\' "$result" > /dev/tty\n'
+            'printf "READCALLS-BEGIN\\n" > /dev/tty\n'
+            f'cat "{calls}" > /dev/tty\n'
+            'printf "\\nREADCALLS-END\\n" > /dev/tty\n'
+        )
+        output, status = run_scenario(
+            body, extra_env={"BREW_CHANGE_PROMPT_TIMEOUT": "60"}
+        )
+        assert status == 0, (status, output)
+        assert b"RESULT=cancel" in output, output
+        assert b"READCALLS-BEGIN" in output, output
+        log = output.split(b"READCALLS-BEGIN\r\n", 1)[1].split(b"READCALLS-END", 1)[0]
+        timed = [line for line in log.splitlines() if b"-t " in line]
+        assert timed, output
+        for line in timed:
+            m = re.search(rb"-t (\d+)", line)
+            assert m, f"unparseable read call: {line!r}"
+            assert int(m.group(1)) <= 1, f"uncapped read slice: {line!r}"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main():
     tests = [
         test_stale_enter_is_drained,
         test_confirmation_not_auto_declined_by_stale_enter,
         test_inactivity_countdown_announces_timeout,
+        test_int_at_prompt_boundary_exits_130,
+        test_reader_slices_are_capped,
     ]
     failures = 0
     for test in tests:
