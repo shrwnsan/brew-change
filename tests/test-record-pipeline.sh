@@ -155,6 +155,11 @@ assert_eq "TTL hit performs no fetch" "0" "$(brew_info_calls)"
 echo ""
 echo "Test: TTL expiry refetches"
 touch -t "$(date -v-10M +%Y%m%d%H%M.%S 2>/dev/null || date -d '-10 minutes' +%Y%m%d%H%M.%S)" "$cache_file"
+# Probe layer 3 from a fresh run dir: the earlier hit in this run correctly
+# wrote the per-run memo (fetch-at-most-once-per-run contract), and that memo
+# would serve the memoized payload without consulting the now-expired
+# cross-run entry.
+setup_run
 result=$(get_brew_info git)
 assert_eq "expired entry refetched" "99.0.0" "$(printf '%s' "$result" | jq -r '.formulae[0].versions.stable')"
 assert_eq "expired entry caused one fetch" "1" "$(brew_info_calls)"
@@ -179,6 +184,38 @@ touch "$cache_file_rect"
 result=$(get_brew_info rectangle)
 assert_eq "matching cache still used" "0.92" "$(printf '%s' "$result" | jq -r '.casks[0].version')"
 assert_eq "no refetch for matching cache" "0" "$(brew_info_calls)"
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Suite 3b: warm cross-run cache + fresh run dir writes the memo ==="
+# Regression (v1.14.3 field report): on a cross-run cache HIT the memo write
+# ran before any fetch had created <run_dir>/brew-info, so the redirection
+# failed with "No such file or directory" on stderr for every warm package
+# until the first cache MISS fetched. Reproduce exactly that state: a fresh
+# empty run dir (no brew-info subdir, no inventory yet), a cache file whose
+# mtime is inside the TTL, and no prior lookup of the package in this shell.
+setup_run
+warm_pkg="htop"
+warm_enc=$(record_encode_name "$warm_pkg")
+warm_cache="$BREW_CHANGE_CACHE_DIR/brew-info/$warm_enc.json"
+mkdir -p "$(dirname "$warm_cache")"
+printf '%s' '{"formulae":[{"name":"htop","versions":{"stable":"3.4.0"}}],"casks":[]}' > "$warm_cache"
+touch "$warm_cache"   # mtime = now, inside the 300s TTL
+: > "$COMMAND_HARNESS_LOG"
+warm_err="$(mktemp "${TMPDIR:-/tmp}/brew-change-warm-stderr.XXXXXX")"
+
+result=$(get_brew_info "$warm_pkg" 2>"$warm_err")
+
+assert_eq "warm cache hit returns cached data" "3.4.0" \
+    "$(printf '%s' "$result" | jq -r '.formulae[0].versions.stable')"
+assert_eq "warm cache hit performs no fetch" "0" "$(brew_info_calls)"
+assert_eq "warm cache hit is silent on stderr" "no" \
+    "$([[ -s "$warm_err" ]] && echo yes || echo no)"
+assert_eq "warm cache hit creates the per-run memo file" "yes" \
+    "$([[ -f "$run_dir/brew-info/$warm_enc.json" ]] && echo yes || echo no)"
+assert_eq "per-run memo holds the cached payload" "3.4.0" \
+    "$(jq -r '.formulae[0].versions.stable' "$run_dir/brew-info/$warm_enc.json" 2>/dev/null)"
+rm -f "$warm_err"
 
 # ---------------------------------------------------------------------------
 echo ""
