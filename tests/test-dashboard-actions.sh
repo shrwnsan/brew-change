@@ -125,10 +125,12 @@ KEY_QUEUE=()
 drive "$RECORDS" 0 && [[ ! -s "$UPGRADE_CALLS" ]] \
     && pass || fail "DASHBOARD EOF: exit 0, no upgrade call"
 
-# invalid -> hint, reprompt; then q
+# invalid -> hint, then a prompt-only reprompt: the dashboard summary must
+# appear exactly once (no full re-render for the invalid key); then q
 KEY_QUEUE=(x q)
 drive "$RECORDS" 0 && [[ "$OUT" == *"Invalid input 'x'. Type r/s/u/q"* ]] \
-    && pass || fail "DASHBOARD invalid: hint then reprompt"
+    && [[ "$(grep -c '5 outdated · 2 attention · 2 no-signal · 1 unknown' <<< "$OUT")" -eq 1 ]] \
+    && pass || fail "DASHBOARD invalid: hint then prompt-only reprompt"
 
 # r -> REVIEW list (grouped, continuous numbering, differential tokens);
 # b -> back; q -> exit 0
@@ -289,12 +291,14 @@ drive "$RECORDS" 0 \
     && [[ "$OUT" == *"Freshness:        retrieved unknown"* ]] \
     && pass || fail "REVIEW detail unknown: URL omitted, null freshness"
 
-# Invalid review input -> hint, reprompt
+# Invalid review input -> hint; the review list must NOT be reprinted for
+# the invalid line (prompt-only reprompt)
 KEY_QUEUE=(r q)
 LINE_QUEUE=(nope b)
 drive "$RECORDS" 0 \
     && [[ "$OUT" == *"Invalid input 'nope'"* ]] \
-    && pass || fail "REVIEW invalid: hint, reprompt"
+    && [[ "$(grep -c 'Review packages (5):' <<< "$OUT")" -eq 1 ]] \
+    && pass || fail "REVIEW invalid: hint, prompt-only reprompt"
 
 # q inside REVIEW -> exit 0
 KEY_QUEUE=(r)
@@ -353,12 +357,14 @@ LINE_QUEUE=()
 drive "$RECORDS" 0 && [[ ! -s "$UPGRADE_CALLS" ]] \
     && pass || fail "SELECT EOF: exit 0"
 
-# Invalid select input -> hint
+# Invalid select input -> hint; the checkbox list must NOT be reprinted for
+# the invalid line (prompt-only reprompt)
 KEY_QUEUE=(s q)
 LINE_QUEUE=(zz b)
 drive "$RECORDS" 0 \
     && [[ "$OUT" == *"Invalid input 'zz'"* ]] \
-    && pass || fail "SELECT invalid: hint, reprompt"
+    && [[ "$(grep -c 'Select packages (no-signal preselected' <<< "$OUT")" -eq 1 ]] \
+    && pass || fail "SELECT invalid: hint, prompt-only reprompt"
 
 # Preselection markers render ([x] no-signal, [ ] attention/unknown)
 KEY_QUEUE=(s q)
@@ -460,8 +466,8 @@ fi
 
 # --- T2.6.2 default flip: piped full-CLI runs are unchanged -----------------
 # Non-TTY runs ignore the view entirely (research-004 §3.1): plain
-# deterministic prompt-flow output, no dashboard, no notice — with or
-# without the view flags.
+# deterministic prompt-flow output, no dashboard — with or without the
+# view flags.
 printf '\n--- default flip: piped full-CLI runs ---\n'
 FLIP_HARNESS_OK=1
 if [[ -f "$ROOT_DIR/tests/lib/test-utils.sh" ]]; then
@@ -487,15 +493,13 @@ if [[ -f "$ROOT_DIR/tests/lib/test-utils.sh" ]]; then
     _flip_piped_run -u
     [[ "$_FLIP_EXIT" == "0" \
         && "$_FLIP_STDOUT" == *"Non-interactive mode. Upgrade skipped."* \
-        && "$_FLIP_STDOUT" != *"[s] Select packages"* \
-        && "$_FLIP_STDERR" != *"output view changed"* ]] \
-        && pass || fail "piped -u default: plain output, no dashboard, no notice"
+        && "$_FLIP_STDOUT" != *"[s] Select packages"* ]] \
+        && pass || fail "piped -u default: plain output, no dashboard"
 
     _flip_piped_run -u --plain
     [[ "$_FLIP_EXIT" == "0" \
-        && "$_FLIP_STDOUT" == *"Non-interactive mode. Upgrade skipped."* \
-        && "$_FLIP_STDERR" != *"output view changed"* ]] \
-        && pass || fail "piped -u --plain: plain output, no notice"
+        && "$_FLIP_STDOUT" == *"Non-interactive mode. Upgrade skipped."* ]] \
+        && pass || fail "piped -u --plain: plain output"
 
     # Explicit former opt-in env, piped: still ignored in favor of plain.
     setup_command_harness
@@ -512,9 +516,8 @@ if [[ -f "$ROOT_DIR/tests/lib/test-utils.sh" ]]; then
     teardown_command_harness
     [[ "$ec" == "0" \
         && "$_FLIP_STDOUT" == *"Non-interactive mode. Upgrade skipped."* \
-        && "$_FLIP_STDOUT" != *"[s] Select packages"* \
-        && "$_FLIP_STDERR" != *"output view changed"* ]] \
-        && pass || fail "piped -u with BREW_CHANGE_DASHBOARD=1: flag ignored, no notice"
+        && "$_FLIP_STDOUT" != *"[s] Select packages"* ]] \
+        && pass || fail "piped -u with BREW_CHANGE_DASHBOARD=1: flag ignored"
 else
     fail "test-utils.sh missing for piped flip checks"
 fi
@@ -526,6 +529,128 @@ if python3 "$SCRIPT_DIR/test-dashboard-actions.py"; then
 else
     fail "dashboard action PTY suite"
 fi
+
+# --- UPGRADE refresh: the REAL dashboard_refresh_records under capture ----
+# The refresh runs inside a command substitution in _dashboard_upgrade_state,
+# so its stdout contract is strict: ONLY the new records path (or "none").
+# Worker-phase chatter, the deferred completion summary, and any renderer
+# cosmetics must stay off the captured stream — a polluted path makes the
+# post-capture `jq -s length` fail into a wrong "No outdated packages." exit.
+printf '\n--- refresh stdout purity + progress state reset ---\n'
+REFRESH_DIR="$TMPDIR_TEST/refresh"
+REFRESH_STATUS="$REFRESH_DIR/status"
+mkdir -p "$REFRESH_STATUS"
+PROBE_LOG="$REFRESH_DIR/probe.log"
+SAY_LOG="$REFRESH_DIR/say.log"
+CAPTURE_FILE="$REFRESH_DIR/captured.out"
+: > "$SAY_LOG"
+
+(
+    # Real pipeline primitives (assessment_record_init resets
+    # assessment.jsonl and emits the inventory event); CACHE_DIR points
+    # somewhere nonexistent so cross-run cache invalidation stays a no-op.
+    export CACHE_DIR="$REFRESH_DIR/no-cache"
+    # shellcheck disable=SC1091
+    source "$ROOT_DIR/lib/brew-change-brew.sh"
+    # shellcheck disable=SC1091
+    source "$ROOT_DIR/lib/brew-change-progress.sh"
+    export UPGRADE_STATUS_DIR="$REFRESH_STATUS"
+
+    # State as the launcher leaves it after the initial pass: stop
+    # sentinel present, first-pass progress events, classified records.
+    : > "$REFRESH_STATUS/.progress_done"
+    printf '%s\n' \
+        '{"stage":"inventory","completed":1,"total":1}' \
+        '{"stage":"evidence","completed":1,"total":5,"package":"node"}' \
+        '{"stage":"evidence","completed":2,"total":5,"package":"jq"}' \
+        > "$REFRESH_STATUS/progress.jsonl"
+    jq -c 'select(.package == "node")' "$FIXTURE" \
+        > "$REFRESH_STATUS/assessment.jsonl"
+
+    # Post-upgrade inventory: bat and curl remain outdated.
+    _dashboard_fetch_outdated_json() {
+        printf '{"formulae":[{"name":"bat","installed_versions":["0.24"],"current_version":"0.25"},{"name":"curl","installed_versions":["8.0"],"current_version":"8.1"}],"casks":[]}'
+    }
+
+    # Worker-phase stub: echoes the historical banner chatter straight to
+    # stdout (the pollution source) and appends the per-package evidence
+    # events in the T2.4.1 contract form, like the real workers do; hands
+    # the completion summary back via the deferred-summary global.
+    process_packages_parallel() {
+        echo "Processing 2 packages in parallel (max 4 jobs)..."
+        echo ""
+        local _pkg _n=0
+        for _pkg in bat curl; do
+            _n=$((_n + 1))
+            printf '{"stage":"evidence","completed":%d,"total":2,"package":"%s"}\n' \
+                "$_n" "$_pkg" >> "$UPGRADE_STATUS_DIR/progress.jsonl"
+        done
+        PARALLEL_PENDING_SUMMARY="Completed processing 2 packages in 1s"
+        return 0
+    }
+
+    # Classify stub: rewrites assessment.jsonl with the post-upgrade
+    # records and appends the classify events (contract form).
+    classify_upgrade_evidence() {
+        jq -c 'select(.package == "bat" or .package == "curl")' "$FIXTURE" \
+            > "$UPGRADE_STATUS_DIR/assessment.jsonl"
+        printf '%s\n' \
+            '{"stage":"classify","completed":1,"total":2,"package":"bat"}' \
+            '{"stage":"classify","completed":2,"total":2,"package":"curl"}' \
+            >> "$UPGRADE_STATUS_DIR/progress.jsonl"
+        return 0
+    }
+
+    # Cosmetic /dev/tty messages land in a log, never on the capture.
+    _dashboard_say() { printf '%s\n' "$1" >> "$SAY_LOG"; }
+
+    # Production captures the refresh via a command substitution; the file
+    # redirect is equivalent for the stream while keeping this subshell the
+    # same shell the deferred-summary global lives in.
+    dashboard_refresh_records > "$CAPTURE_FILE"
+    refresh_rc=$?
+    printf 'RC=%s\nCLEARED=%s\n' "$refresh_rc" \
+        "${PARALLEL_PENDING_SUMMARY-UNSET}" > "$PROBE_LOG"
+)
+REFRESH_OUT="$(cat "$CAPTURE_FILE")"
+
+EXPECTED_REFRESH_PATH="$REFRESH_STATUS/assessment.jsonl"
+
+# Captured stdout is EXACTLY the records path: no banner, no blank line,
+# no summary, no trailing newline.
+[[ "$REFRESH_OUT" == "$EXPECTED_REFRESH_PATH" ]] \
+    && pass || fail "refresh capture: got '$REFRESH_OUT', expected exactly '$EXPECTED_REFRESH_PATH'"
+
+# The post-capture jq check from _dashboard_upgrade_state must succeed on
+# the result (this is the check the pollution used to break).
+REFRESH_LEN=$(jq -s 'length' "$REFRESH_OUT" 2>/dev/null || echo 0)
+[[ "$REFRESH_LEN" == "2" ]] \
+    && pass || fail "refresh capture: jq record count got '$REFRESH_LEN', expected 2"
+
+# First-pass progress events were reset: no stale total=5 rows remain.
+STALE_EVENTS=$(grep -c '"total":5' "$REFRESH_STATUS/progress.jsonl" || true)
+[[ "$STALE_EVENTS" == "0" ]] \
+    && pass || fail "refresh progress reset: $STALE_EVENTS stale first-pass events remain"
+
+# Fresh event census: one inventory, two evidence, two classify.
+_event_count() { jq -s --arg s "$1" '[.[] | select(.stage == $s)] | length' \
+    "$REFRESH_STATUS/progress.jsonl" 2>/dev/null || echo 0; }
+[[ "$(_event_count inventory)" == "1" && "$(_event_count evidence)" == "2" \
+    && "$(_event_count classify)" == "2" ]] \
+    && pass || fail "refresh events: inventory=$(_event_count inventory) evidence=$(_event_count evidence) classify=$(_event_count classify), expected 1/2/2"
+
+# Records were re-derived from the post-upgrade inventory only.
+REFRESH_PKGS=$(jq -r '.package' "$REFRESH_STATUS/assessment.jsonl" 2>/dev/null \
+    | paste -sd' ' -)
+[[ "$REFRESH_PKGS" == "bat curl" ]] \
+    && pass || fail "refresh records: got '$REFRESH_PKGS', expected 'bat curl'"
+
+# The deferred completion summary went to the terminal path (never the
+# capture) and was cleared afterwards; the refresh itself succeeded.
+grep -q '^Completed processing 2 packages in 1s$' "$SAY_LOG" \
+    && pass || fail "refresh summary: deferred summary not flushed to the terminal path"
+grep -q '^RC=0$' "$PROBE_LOG" && grep -q '^CLEARED=$' "$PROBE_LOG" \
+    && pass || fail "refresh summary: rc/deferred-summary clear failed ($(cat "$PROBE_LOG" 2>/dev/null | tr '\n' ' '))"
 
 printf '\ndashboard actions: %d passed, %d failed\n' "$passed" "$failed"
 [[ $failed -eq 0 ]]

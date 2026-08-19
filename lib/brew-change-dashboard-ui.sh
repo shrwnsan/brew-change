@@ -6,7 +6,8 @@
 # brew-change-dashboard.sh:
 #
 #   DASHBOARD: r -> REVIEW, s -> SELECT, u/Enter -> UPGRADE (no-signal set),
-#              q/EOF/inactivity-timeout -> exit 0, invalid -> reprompt+hint.
+#              q/EOF/inactivity-timeout -> exit 0, invalid -> prompt-only
+#              reprompt + hint (no full dashboard re-render).
 #   REVIEW:    read-only per-package evidence detail rendered from the
 #              assessment record (never refetched); number/name selects a
 #              package, b -> DASHBOARD, q/EOF/timeout -> exit 0.
@@ -423,10 +424,15 @@ _dashboard_review_state() { # records
     local -a pkgs=()
     mapfile -t pkgs < <(_dashboard_review_order "$records")
 
-    local input rc index pkg
+    local input rc index pkg skip_list=false
     while true; do
-        printf '\n'
-        _dashboard_review_list "$records"
+        # An invalid line re-prints only the Review: prompt; the list is
+        # skipped on the iteration right after it.
+        if [[ "$skip_list" != "true" ]]; then
+            printf '\n'
+            _dashboard_review_list "$records"
+        fi
+        skip_list=false
         printf 'Review: '
         rc=0; _dashboard_read_line input || rc=$?
         case $rc in
@@ -456,6 +462,7 @@ _dashboard_review_state() { # records
 
         if [[ -z "$pkg" ]]; then
             _dashboard_note "Invalid input '%s'. Type a package number/name, b, or q.\n" "$input"
+            skip_list=true
             continue
         fi
 
@@ -489,26 +496,31 @@ _dashboard_select_state() { # records
         [[ -n "$p" ]] && staged["$p"]=1
     done < <(_dashboard_default_selected_pkgs "$records")
 
-    local input rc index pkg sel_line count
+    local input rc index pkg sel_line count skip_list=false
     while true; do
         count=0
         for p in ${pkgs[@]+"${pkgs[@]}"}; do
             [[ -n "${staged[$p]:-}" ]] && count=$(( count + 1 ))
         done
 
-        printf '\nSelect packages (no-signal preselected; attention/unknown need an explicit toggle):\n'
-        local idx=0 cls
-        while IFS=$'\t' read -r p cls; do
-            [[ -z "$p" ]] && continue
-            idx=$(( idx + 1 ))
-            if [[ -n "${staged[$p]:-}" ]]; then
-                sel_line="[x]"
-            else
-                sel_line="[ ]"
-            fi
-            printf '  %s %2d) %s — %s\n' "$sel_line" "$idx" "$p" "$(_dashboard_label "$cls")"
-        done < <(jq -r '[.package, .classification] | @tsv' "$records" 2>/dev/null)
-        printf '\n%d staged. Toggle number/name · [b]ack discards · Enter confirms · [q]uit\n' "$count"
+        # An invalid line re-prints only the Select: prompt; the checkbox
+        # list is skipped on the iteration right after it.
+        if [[ "$skip_list" != "true" ]]; then
+            printf '\nSelect packages (no-signal preselected; attention/unknown need an explicit toggle):\n'
+            local idx=0 cls
+            while IFS=$'\t' read -r p cls; do
+                [[ -z "$p" ]] && continue
+                idx=$(( idx + 1 ))
+                if [[ -n "${staged[$p]:-}" ]]; then
+                    sel_line="[x]"
+                else
+                    sel_line="[ ]"
+                fi
+                printf '  %s %2d) %s — %s\n' "$sel_line" "$idx" "$p" "$(_dashboard_label "$cls")"
+            done < <(jq -r '[.package, .classification] | @tsv' "$records" 2>/dev/null)
+            printf '\n%d staged. Toggle number/name · [b]ack discards · Enter confirms · [q]uit\n' "$count"
+        fi
+        skip_list=false
         printf 'Select: '
         rc=0; _dashboard_read_line input || rc=$?
         case $rc in
@@ -551,6 +563,7 @@ _dashboard_select_state() { # records
 
         if [[ -z "$pkg" ]]; then
             _dashboard_note "Invalid input '%s'. Type a package number/name, b, Enter, or q.\n" "$input"
+            skip_list=true
             continue
         fi
 
@@ -587,8 +600,28 @@ _dashboard_any_still_outdated() {
     return 1
 }
 
+# Print the deferred completion summary (if any) to the terminal and clear
+# it — mirrors the launcher's post-stop flush so the line never shares a
+# rendered line with a spinner frame and never lands on captured stdout.
+_dashboard_flush_pending_summary() {
+    if [[ -n "${PARALLEL_PENDING_SUMMARY:-}" ]]; then
+        _dashboard_say "$PARALLEL_PENDING_SUMMARY"
+        PARALLEL_PENDING_SUMMARY=""
+    fi
+    return 0
+}
+
 # Production re-derive: rerun the evidence pipeline over the post-upgrade
 # inventory and echo the new records path ("none" when nothing is outdated).
+#
+# Contract: stdout carries ONLY the records path (or "none") — the caller
+# captures it with a command substitution, so every cosmetic line (worker
+# chatter, banners, summaries) must go to /dev/tty or stay deferred; a
+# polluted path made the caller's `jq -s length` fail into a wrong
+# "No outdated packages." exit. The refresh fully re-derives records from
+# the post-upgrade inventory, so the per-run progress state is reset first
+# (fresh progress.jsonl, stop sentinel removed, assessment.jsonl re-inited)
+# and the live renderer animates this pass exactly like the initial one.
 dashboard_refresh_records() {
     local outdated
     outdated=$(_dashboard_fetch_outdated_json)
@@ -603,26 +636,85 @@ dashboard_refresh_records() {
         printf 'none'
         return 0
     fi
-    process_packages_parallel "$outdated" "${PARALLEL_JOBS:-4}" || { printf 'none'; return 0; }
+
+    local run_dir="${UPGRADE_STATUS_DIR:?UPGRADE_STATUS_DIR set}"
+
+    # Reset the progress state left behind by the completed initial pass: a
+    # stale .progress_done sentinel would end a fresh renderer loop at once,
+    # and progress.jsonl/assessment.jsonl must describe only this pass.
+    : > "$run_dir/progress.jsonl"
+    rm -f "$run_dir/.progress_done"
+    if declare -F assessment_record_init >/dev/null 2>&1; then
+        assessment_record_init "$run_dir" "$outdated"
+    fi
+
+    local defer_prev="${BREW_CHANGE_DEFER_SUMMARY:-0}"
+    BREW_CHANGE_DEFER_SUMMARY=1
+
+    # Controlling-terminal probe. This must be an actual open, not
+    # [[ -w /dev/tty ]]: the device node is permission-writable even with no
+    # controlling terminal attached, while the open fails (ENXIO) — a failed
+    # redirect here would otherwise abort the worker phase outright.
+    local tty_ok=false
+    if : 2>/dev/null > /dev/tty; then
+        tty_ok=true
+    fi
+
+    # The renderer start is TTY-gated on stdout, which here is the caller's
+    # capture pipe; give the call the controlling terminal instead (the
+    # dashboard already established the interactive context upstream).
+    # PROGRESS_RENDERER_PID stays empty when there is none (piped runs).
+    PROGRESS_RENDERER_PID=""
+    if [[ "$tty_ok" == "true" ]]; then
+        progress_renderer_start > /dev/tty 2>/dev/null || true
+    fi
+
+    # Worker-phase cosmetics stay off the capture: send them to the
+    # terminal when one exists, discard them otherwise.
+    local parallel_rc=0
+    if [[ "$tty_ok" == "true" ]]; then
+        process_packages_parallel "$outdated" "${PARALLEL_JOBS:-4}" \
+            > /dev/tty || parallel_rc=$?
+    else
+        process_packages_parallel "$outdated" "${PARALLEL_JOBS:-4}" \
+            > /dev/null || parallel_rc=$?
+    fi
+    if (( parallel_rc != 0 )); then
+        progress_renderer_stop
+        BREW_CHANGE_DEFER_SUMMARY="$defer_prev"
+        _dashboard_flush_pending_summary
+        printf 'none'
+        return 0
+    fi
 
     local -a tokens=()
     local pkg
     if declare -F extract_outdated_package_tokens >/dev/null 2>&1; then
         while IFS=$'\t' read -r pkg _ptype; do
-            [[ -n "$pkg" && "$pkg" != "null" ]] && tokens+=("$pkg")
+            if [[ -n "$pkg" && "$pkg" != "null" ]]; then
+                tokens+=("$pkg")
+            fi
         done < <(extract_outdated_package_tokens "$outdated" 2>/dev/null)
     else
         while IFS= read -r pkg; do
-            [[ -n "$pkg" && "$pkg" != "null" ]] && tokens+=("$pkg")
+            if [[ -n "$pkg" && "$pkg" != "null" ]]; then
+                tokens+=("$pkg")
+            fi
         done < <(jq -r '(.formulae[]?.name // empty), (.casks[]?.token // empty)' <<< "$outdated")
     fi
 
-    if ! classify_upgrade_evidence "${UPGRADE_STATUS_DIR:?UPGRADE_STATUS_DIR set}" \
-        ${tokens[@]+"${tokens[@]}"}; then
+    local classify_rc=0
+    classify_upgrade_evidence "$run_dir" \
+        ${tokens[@]+"${tokens[@]}"} || classify_rc=$?
+    progress_renderer_stop
+    BREW_CHANGE_DEFER_SUMMARY="$defer_prev"
+    _dashboard_flush_pending_summary
+    if (( classify_rc != 0 )); then
         printf 'none'
         return 0
     fi
-    printf '%s' "$UPGRADE_STATUS_DIR/assessment.jsonl"
+    printf '%s' "$run_dir/assessment.jsonl"
+    return 0
 }
 
 # UPGRADE state: run_upgrade_with_preview is the sole execution boundary.
@@ -656,6 +748,27 @@ _dashboard_upgrade_state() { # records_var refresh_func pkgs...
 # DASHBOARD state / entry point
 # ---------------------------------------------------------------------------
 
+# Print the compact action prompt on its own line. Split out of
+# _dashboard_render so the invalid-key path can re-print just the prompt
+# without re-rendering the whole dashboard. Records the drawn width in
+# dashboard_last_line_width so later in-place redraws (inactivity countdown,
+# invalid-key message) clear at least the full drawn width.
+_dashboard_print_prompt() { # records
+    local records="$1"
+    local ns prompt
+    ns=$(jq -sr '[.[] | select(.classification == "no-signal")] | length' "$records" 2>/dev/null)
+    if [[ "$ns" =~ ^[0-9]+$ ]] && (( ns > 0 )); then
+        prompt=$(printf '[r]eview · [s]elect · [u]pgrade no-signal (%s) · [q]uit (Enter = u): ' "$ns")
+    else
+        prompt='[r]eview · [s]elect · [q]uit: '
+    fi
+    # Remember the prompt width so the inactivity countdown and the
+    # invalid-key message can clear it (no stale prompt tail).
+    dashboard_last_line_width=$(( ${#prompt} ))
+    printf '\n%s' "$prompt"
+    return 0
+}
+
 # Render the dashboard plus the action prompt line.
 _dashboard_render() { # records
     local records="$1"
@@ -668,16 +781,8 @@ _dashboard_render() { # records
         [[ -n "$w" && "$w" =~ ^[0-9]+$ ]] && width="$w"
     fi
     render_dashboard_records "$records" "$width"
-    local ns prompt
-    ns=$(jq -sr '[.[] | select(.classification == "no-signal")] | length' "$records" 2>/dev/null)
-    if [[ "$ns" =~ ^[0-9]+$ ]] && (( ns > 0 )); then
-        prompt=$(printf '[r]eview · [s]elect · [u]pgrade no-signal (%s) · [q]uit (Enter = u): ' "$ns")
-    else
-        prompt='[r]eview · [s]elect · [q]uit: '
-    fi
-    # Remember the prompt width so the inactivity countdown can clear it.
-    dashboard_last_line_width=$(( ${#prompt} ))
-    printf '\n%s' "$prompt"
+    _dashboard_print_prompt "$records"
+    return 0
 }
 
 # Interactive dashboard action loop. Never returns: every terminal outcome
@@ -698,10 +803,15 @@ run_dashboard_mode() {
     _dashboard_install_traps
 
     local -a no_signal=() selected=()
-    local key rc input
+    local key rc input msg clear_width skip_render=false
 
     while true; do
-        _dashboard_render "$records"
+        if [[ "$skip_render" != "true" ]]; then
+            _dashboard_render "$records"
+        fi
+        # Every path except the invalid-key reprompt re-renders on the next
+        # iteration (state may have changed).
+        skip_render=false
 
         rc=0; _dashboard_read_key key || rc=$?
         case $rc in
@@ -752,8 +862,17 @@ run_dashboard_mode() {
                 _dashboard_exit_ok
                 ;;
             *)
-                _dashboard_note "\r%*s\r" 40 ""
-                _dashboard_note "Invalid input '%s'. Type r/s/u/q (or Enter).\n" "$key"
+                # Prompt-only reprompt: clear the wider of the last drawn
+                # line (the prompt) and the message itself, print the hint,
+                # then re-print just the prompt — no full dashboard
+                # re-render for an invalid keystroke. Clearing less than
+                # the drawn width would leave a stale prompt tail.
+                printf -v msg "Invalid input '%s'. Type r/s/u/q (or Enter)." "$key"
+                clear_width="${dashboard_last_line_width:-0}"
+                (( ${#msg} > clear_width )) && clear_width=$(( ${#msg} ))
+                _dashboard_note "\r%*s\r%s\n" "$clear_width" "" "$msg"
+                _dashboard_print_prompt "$records"
+                skip_render=true
                 ;;
         esac
     done

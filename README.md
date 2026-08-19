@@ -73,7 +73,7 @@ Escape hatches, in precedence order (`--plain` flag > `BREW_CHANGE_PLAIN=1` envi
 - `--plain` (or `BREW_CHANGE_PLAIN=1`, e.g. in an rc file) restores the previous prompt flow.
 - `--dashboard` and `BREW_CHANGE_DASHBOARD=1`, the pre-v1.14.0 opt-ins, are accepted as documented no-ops.
 
-For one release after the flip, runs that get the dashboard from the new default (not via the former opt-ins) print a single stderr notice — `brew-change: output view changed in v1.14.0 — use --plain for the previous view` — never on stdout; it will be removed in the following release. Piped or redirected runs are unchanged: plain deterministic output, no prompts, no upgrades, and the flags do not switch views.
+Piped or redirected runs are unchanged: plain deterministic output, no prompts, no upgrades, and the view flags do not switch views.
 
 ## 📦 Installation
 

@@ -1125,6 +1125,12 @@ process_release_notes() {
     local github_repo="$3"
     local source_url="$4"
     local release_json="$5"
+    # Callers historically supplied $homepage via dynamic scoping only;
+    # declare it so this function is safe standalone under `set -u`. No cheap
+    # homepage source exists in this scope (fetching brew info would add a
+    # network call), so the no-notes fallback below derives the review URL
+    # from the source domain when homepage is empty.
+    local homepage=""
 
     if [[ -n "$release_json" && "$release_json" != "null" ]]; then
         # Extract and display the body content
@@ -1201,7 +1207,18 @@ process_release_notes() {
                     fi
                 fi
             else
-                # Function returned 1 - no release notes found at all
+                # Function returned 1 - no release notes found at all.
+                # Record the terminal no-notes outcome before delegating to
+                # the shared fallback, mirroring the fixed display.sh branch
+                # (commit dfe2997): without this row, a record whose only
+                # producer hit this path would be synthesized as
+                # missing/unknown by classify_upgrade_evidence instead of
+                # the more accurate unavailable.
+                local no_notes_url="$homepage"
+                if [[ -z "$no_notes_url" || "$no_notes_url" == "null" ]]; then
+                    no_notes_url="https://$domain"
+                fi
+                append_assessment_evidence "$package" "$domain" "$no_notes_url" "" "unavailable" ""
                 show_non_github_fallback "$package" "$source_url"
             fi
         fi
