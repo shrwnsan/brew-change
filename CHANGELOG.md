@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.1] - 2026-08-19
+
+### Fixed
+- Invalid input at the dashboard, review, and select prompts now costs one error line and a fresh prompt instead of re-rendering the whole screen, and the error line clears the full prompt width (no leftover prompt fragments). Typed-ahead characters echoed past the prompt remain visible until the next redraw.
+- The post-upgrade refresh no longer exits with a wrong "No outdated packages." when other packages are still outdated: its captured output was polluted by worker-phase banner lines, which broke the emptiness check.
+- The post-upgrade refresh now shows the same live progress indicator as the initial collection pass.
+- Packages whose only evidence producer hit the non-GitHub no-notes fallback in `process_release_notes` now record an `unavailable` evidence row instead of degrading to a synthesized `missing` record.
+
 ### Removed
 - The v1.14.0 output-view transition notice (the one-release stderr line printed when the dashboard ran from the new default) has been removed as planned; `--plain` / `BREW_CHANGE_PLAIN=1` still restore the previous prompt flow.
 
