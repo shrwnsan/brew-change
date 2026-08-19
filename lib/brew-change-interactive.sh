@@ -2,6 +2,18 @@
 # Interactive prompt functions for brew-change
 # Provides reusable, interruptible prompt functions with proper variable scoping
 
+# Upper bound (seconds) for a single timed read slice in the prompt reader.
+# Bash's read builtin can swallow a trapped signal that arrives between the
+# read starting and its blocking wait: the pending INT/TERM trap is then
+# deferred until the read's timeout expires, so a Ctrl-C landing in that
+# window freezes the prompt for the whole slice. Capping the slice bounds
+# that deferral to this many seconds instead of (total_timeout -
+# countdown_window) — 290s at the default 300s timeout. Timeout, EOF and key
+# semantics are unchanged: a slice that expires without input just re-loops.
+# prompt_for_confirmation_with_timeout already follows this pattern with
+# fixed 1s reads.
+PROMPT_READ_SLICE_MAX=1
+
 # Prompt for yes/no confirmation with timeout and CTRL+C support
 # Args:
 #   $1: Prompt text (will be displayed as-is)
@@ -228,6 +240,7 @@ prompt_upgrade_action() {
                 slice=1
             else
                 slice=$(( remaining - countdown_window ))
+                (( slice > PROMPT_READ_SLICE_MAX )) && slice=$PROMPT_READ_SLICE_MAX
             fi
             if IFS= read -r -N 1 -t "$slice" response 2>/dev/null; then
                 # Drain the rest of the typed line (e.g. the Enter after

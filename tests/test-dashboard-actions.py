@@ -411,6 +411,69 @@ def test_int_exits_130_and_restores_terminal():
         assert status == 130, (status, output)
 
 
+def test_int_at_prompt_boundary_exits_130():
+    """^C racing the prompt->read transition must still exit 130 quickly.
+
+    Bash's read builtin swallows a trapped signal that arrives between the
+    read starting and its blocking wait; the pending INT trap then waits
+    until the read's timeout expires (see the slice-cap regression:
+    uncapped first slice was total_timeout - countdown_window). Writing ^C
+    the instant the prompt appears lands the signal in that window, which
+    used to freeze the dashboard until the slice expired (50s at a 60s
+    timeout; 290s at the default) — the intermittent PTY-stall flake.
+    With 1s-capped slices the deferral is bounded to ~1s, well under the
+    scenario TIMEOUT, so the exit contract holds even when the race hits.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        records = write_records(tmp)
+        body = (
+            "export BREW_CHANGE_PROMPT_TIMEOUT=60\n"
+            + f'run_dashboard_mode "{records}" test_refresh\n'
+        )
+        output, status = run_scenario(
+            body,
+            write_after_ready=[(b"[q]uit (Enter = u):", b"\x03", 0.0)],
+        )
+        assert status == 130, (status, output)
+
+
+def test_reader_slices_are_capped():
+    """Every timed read slice the readers issue must be <= 1 second.
+
+    Deterministic contract check for the int-exit stall fix: a read()
+    function shadows the builtin inside the scenario and logs each call,
+    so the slice sizes the readers actually compute are asserted without
+    racing the signal. Uncapped slices deferred a swallowed Ctrl-C for
+    total_timeout - countdown_window seconds (290s at the default 300s).
+    """
+    import re
+
+    with tempfile.TemporaryDirectory() as tmp:
+        calls = os.path.join(tmp, "read-calls")
+        body = (
+            # Shadow the read builtin: log args (restore IFS so $* keeps
+            # word separation), then fail like an EOF read.
+            "read() { local IFS=' '; printf '%s\\n' \"$*\" >> "
+            f'"{calls}"; return 1; }}\n'
+            'probe=""\n'
+            "_dashboard_read_key probe\n"
+            "_dashboard_read_line probe\n"
+            'printf "READCALLS-BEGIN\\n" > /dev/tty\n'
+            f'cat "{calls}" > /dev/tty\n'
+            'printf "\\nREADCALLS-END\\n" > /dev/tty\n'
+        )
+        output, status = run_scenario(body)
+        assert status == 0, (status, output)
+        assert b"READCALLS-BEGIN" in output, output
+        log = output.split(b"READCALLS-BEGIN\r\n", 1)[1].split(b"READCALLS-END", 1)[0]
+        timed = [line for line in log.splitlines() if b"-t " in line]
+        assert timed, output
+        for line in timed:
+            m = re.search(rb"-t (\d+)", line)
+            assert m, f"unparseable read call: {line!r}"
+            assert int(m.group(1)) <= 1, f"uncapped read slice: {line!r}"
+
+
 # --- T2.6.2 default flip: full-CLI dispatch under a PTY ----------------------
 #
 # Runs the real ./brew-change -u with fake brew/curl on PATH, stdout on a
@@ -567,6 +630,8 @@ def main():
         test_invalid_key_reprompts_without_rerender,
         test_eof_exits_zero,
         test_int_exits_130_and_restores_terminal,
+        test_int_at_prompt_boundary_exits_130,
+        test_reader_slices_are_capped,
         test_default_flip_dispatches_dashboard,
         test_plain_flag_selects_prompt_flow,
         test_plain_env_selects_prompt_flow,
