@@ -326,7 +326,7 @@ def test_stale_enter_after_r_does_not_corrupt_review():
         )
         assert status == 0, (status, output)
         # Detail rendered from the record, uncorrupted by the stale Enter.
-        assert b"--- bat ---" in output, output
+        assert b"--- bat (2/3) ---" in output, output
         assert b"Evidence URL:     https://example.com/bat/releases" in output, output
         assert b"Retrieval status: fresh" in output, output
         assert b"Invalid input" not in output, output
