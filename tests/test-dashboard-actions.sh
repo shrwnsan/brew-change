@@ -168,11 +168,11 @@ drive "$ALL_UNKNOWN" 0 \
 # resolves to bat, index 5 (first unknown row) resolves to docker
 KEY_QUEUE=(r q)
 LINE_QUEUE=('3' '' b)
-drive "$RECORDS" 0 && [[ "$OUT" == *"--- bat ---"* ]] \
+drive "$RECORDS" 0 && [[ "$OUT" == *"--- bat (3/5) ---"* ]] \
     && pass || fail "REVIEW continuous numbering: 3 -> bat"
 KEY_QUEUE=(r q)
 LINE_QUEUE=('5' '' b)
-drive "$RECORDS" 0 && [[ "$OUT" == *"--- docker ---"* ]] \
+drive "$RECORDS" 0 && [[ "$OUT" == *"--- docker (5/5) ---"* ]] \
     && pass || fail "REVIEW continuous numbering: 5 -> docker"
 
 # Attention fallback: no matched_signals -> compact first reason as the token
@@ -208,6 +208,51 @@ LINE_QUEUE=(b)
 drive "$LONG_TOKEN_RECORDS" 0 \
     && [[ "$OUT" == *"1) node — $LONG_REASON"* ]] \
     && pass || fail "REVIEW long token: printed in full"
+
+# Quoted/backslash-heavy record strings must keep their row tokens: the
+# record used to ride through @tsv, which doubles backslashes, so `\"`
+# truncated the JSON at the first quote in release-note text — jq parse
+# errors leaked into the drawn list and affected rows silently lost their
+# tokens (fallback reason here; unknown status token below).
+HOSTILE_RECORDS="$TMPDIR_TEST/hostile.jsonl"
+jq -c --arg snap 'release notes with "quoted" text, path C:\Users\karma and 1.2.3 versions' \
+    --arg reason 'Major "breaking" change (1.2.3 -> 2.0.0), see C:\path' \
+    'if .package == "node" then
+        .matched_signals = [] | .reasons = [$reason] | .evidence_snapshot = $snap
+     else . end' "$RECORDS" > "$HOSTILE_RECORDS"
+KEY_QUEUE=(r q)
+LINE_QUEUE=(b)
+drive "$HOSTILE_RECORDS" 0 \
+    && [[ "$OUT" == *'1) node — major "breaking" change (1.2.3 -> 2.0.0), see C:\path'* ]] \
+    && [[ "$OUT" == *'5) docker — rate-limited'* ]] \
+    && [[ "$OUT" != *'parse error'* ]] \
+    && [[ "$OUT" != *'jq: error'* ]] \
+    && pass || fail "REVIEW hostile strings: tokens kept, no jq stderr leak"
+
+# Detail browsing: n/p walk the grouped order and number/name jump without
+# round-tripping through the list; Enter/b returns to the list.
+KEY_QUEUE=(r q)
+LINE_QUEUE=('1' 'n' 'n' 'p' '' b)
+drive "$RECORDS" 0 \
+    && [[ "$OUT" == *"--- node (1/5) ---"* ]] \
+    && [[ "$OUT" == *"--- postgresql@16 (2/5) ---"* ]] \
+    && [[ "$OUT" == *"--- bat (3/5) ---"* ]] \
+    && [[ "$OUT" != *"--- curl"* ]] \
+    && [[ "$(grep -c 'Review packages (5):' <<< "$OUT")" -eq 2 ]] \
+    && pass || fail "REVIEW browse: n/p walk order, Enter returns to list"
+
+KEY_QUEUE=(r q)
+LINE_QUEUE=('1' 'docker' '' b)
+drive "$RECORDS" 0 \
+    && [[ "$OUT" == *"--- docker (5/5) ---"* ]] \
+    && pass || fail "REVIEW browse: number/name jump from detail"
+
+KEY_QUEUE=(r q)
+LINE_QUEUE=('1' 'p' '5' 'n' '' b)
+drive "$RECORDS" 0 \
+    && [[ "$(grep -c 'No previous package.' <<< "$OUT")" -eq 1 ]] \
+    && [[ "$(grep -c 'No next package.' <<< "$OUT")" -eq 1 ]] \
+    && pass || fail "REVIEW browse: n/p clamp at both ends"
 
 # u -> UPGRADE with the exact no-signal set; inventory unchanged -> decline
 # path: no refresh, records kept, dashboard re-rendered; then q
@@ -264,7 +309,7 @@ RECORDS_HASH_BEFORE=$(shasum "$RECORDS" | cut -d' ' -f1)
 KEY_QUEUE=(r q)
 LINE_QUEUE=(1 '' b)
 drive "$RECORDS" 0 \
-    && [[ "$OUT" == *"--- node ---"* ]] \
+    && [[ "$OUT" == *"--- node (1/5) ---"* ]] \
     && [[ "$OUT" == *"Evidence source:  github"* ]] \
     && [[ "$OUT" == *"Evidence URL:     https://example.com/node/releases"* ]] \
     && [[ "$OUT" == *"Retrieval status: fresh"* ]] \
@@ -279,13 +324,13 @@ drive "$RECORDS" 0 \
 KEY_QUEUE=(r q)
 LINE_QUEUE=('postgresql@16' '' b)
 drive "$RECORDS" 0 \
-    && [[ "$OUT" == *"--- postgresql@16 ---"* ]] \
+    && [[ "$OUT" == *"--- postgresql@16 (2/5) ---"* ]] \
     && [[ "$OUT" == *"Evidence URL"* ]] \
     && pass || fail "REVIEW detail by name: canonical token with punctuation"
 KEY_QUEUE=(r q)
 LINE_QUEUE=('docker' '' b)
 drive "$RECORDS" 0 \
-    && [[ "$OUT" == *"--- docker ---"* ]] \
+    && [[ "$OUT" == *"--- docker (5/5) ---"* ]] \
     && [[ "$OUT" == *"Retrieval status: rate-limited"* ]] \
     && [[ "$OUT" != *"Evidence URL:"* ]] \
     && [[ "$OUT" == *"Freshness:        retrieved unknown"* ]] \

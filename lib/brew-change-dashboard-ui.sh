@@ -306,18 +306,23 @@ _dashboard_compact_reason() { # reason
 #                no-action case), which is suppressed exactly as in the
 #                dashboard's Unknown group;
 #   no-signal -> no suffix.
+# A malformed record row must degrade to a tokenless line, never leak jq's
+# parse error into a drawn screen (the record text is data, not code).
 _dashboard_review_token() { # json-record
-    local record="$1" token
-    case "$(jq -r '.classification // "unknown"' <<< "$record")" in
+    local record="$1" token cls
+    cls=$(jq -r '.classification // "unknown"' <<< "$record" 2>/dev/null || true)
+    case "$cls" in
         attention)
-            token=$(jq -r '(.matched_signals // []) | join(", ")' <<< "$record")
+            token=$(jq -r '(.matched_signals // []) | join(", ")' \
+                <<< "$record" 2>/dev/null || true)
             if [[ -z "$token" ]]; then
                 token=$(_dashboard_compact_reason \
-                    "$(jq -r '(.reasons // [])[0] // ""' <<< "$record")")
+                    "$(jq -r '(.reasons // [])[0] // ""' \
+                        <<< "$record" 2>/dev/null || true)")
             fi
             ;;
         unknown)
-            token=$(jq -r '.retrieval_status // ""' <<< "$record")
+            token=$(jq -r '.retrieval_status // ""' <<< "$record" 2>/dev/null || true)
             [[ "$token" == "unavailable" ]] && token=""
             ;;
         *)
@@ -361,17 +366,25 @@ _dashboard_review_list() { # records
             else
                 printf '  %2d) %s\n' "$idx" "$pkg"
             fi
+        # The record must round-trip byte-exact to the row's jq reads, so it
+        # rides through as join("\t"), never @tsv: @tsv doubles backslashes,
+        # and a record whose strings contain `\"` (quoted text in release
+        # notes is common) then re-parses as a literal backslash plus an
+        # unescaped quote — the JSON truncates mid-string, the row's token
+        # reads fail, and jq parse errors leak into the drawn list. tostring
+        # never emits a raw tab, so the delimiter stays unique.
         done < <(jq -r --arg cls "$cls" \
             'select(.classification == $cls)
-             | [(.package // ""), (. | tostring)] | @tsv' \
+             | [(.package // ""), (. | tostring)] | join("\t")' \
             "$records" 2>/dev/null | LC_ALL=C sort -t$'\t' -k1,1)
     done
     printf '\n[b]ack · [q]uit · package number or name for detail\n'
 }
 
 # Render one package's read-only detail from its record. Never refetches.
-_dashboard_review_detail() { # records package
-    local records="$1" pkg="$2"
+# Optional $3/$4: 1-based position and list size for a "(n/N)" browse marker.
+_dashboard_review_detail() { # records package [position [total]]
+    local records="$1" pkg="$2" pos="${3:-}" total="${4:-}"
     local line
     line=$(jq -c --arg p "$pkg" 'select(.package == $p)' "$records" 2>/dev/null | head -1)
     if [[ -z "$line" ]]; then
@@ -379,19 +392,25 @@ _dashboard_review_detail() { # records package
         return 1
     fi
 
+    # Field reads degrade to blanks on a malformed record instead of leaking
+    # jq parse errors into the drawn screen.
     local kind inst avail cls reason src url status snap at
-    kind=$(jq -r '.kind // "formula"' <<< "$line")
-    inst=$(jq -r '.installed_version // ""' <<< "$line")
-    avail=$(jq -r '.available_version // ""' <<< "$line")
-    cls=$(jq -r '.classification // "unknown"' <<< "$line")
-    reason=$(jq -r '(.reasons // []) | join("; ")' <<< "$line")
-    src=$(jq -r '.evidence_source // ""' <<< "$line")
-    url=$(jq -r '.evidence_url // empty' <<< "$line")
-    status=$(jq -r '.retrieval_status // "unavailable"' <<< "$line")
-    snap=$(jq -r '.evidence_snapshot // ""' <<< "$line")
-    at=$(jq -r '.retrieved_at // empty' <<< "$line")
+    kind=$(jq -r '.kind // "formula"' <<< "$line" 2>/dev/null || true)
+    inst=$(jq -r '.installed_version // ""' <<< "$line" 2>/dev/null || true)
+    avail=$(jq -r '.available_version // ""' <<< "$line" 2>/dev/null || true)
+    cls=$(jq -r '.classification // "unknown"' <<< "$line" 2>/dev/null || true)
+    reason=$(jq -r '(.reasons // []) | join("; ")' <<< "$line" 2>/dev/null || true)
+    src=$(jq -r '.evidence_source // ""' <<< "$line" 2>/dev/null || true)
+    url=$(jq -r '.evidence_url // empty' <<< "$line" 2>/dev/null || true)
+    status=$(jq -r '.retrieval_status // "unavailable"' <<< "$line" 2>/dev/null || true)
+    snap=$(jq -r '.evidence_snapshot // ""' <<< "$line" 2>/dev/null || true)
+    at=$(jq -r '.retrieved_at // empty' <<< "$line" 2>/dev/null || true)
 
-    printf -- '--- %s ---\n' "$pkg"
+    if [[ "$pos" =~ ^[0-9]+$ && "$total" =~ ^[0-9]+$ ]]; then
+        printf -- '--- %s (%d/%d) ---\n' "$pkg" "$pos" "$total"
+    else
+        printf -- '--- %s ---\n' "$pkg"
+    fi
     printf 'Package:          %s (%s)\n' "$pkg" "$kind"
     printf 'Versions:         %s → %s\n' "$inst" "$avail"
     printf 'Classification:   %s\n' "$(_dashboard_label "$cls")"
@@ -415,8 +434,48 @@ _dashboard_review_detail() { # records package
 # ---------------------------------------------------------------------------
 # REVIEW state
 # ---------------------------------------------------------------------------
+# Resolve a Review/Select input line (1-based package number or exact
+# canonical name) against the nameref'd list. Echoes the token, or nothing.
+_dashboard_resolve_pkg_input() { # input pkgs_var
+    local input="$1"
+    local -n _pkgs="$2"
+    local index p
+    if [[ "$input" =~ ^[0-9]+$ ]]; then
+        index=$(( input - 1 ))
+        if (( index >= 0 && index < ${#_pkgs[@]} )); then
+            printf '%s' "${_pkgs[$index]}"
+        fi
+        return 0
+    fi
+    for p in ${_pkgs[@]+"${_pkgs[@]}"}; do
+        if [[ "$p" == "$input" ]]; then
+            printf '%s' "$p"
+            return 0
+        fi
+    done
+    return 0
+}
+
+# 0-based position of a canonical token in the nameref'd list, -1 if absent.
+# Keeps the browse index honest after number/name jumps.
+_dashboard_pkg_index() { # pkg pkgs_var
+    local target="$1"
+    local -n _list="$2"
+    local i
+    for i in "${!_list[@]}"; do
+        if [[ "${_list[$i]}" == "$target" ]]; then
+            printf '%s' "$i"
+            return 0
+        fi
+    done
+    printf '%s' -1
+    return 0
+}
+
 # Read-only: renders the index, resolves number/name input to a record,
-# shows the detail, and returns only on `b`. q/EOF/timeout exit 0.
+# shows the detail, and returns only on `b`. The detail view itself supports
+# Enter/b back to the list, n/p walk, number/name jumps, and q. q/EOF/timeout
+# exit 0.
 _dashboard_review_state() { # records
     local records="$1"
     # Number/name selection resolves against the grouped display order so
@@ -424,7 +483,7 @@ _dashboard_review_state() { # records
     local -a pkgs=()
     mapfile -t pkgs < <(_dashboard_review_order "$records")
 
-    local input rc index pkg skip_list=false
+    local input rc index pkg jump skip_list=false
     while true; do
         # An invalid line re-prints only the Review: prompt; the list is
         # skipped on the iteration right after it.
@@ -447,32 +506,58 @@ _dashboard_review_state() { # records
                 ;;
         esac
 
-        pkg=""
-        if [[ "$input" =~ ^[0-9]+$ ]]; then
-            index=$(( input - 1 ))
-            if (( index >= 0 && index < ${#pkgs[@]} )); then
-                pkg="${pkgs[$index]}"
-            fi
-        else
-            local p
-            for p in ${pkgs[@]+"${pkgs[@]}"}; do
-                [[ "$p" == "$input" ]] && pkg="$p" && break
-            done
-        fi
-
+        pkg=$(_dashboard_resolve_pkg_input "$input" pkgs)
         if [[ -z "$pkg" ]]; then
             _dashboard_note "Invalid input '%s'. Type a package number/name, b, or q.\n" "$input"
             skip_list=true
             continue
         fi
+        index=$(_dashboard_pkg_index "$pkg" pkgs)
 
-        printf '\n'
-        _dashboard_review_detail "$records" "$pkg"
-        printf '\nPress Enter to return to the review list...\n'
-        rc=0; _dashboard_read_line input || rc=$?
-        case $rc in
-            1|2) _dashboard_exit_ok ;;
-        esac
+        # Detail browsing: walking and jumping stay inside the detail view
+        # so checking several packages does not round-trip through the list.
+        while true; do
+            printf '\n'
+            _dashboard_review_detail "$records" "$pkg" "$(( index + 1 ))" "${#pkgs[@]}"
+            printf '\nEnter or [b]ack for the list · [n]ext · [p]rev · number/name jumps · [q]uit\n'
+            rc=0; _dashboard_read_line input || rc=$?
+            case $rc in
+                1|2) _dashboard_exit_ok ;;
+            esac
+
+            case "$input" in
+                ''|b|B) break ;;
+                q|Q)
+                    _dashboard_say "Dashboard closed."
+                    _dashboard_exit_ok
+                    ;;
+                n|N)
+                    if (( index + 1 < ${#pkgs[@]} )); then
+                        index=$(( index + 1 ))
+                        pkg="${pkgs[$index]}"
+                    else
+                        _dashboard_note "No next package.\n"
+                    fi
+                    ;;
+                p|P)
+                    if (( index > 0 )); then
+                        index=$(( index - 1 ))
+                        pkg="${pkgs[$index]}"
+                    else
+                        _dashboard_note "No previous package.\n"
+                    fi
+                    ;;
+                *)
+                    jump=$(_dashboard_resolve_pkg_input "$input" pkgs)
+                    if [[ -n "$jump" ]]; then
+                        pkg="$jump"
+                        index=$(_dashboard_pkg_index "$pkg" pkgs)
+                    else
+                        _dashboard_note "Invalid input '%s'. Enter, b, n, p, q, or a package number/name.\n" "$input"
+                    fi
+                    ;;
+            esac
+        done
     done
 }
 
@@ -496,7 +581,7 @@ _dashboard_select_state() { # records
         [[ -n "$p" ]] && staged["$p"]=1
     done < <(_dashboard_default_selected_pkgs "$records")
 
-    local input rc index pkg sel_line count skip_list=false
+    local input rc pkg sel_line count skip_list=false
     while true; do
         count=0
         for p in ${pkgs[@]+"${pkgs[@]}"}; do
@@ -549,17 +634,7 @@ _dashboard_select_state() { # records
                 ;;
         esac
 
-        pkg=""
-        if [[ "$input" =~ ^[0-9]+$ ]]; then
-            index=$(( input - 1 ))
-            if (( index >= 0 && index < ${#pkgs[@]} )); then
-                pkg="${pkgs[$index]}"
-            fi
-        else
-            for p in ${pkgs[@]+"${pkgs[@]}"}; do
-                [[ "$p" == "$input" ]] && pkg="$p" && break
-            done
-        fi
+        pkg=$(_dashboard_resolve_pkg_input "$input" pkgs)
 
         if [[ -z "$pkg" ]]; then
             _dashboard_note "Invalid input '%s'. Type a package number/name, b, Enter, or q.\n" "$input"
