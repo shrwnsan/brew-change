@@ -127,14 +127,25 @@ fi
 # ---------------------------------------------------------------------------
 # Set UTF-8 locale to handle emojis and special characters
 # This must be set before any text processing
+#
+# The available-locale check greps a captured string, never a pipe: under
+# `set -o pipefail`, `locale -a | grep -q` fails deterministically on macOS —
+# grep -q exits on the first match, locale -a keeps writing, dies of SIGPIPE
+# (141), and pipefail marks the pipeline failed — so the export was silently
+# skipped on every run. With no ambient UTF-8 locale, the dashboard renderer
+# falls back to per-render locale resolution, whose locale-variable resets
+# (setlocale(3) via libintl -> CoreFoundation on macOS) are an intermittent
+# bash segfault vector under load (the T2.6.2 full-CLI PTY stall).
 # ---------------------------------------------------------------------------
-if locale -a 2>/dev/null | grep -q "^en_US.UTF-8"; then
+_available_locales="$(locale -a 2>/dev/null || true)"
+if grep -q "^en_US.UTF-8$" <<< "$_available_locales"; then
     export LC_ALL=en_US.UTF-8
     export LANG=en_US.UTF-8
-elif locale -a 2>/dev/null | grep -q "^C.UTF-8"; then
+elif grep -q "^C.UTF-8$" <<< "$_available_locales"; then
     export LC_ALL=C.UTF-8
     export LANG=C.UTF-8
 fi
+unset _available_locales
 
 # Source library functions
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
