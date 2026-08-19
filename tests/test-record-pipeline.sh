@@ -279,6 +279,36 @@ assert_eq "no-notes reason names unavailable, not missing" "evidence retrieval s
 assert_eq "no timestamped evidence exists for no-notes" "null" \
     "$(printf '%s' "$wget_record" | jq -r '.retrieved_at')"
 
+echo ""
+echo "=== Suite 8: process_release_notes no-notes path records unavailable ==="
+setup_run
+
+# Exercise the shared utils.sh branch directly (empty release JSON + non-GitHub
+# source). Callers historically supplied $homepage only via dynamic scoping,
+# so seed one to mirror that calling convention; the fix must not depend on it.
+homepage="https://www.example.com/home"
+fetch_non_github_release_notes() { return 1; }
+show_non_github_fallback() { echo "STUB fallback for: $1"; }
+
+process_release_notes "nostalgia" "2.1" "" "https://example.com/pkg" "" >/dev/null 2>&1
+
+nostalgia_row=$(grep -F '"package":"nostalgia"' "$run_dir/evidence.jsonl" 2>/dev/null | head -1)
+assert_eq "utils no-notes branch writes an evidence row" "yes" \
+    "$([[ -n "$nostalgia_row" ]] && echo yes || echo no)"
+assert_eq "utils no-notes retrieval_status is unavailable" "unavailable" \
+    "$(printf '%s' "$nostalgia_row" | jq -r '.retrieval_status // empty')"
+assert_eq "utils no-notes source is the source domain" "example.com" \
+    "$(printf '%s' "$nostalgia_row" | jq -r '.evidence_source // empty')"
+assert_eq "utils no-notes url falls back to domain (no homepage in scope)" "https://example.com" \
+    "$(printf '%s' "$nostalgia_row" | jq -r '.evidence_url // empty')"
+
+echo ""
+echo "Test: plain flow (no run dir) still no-ops and succeeds"
+unset_homepage_rc=$(UPGRADE_STATUS_DIR= homepage= process_release_notes "nostalgia" "2.1" "" "https://example.com/pkg" "" >/dev/null 2>&1; echo $?)
+assert_eq "no run dir: process_release_notes succeeds without evidence writes" "0" "$unset_homepage_rc"
+assert_eq "no run dir: no stray evidence.jsonl in cwd" "no" \
+    "$([[ -f "$PWD/evidence.jsonl" ]] && echo yes || echo no)"
+
 # ---------------------------------------------------------------------------
 
 echo "Test: cache invalidation survives set -e with a current cache"

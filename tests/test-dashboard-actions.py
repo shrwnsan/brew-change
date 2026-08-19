@@ -357,6 +357,27 @@ def test_inactivity_timeout_counts_down_and_exits_zero():
             )
 
 
+def test_invalid_key_reprompts_without_rerender():
+    """An invalid key costs one error line + a fresh prompt, not a re-render.
+
+    Mirrors the countdown 'now' contract: the error line must clear the full
+    width of the previously drawn prompt, so no `]uit` fragment survives on
+    the visible line. The dashboard summary must appear exactly once — the
+    reprompt after the invalid key re-prints only the prompt line.
+    """
+    stdout, _stderr, status = drive_cli_until(["-u"], b"[q]uit", b"x\nq\n")
+    assert status == 0, (status, stdout)
+    lines = overlay_lines(stdout)
+    invalid_lines = [line for line in lines if b"Invalid input" in line]
+    assert invalid_lines, stdout
+    for line in invalid_lines:
+        assert b"]uit" not in line, (
+            f"invalid-input line retains prompt fragments: {line!r}"
+        )
+    summary_count = sum(line.count(b"outdated \xc2\xb7") for line in lines)
+    assert summary_count == 1, (summary_count, stdout)
+
+
 def test_eof_exits_zero():
     with tempfile.TemporaryDirectory() as tmp:
         records = write_records(tmp)
@@ -390,8 +411,9 @@ def test_int_exits_130_and_restores_terminal():
 #
 # Runs the real ./brew-change -u with fake brew/curl on PATH, stdout on a
 # controlling PTY (so the TTY gate opens), stderr on a separate pipe (so
-# the transition notice's stream is verifiable). The dashboard/prompt
-# readers use /dev/tty, which is the PTY via TIOCSCTTY.
+# each stream can be asserted independently — the v1.14.0 transition
+# notice must stay gone from both). The dashboard/prompt readers use
+# /dev/tty, which is the PTY via TIOCSCTTY.
 
 NOTICE = b"brew-change: output view changed in v1.14.0"
 # The dashboard legend/prompt line (rendered for any classification mix);
@@ -484,42 +506,38 @@ def drive_cli_until(args, marker, payload, extra_env=None):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def test_default_flip_dispatches_dashboard_with_notice():
-    """TTY -u with no view flags: dashboard runs and the notice appears once, on stderr."""
+def test_default_flip_dispatches_dashboard():
+    """TTY -u with no view flags: dashboard runs and the transition notice stays gone."""
     stdout, stderr, status = drive_cli_until(["-u"], DASH_PROMPT, b"q\n")
     assert status == 0, (status, stdout, stderr)
     assert DASH_PROMPT in stdout, stdout
     assert PLAIN_PROMPT not in stdout, stdout
-    assert stdout.count(NOTICE) == 0, stdout
-    assert stderr.count(NOTICE) == 1, stderr
+    assert NOTICE not in stdout and NOTICE not in stderr, (stdout, stderr)
 
 
 def test_plain_flag_selects_prompt_flow():
-    """TTY -u --plain: previous prompt flow, no notice anywhere."""
+    """TTY -u --plain: previous prompt flow."""
     stdout, stderr, status = drive_cli_until(["-u", "--plain"], PLAIN_PROMPT, b"q\n")
     assert status == 0, (status, stdout, stderr)
     assert PLAIN_PROMPT in stdout, stdout
     assert DASH_PROMPT not in stdout, stdout
-    assert NOTICE not in stdout and NOTICE not in stderr, (stdout, stderr)
 
 
 def test_plain_env_selects_prompt_flow():
-    """TTY -u with BREW_CHANGE_PLAIN=1: prompt flow, no notice."""
+    """TTY -u with BREW_CHANGE_PLAIN=1: prompt flow."""
     stdout, stderr, status = drive_cli_until(
         ["-u"], PLAIN_PROMPT, b"q\n", extra_env={"BREW_CHANGE_PLAIN": "1"}
     )
     assert status == 0, (status, stdout, stderr)
     assert PLAIN_PROMPT in stdout, stdout
     assert DASH_PROMPT not in stdout, stdout
-    assert NOTICE not in stdout and NOTICE not in stderr, (stdout, stderr)
 
 
-def test_explicit_dashboard_flag_has_no_notice():
-    """TTY -u --dashboard: dashboard runs (flag now a no-op), no notice."""
+def test_explicit_dashboard_flag_dispatches_dashboard():
+    """TTY -u --dashboard: dashboard runs (flag now a no-op)."""
     stdout, stderr, status = drive_cli_until(["-u", "--dashboard"], DASH_PROMPT, b"q\n")
     assert status == 0, (status, stdout, stderr)
     assert DASH_PROMPT in stdout, stdout
-    assert NOTICE not in stdout and NOTICE not in stderr, (stdout, stderr)
 
 
 def main():
@@ -527,12 +545,13 @@ def main():
         test_u_reaches_preview_and_decline_returns,
         test_stale_enter_after_r_does_not_corrupt_review,
         test_inactivity_timeout_counts_down_and_exits_zero,
+        test_invalid_key_reprompts_without_rerender,
         test_eof_exits_zero,
         test_int_exits_130_and_restores_terminal,
-        test_default_flip_dispatches_dashboard_with_notice,
+        test_default_flip_dispatches_dashboard,
         test_plain_flag_selects_prompt_flow,
         test_plain_env_selects_prompt_flow,
-        test_explicit_dashboard_flag_has_no_notice,
+        test_explicit_dashboard_flag_dispatches_dashboard,
     ]
     failures = 0
     for test in tests:

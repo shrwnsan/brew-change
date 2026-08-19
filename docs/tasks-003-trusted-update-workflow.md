@@ -817,7 +817,7 @@ Acceptance:
 
 ### T2.7.1 — Phase 2 usability and integration gate
 
-**State:** Mechanical gate passed 2026-08-18 — 21/21 suites from clean invocation; bash -n and shellcheck --severity=error clean repo-wide; --help/--version smoke OK; live -u --dry-run smoke passed post-launcher-fix (#94). T2.6.2 (default flip) deliberately staged to the v1.14.0 release per the ratified rollout (research-004); this gate covers the v1.13.0 opt-in scope. Pending: maintainer usability pass on the interactive dashboard and release approval.  
+**State:** Mechanical gate passed 2026-08-18 — 21/21 suites from clean invocation (runner subsequently at 22 suites after the errexit-hardening tripwire was added in #105); bash -n and shellcheck --severity=error clean repo-wide; --help/--version smoke OK; live -u --dry-run smoke passed post-launcher-fix (#94). T2.6.2 (default flip) deliberately staged to the v1.14.0 release per the ratified rollout (research-004); this gate covers the v1.13.0 opt-in scope. Pending: maintainer usability pass on the interactive dashboard and release approval.  
 **Complexity:** L  
 **Owner:** Maintainer/integrator
 

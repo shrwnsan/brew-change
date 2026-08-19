@@ -260,3 +260,76 @@ render_progress() {
     _progress_dump_state
     return 0
 }
+
+# ---------------------------------------------------------------------------
+# Renderer lifecycle (T2.4.3): the start/stop pair the launcher uses for the
+# initial collection pass and the dashboard reuses for its post-upgrade
+# refresh pass, so both animate identically.
+#
+# progress_renderer_start spawns the re-invoking renderer loop in the
+# background against $UPGRADE_STATUS_DIR and records its pid in the global
+# PROGRESS_RENDERER_PID (registered for signal cleanup). TTY-gated: when
+# stdout is not a terminal no renderer is started and the pid stays empty.
+#
+# A caller whose own stdout is a capture (the dashboard refresh runs inside
+# a command substitution) cannot pass that gate on fd 1; it invokes the
+# helper with stdout redirected to /dev/tty instead, which both satisfies
+# the gate and gives the renderer loop the terminal to draw on.
+# ---------------------------------------------------------------------------
+progress_renderer_start() {
+    PROGRESS_RENDERER_PID=""
+    [[ -t 1 ]] || return 0
+    if ! declare -F render_progress >/dev/null 2>&1; then
+        return 0
+    fi
+    local run_dir="${UPGRADE_STATUS_DIR:?UPGRADE_STATUS_DIR set}"
+
+    # The renderer returns whenever the current stage reaches its total plus
+    # the idle window, so re-invoke it in a bounded loop until the sentinel
+    # marks the run complete (caller-side cancel path; see stop below). The
+    # BREW_CHANGE_PARALLEL_MODE export guards worker subprocesses, not this
+    # parent UI loop, so it is cleared here; render_progress still self-gates
+    # on the terminal and non-TTY runs never start this loop at all.
+    (
+        export BREW_CHANGE_PARALLEL_MODE=
+        while [[ ! -f "$run_dir/.progress_done" ]] \
+            && kill -0 "$PPID" 2>/dev/null; do
+            render_progress "$run_dir"
+            sleep 0.1
+        done
+    ) &
+    PROGRESS_RENDERER_PID=$!
+    if command -v register_pid >/dev/null 2>&1; then
+        register_pid "$PROGRESS_RENDERER_PID"
+    fi
+    return 0
+}
+
+# Terminate a renderer started by progress_renderer_start: drop the
+# sentinel, wait a bounded time, and cancel as a backstop, then erase the
+# status line so the next output starts clean even in the window where the
+# kill landed between frames. Safe no-op when no renderer was started.
+progress_renderer_stop() {
+    if [[ -n "${PROGRESS_RENDERER_PID:-}" ]]; then
+        local run_dir="${UPGRADE_STATUS_DIR:-}"
+        if [[ -n "$run_dir" ]]; then
+            : > "$run_dir/.progress_done"
+        fi
+        local _progress_wait
+        for _progress_wait in 1 2 3 4 5 6 7 8 9 10 \
+            11 12 13 14 15 16 17 18 19 20; do
+            kill -0 "$PROGRESS_RENDERER_PID" 2>/dev/null || break
+            sleep 0.1
+        done
+        kill "$PROGRESS_RENDERER_PID" 2>/dev/null || true
+        wait "$PROGRESS_RENDERER_PID" 2>/dev/null || true
+        if command -v unregister_pid >/dev/null 2>&1; then
+            unregister_pid "$PROGRESS_RENDERER_PID"
+        fi
+        PROGRESS_RENDERER_PID=""
+        if declare -F _progress_clear_line >/dev/null 2>&1; then
+            _progress_clear_line > /dev/tty 2>/dev/null || true
+        fi
+    fi
+    return 0
+}

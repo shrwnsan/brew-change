@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- The v1.14.0 output-view transition notice (the one-release stderr line printed when the dashboard ran from the new default) has been removed as planned; `--plain` / `BREW_CHANGE_PLAIN=1` still restore the previous prompt flow.
+
 ## [1.14.0] - 2026-08-18
 
 ### Changed

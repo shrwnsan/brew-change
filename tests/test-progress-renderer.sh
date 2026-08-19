@@ -135,12 +135,40 @@ test_non_tty_emits_no_frames() {
         && [[ "$out" != *"⠋"* ]]
 }
 
+# Lifecycle helpers: without a TTY the start must be a strict no-op (no
+# background renderer, empty PROGRESS_RENDERER_PID, no sentinel side
+# effects) and the stop must ignore the empty pid cleanly — including under
+# set -euo pipefail, mirroring the launcher environment.
+test_renderer_start_stop_without_tty() {
+    local run_dir out sentinel_absent
+    run_dir="$(make_run_dir)"
+    out="$(BREW_CHANGE_PROGRESS_DUMP=1 \
+        "$BASH_BIN" -c "
+            set -euo pipefail
+            source '$LIB/brew-change-progress.sh'
+            UPGRADE_STATUS_DIR=\"\$1\"
+            progress_renderer_start
+            printf 'PID=[%s]\n' \"\${PROGRESS_RENDERER_PID-unset}\"
+            progress_renderer_stop
+            printf 'STOP=[%s]\n' \"\${PROGRESS_RENDERER_PID-unset}\"
+            echo SURVIVED
+        " _ "$run_dir" </dev/null 2>&1)"
+    sentinel_absent=false
+    [[ ! -e "$run_dir/.progress_done" ]] && sentinel_absent=true
+    trash "$run_dir" 2>/dev/null || rm -rf "$run_dir"
+    [[ "$out" == *"PID=[]"* ]] \
+        && [[ "$out" == *"STOP=[]"* ]] \
+        && [[ "$out" == *"SURVIVED"* ]] \
+        && [[ "$sentinel_absent" == "true" ]]
+}
+
 run_case "monotonic count derived from events" test_count_is_monotonic_event_count
 run_case "dedup by package" test_dedup_by_package
 run_case "malformed lines skipped" test_malformed_lines_are_skipped
 run_case "stage transition resets state" test_stage_transition_resets_state
 run_case "missing progress file is a no-op" test_missing_file_is_noop
 run_case "non-tty run emits no frames" test_non_tty_emits_no_frames
+run_case "renderer start/stop without a TTY is a no-op" test_renderer_start_stop_without_tty
 
 # PTY animation and terminal-safety suite (single deterministic entry point).
 printf '\n--- progress renderer PTY ---\n'

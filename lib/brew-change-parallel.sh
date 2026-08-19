@@ -72,14 +72,21 @@ process_packages_parallel() {
         echo "No outdated packages found."
         return 0
     fi
-    
-    # Process packages in parallel using background processes
-    if [[ ${#packages[@]} -eq 1 ]]; then
-        echo "Processing ${#packages[@]} package..."
-    else
-        echo "Processing ${#packages[@]} packages in parallel (max $jobs jobs)..."
+
+    # Process packages in parallel using background processes. The banner is
+    # stage-progress cosmetics: under BREW_CHANGE_DEFER_SUMMARY=1 the caller
+    # has the live renderer active (it already shows stage progress from the
+    # progress.jsonl events), so the banner is suppressed exactly like the
+    # completion summary below; callers without a renderer (defer flag unset)
+    # keep the historical output unchanged.
+    if [[ "${BREW_CHANGE_DEFER_SUMMARY:-0}" != "1" ]]; then
+        if [[ ${#packages[@]} -eq 1 ]]; then
+            echo "Processing ${#packages[@]} package..."
+        else
+            echo "Processing ${#packages[@]} packages in parallel (max $jobs jobs)..."
+        fi
+        echo ""
     fi
-    echo ""
 
     # Process in batches to respect job limit
     local batch_size=$jobs

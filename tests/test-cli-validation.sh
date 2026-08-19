@@ -217,8 +217,7 @@ teardown_command_harness
 # ---------------------------------------------------------------------------
 # Suite 5: --plain / BREW_CHANGE_PLAIN (T2.6.2 default flip)
 # Piped runs: the view flags never switch views; -u keeps the plain,
-# deterministic prompt-flow output (guidance, no prompt, no upgrade) and
-# the transition notice never appears.
+# deterministic prompt-flow output (guidance, no prompt, no upgrade).
 # ---------------------------------------------------------------------------
 echo ""
 echo "=== Suite 5: --plain / BREW_CHANGE_PLAIN (piped) ==="
@@ -252,19 +251,12 @@ run_piped_upgrade
 assert_eq "-u --plain exit code" "0" "$RUN_BC_EXIT"
 assert_contains "-u --plain prompt-flow guidance" "Non-interactive mode. Upgrade skipped." "$RUN_BC_STDOUT"
 assert_not_contains "-u --plain no dashboard" "Dashboard" "$RUN_BC_STDOUT"
-assert_not_contains "-u --plain no notice" "output view changed" "$RUN_BC_STDERR"
 
 echo ""
 echo "Test 12: BREW_CHANGE_PLAIN=1 (piped) reaches the prompt flow"
 run_piped_upgrade BREW_CHANGE_PLAIN=1
 assert_eq "BREW_CHANGE_PLAIN=1 exit code" "0" "$RUN_BC_EXIT"
 assert_contains "BREW_CHANGE_PLAIN=1 prompt-flow guidance" "Non-interactive mode. Upgrade skipped." "$RUN_BC_STDOUT"
-assert_not_contains "BREW_CHANGE_PLAIN=1 no notice" "output view changed" "$RUN_BC_STDERR"
-
-echo ""
-echo "Test 13: plain -u (piped, no flags) also stays prompt-flow and notice-free"
-run_piped_upgrade
-assert_not_contains "piped default no notice" "output view changed" "$RUN_BC_STDERR"
 
 echo ""
 echo "Test 14: --plain does not bypass invalid-combination rejection"
