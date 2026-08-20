@@ -29,23 +29,32 @@ not put the packages that matter (breaking / major) first.
 
 ## Task 0: Research spike — LLM triage feasibility (blocking for Task 2 only)
 
+**State:** Complete 2026-08-21 — spike recorded in
+[research-009-llm-triage.md](research-009-llm-triage.md); **conditional
+go** (R1 classifier only, opt-in, upgrade-only; two deterministic fixes
+flagged to ship first/alongside), R2/R3 no-go.
+
 Spike question: can an LLM pass add signal where the GitHub
 breaking-change patterns are inconclusive (pattern says "no evidence"
 on a major bump — is that "no breaking" or "unknown"?).
 
-- [ ] research-009 doc: candidate providers (user suggestion on record:
-      **glm-4.7**; also evaluate whatever CLI-agent surface exists vs a
-      raw API call), input contract (package, from→to versions, fetched
-      changelog excerpts — reuse the HTTP evidence cache), output
-      contract (breaking|likely-breaking|clean + one-line justification
-      + confidence), and the no-key/offline/rate-limit fallback (=
-      today's patterns, verbatim)
-- [ ] Decide: opt-in flag name (`--ai`?), env var for the key (never
-      stored), whether AI verdicts enter the evidence cache (stale-able,
-      `--fresh` clears) and are always labeled `ai:` in provenance
-- [ ] Cost/latency budget: 36 packages → batched calls, hard ceiling on
-      tokens; the 318s baseline must not grow materially
-- [ ] Go/no-go recorded in research-009
+- [x] research-009 doc: candidate providers (glm-4.7 confirmed viable —
+      OpenAI-compatible REST, curl+jq only; CLI-agent surfaces
+      rejected), input contract (batched JSONL, ≤20 pattern-inconclusive
+      rows, 1200-char excerpts from the recorded snapshots), output
+      contract (breaking|likely-breaking|clean + ≤120-char
+      justification + confidence), and the no-key/offline/rate-limit
+      fallback (= today's patterns, verbatim, one TTY stderr notice)
+- [x] Decided: `--ai` opt-in flag; `BREW_CHANGE_AI_KEY` env var (plus
+      `BREW_CHANGE_AI_URL`/`_MODEL`), never stored or logged; AI
+      verdicts enter the evidence cache in their own namespace (stale-
+      able, `--fresh` clears, keyed by excerpt-hash+model); always
+      labeled `ai:` in reasons/provenance; upgrade-only mapping (a
+      "clean" verdict can never downgrade or create no-signal)
+- [x] Cost/latency budget: one batched call per run ≈ 4–6K in / <1K out
+      tokens ≈ $0.003–0.005 (list); 2–8s typical, 30s timeout ceiling
+      against the 318s baseline; non-`--ai` runs make zero calls
+- [x] Go/no-go recorded in research-009 §8
 
 ## Task 1: `-b` end-of-run verdict summary (independent of Task 0)
 
