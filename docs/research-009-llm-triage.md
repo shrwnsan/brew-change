@@ -117,6 +117,45 @@ whole feature costs nothing — and the batched design fits them well:
   try-it-free path; the default model remains paid `glm-4.7` for
   stability and the stricter data policy.
 
+### 3.2 Config surface: `~/.brew-change/config` (asked by the maintainer, 2026-08-21)
+
+v1.17.0 established `~/.brew-change/` as a directory — as **tool-written
+state** (`last-assessment.json`, the tasks-005 export). Putting model
+config there adds a **user-written input** role to the same directory.
+Accepted, with guardrails that keep the §3/§6 contracts enforceable:
+
+- **File:** `~/.brew-change/config`, hand-edited `key=value` lines,
+  `#` comments, entirely optional. brew-change only ever READS it —
+  no wizard, no writes (the T3.1.1 no-configuration-wizard promise
+  stands). Unknown keys are ignored (forward-compatible); malformed
+  lines are skipped with a one-time stderr warning.
+- **Recognized keys (v1): `model=` and `url=` only.** Notably NOT a
+  general `BREW_CHANGE_*` config system — retrofitting every existing
+  env knob with file precedence changes the behavior surface of the
+  whole tool and needs its own ratification. Generalization is recorded
+  as a non-goal for the Task 2 PRD.
+- **The key never goes in the file — and the parser enforces it.**
+  A `BREW_CHANGE_AI_KEY=` (or `key=`) line is ignored with a warning
+  pointing at the env var. Making the refusal mechanical matters: config
+  files attract pasted secrets by muscle memory, and §3's
+  "never written to any cache or state file" contract must hold by
+  construction, not by documentation alone. The key stays
+  env-only (`BREW_CHANGE_AI_KEY`).
+- **Parsing, never sourcing.** The file is read line-by-line and
+  matched against the known keys — it is never `source`d or `eval`ed
+  (AGENTS.md: no arbitrary execution from user input; a sourced config
+  is code execution wearing a config file's clothes).
+- **Precedence:** `--ai` mode flag > env (`BREW_CHANGE_AI_MODEL` /
+  `_URL` / `_KEY`) > config file (`model` / `url`) > built-in defaults
+  (paid `glm-4.7`, OpenRouter-compatible endpoint). Env-beats-file keeps
+  one-off and CI overrides working without editing anything.
+- The documented try-it-free incantation becomes a one-line edit:
+  `model=z-ai/glm-5.2:free` in `~/.brew-change/config` plus any
+  OpenRouter key in the environment.
+- **Decision:** adopt for Task 2. Config file optional in every sense;
+  absent file = env-only resolution exactly as research-009 §3
+  originally recorded.
+
 ## 4. Input contract
 
 - Scope (v1): rows with a **non-empty evidence snapshot where no
