@@ -81,6 +81,42 @@ The user suggestion on record is **glm-4.7**; it checks out:
   logged (the HTTP cache already keys authenticated entries by token
   fingerprint, but AI calls carry no per-user key in the cache at all).
 
+### 3.1 Free-tier (`:free`) evaluation (asked by the maintainer, 2026-08-21)
+
+OpenRouter's `:free` model variants are attractive for adoption — the
+whole feature costs nothing — and the batched design fits them well:
+
+- **Rate limits fit the one-call-per-run contract.** Free variants allow
+  20 req/min and **50 req/day** with no credit purchase (1,000/day once
+  ≥ $10 in credits exists). One batched call per `--ai` run means the
+  free tier covers ~50 runs/day — far beyond interactive use.
+- **The failure mode is already contracted.** 429 (rate-limited) and
+  404 (model retired) both fall under §6: verbatim-pattern fallback plus
+  the TTY stderr notice. Nothing new is needed to "support" free
+  models — `BREW_CHANGE_AI_MODEL=z-ai/glm-5.2:free` with any OpenRouter
+  key works through the same provider-agnostic surface. The Task 2 PRD
+  should document this as the zero-cost path.
+- **But free slugs must not be the default: they rotate.** Empirically,
+  `z-ai/glm-4.5-air:free` and `z-ai/glm-4.7:free` have both been
+  retired from the free tier; the current free Z.ai model is
+  `z-ai/glm-5.2:free`, and it will retire too. A retired default would
+  degrade every installation to fallback silently (stderr notice aside)
+  — a support burden for a feature that is supposed to be invisible
+  when it works. Defaults must be stable; free models are a documented
+  choice, not a default.
+- **Privacy caveat to disclose.** `:free` routes commonly train on
+  submitted prompts (that is how upstream providers fund them); paid
+  variants route to non-training providers. The payload here is
+  changelog excerpts plus package names/versions — mild, and `--ai` is
+  opt-in — but the README must state the difference so users who care
+  can pay the ~$0.003/run or self-host (GLM-4.7 weights are
+  MIT-licensed; another zero-cost route with the real glm-4.7 is
+  Cerebras's free tier at 5 req/min).
+- **Decision:** `:free` variants are first-class supported via the
+  existing env surface (zero additional code), documented as the
+  try-it-free path; the default model remains paid `glm-4.7` for
+  stability and the stricter data policy.
+
 ## 4. Input contract
 
 - Scope (v1): rows with a **non-empty evidence snapshot where no
