@@ -940,7 +940,7 @@ Acceptance:
 
 ### T3.7.1 — Phase 3 integration and release gate
 
-**State:** Integration; blocked by required Phase 3 implementation and review tasks  
+**State:** Integration; implementation complete (PRs #116, #117), evidence pack below; awaiting T3.4.1 results and maintainer release approval  
 **Complexity:** L  
 **Owner:** Maintainer/integrator
 
@@ -951,6 +951,15 @@ Exit evidence:
 - Provenance and unknown reasons are reviewable.
 - No telemetry, account, daemon, or sponsorship interruption was added.
 - Documentation covers the primary journey for both audiences.
+
+Evidence pack (2026-08-20, pre-release; maintained by the integrator):
+
+- **Verification:** deterministic runner 27/27 suites from clean invocation (23 at Phase 3 start → 26 with Wave 1 → 27 with Wave 2); `bash -n` + `shellcheck --severity=error` clean repo-wide; Linux container run matches the pre-Phase-3 container baseline (the two known python:3.12-slim locale artifacts; ubuntu-latest CI is the authoritative Linux gate and is green on Wave 1); warm-cache full-CLI smoke twice against a real 35-package inventory (60 HTTP cache entries stable, second run cache-served).
+- **No-color/no-emoji:** fixture-locked base render byte-identical under `NO_COLOR` (no-color/mixed golden pair); `[breaking]` text labels carry all meaning with emoji strictly additive (`BREW_CHANGE_NO_EMOJI=1` / `NO_COLOR`); static progress alternative for animation-sensitive users.
+- **Provenance reviewable:** review detail shows source, URL, human-readable retrieval status and freshness plus a "Next step" hint for unknown-class causes; compact rows mark cached evidence; record-pipeline Suite 9 proves cached serves keep the original epoch and truthful status.
+- **No telemetry/accounts/daemons/GUI:** the Phase 3 diff adds no network sink beyond the existing evidence fetches, no accounts (auth stays optional `gh`), no background processes, and no persisted selections (research-008 Decision 2 verified by quit-hint PTY test).
+- **Documentation:** README covers the dashboard first-run journey, evidence caching/`--fresh`, and accessibility knobs; `--help` leads with the trusted update workflow; CHANGELOG [Unreleased] filled for the release notes.
+- **Pending before release:** T3.4.1 novice-check results (materials: docs/novice-checks-t3.4.1.md) and maintainer approval of both PRs plus the version bump (target: 1.15.0 minor — new `--fresh` flag and cache/UI behavior).
 
 ## 8. Phase 4 — Optional Native Reach
 

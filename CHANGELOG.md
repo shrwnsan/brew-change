@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- First-run guidance (T3.1.1): `--help` explains the check/review/upgrade boundaries of the trusted update workflow, and interactive `-u` dashboard runs print a one-line hint on stderr (never in pipes, never on stdout, nothing stored).
+- Plain-language remediation (T3.1.2): missing dependencies print exact install commands; GitHub authentication is one benefit-focused tip shown only when evidence will be gathered (instead of warnings on every run); package-not-found suggestions list matches directly instead of suggesting `brew list | grep` pipelines.
+- Accessible output modes (T3.3.1): `[breaking]` text labels always carry the meaning (emoji is additive and suppressed by `NO_COLOR` or `BREW_CHANGE_NO_EMOJI=1`); narrow-terminal reason truncation is word-aware for kebab signal tokens; `BREW_CHANGE_STATIC_PROGRESS=1` replaces the animated spinner with a static count line.
+- Evidence cache and re-entry (T3.2.1/T3.2.2, per ratified docs/research-008-evidence-cache-resume.md): one HTTP response cache (`~/.cache/brew-change/http/`) now backs all evidence fetches — including GitHub API traffic and text probes that previously bypassed caching — with endpoint-class TTLs (24h exact GitHub tag/ref/commit objects, 1h otherwise), anonymous/token-fingerprint key partitioning (tokens never stored), validated-stale-only fallback with corrupt fail-closed, and 512-entry/100 MiB oldest-first pruning. Evidence records carry truthful provenance (`cached-fresh`/`stale` with the original retrieval epoch); the dashboard review shows human-readable status with actionable next-step hints and marks cached rows; a TTY-only banner reports cache reuse; quitting with a staged selection prints a re-entry hint; `--fresh` re-probes by clearing only the HTTP cache. Selections are never persisted and captured stdout stays byte-pure.
+
 ## [1.14.4] - 2026-08-19
 
 ### Fixed
