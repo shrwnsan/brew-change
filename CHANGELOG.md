@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-08-20
+
 ### Added
 - First-run guidance (T3.1.1): `--help` explains the check/review/upgrade boundaries of the trusted update workflow, and interactive `-u` dashboard runs print a one-line hint on stderr (never in pipes, never on stdout, nothing stored).
 - Plain-language remediation (T3.1.2): missing dependencies print exact install commands; GitHub authentication is one benefit-focused tip shown only when evidence will be gathered (instead of warnings on every run); package-not-found suggestions list matches directly instead of suggesting `brew list | grep` pipelines.

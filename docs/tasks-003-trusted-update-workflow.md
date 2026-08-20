@@ -955,7 +955,7 @@ Acceptance:
 
 ### T3.7.1 — Phase 3 integration and release gate
 
-**State:** Integration; implementation complete (PRs #116, #117), evidence pack below; awaiting T3.4.1 results and maintainer release approval  
+**State:** Passed 2026-08-20 — released as v1.15.0 (implementation PRs #116/#118; the maintainer delegated the T3.4.1 session and confirmed the release; the operator session recorded no P0 findings)  
 **Complexity:** L  
 **Owner:** Maintainer/integrator
 
