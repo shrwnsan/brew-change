@@ -138,24 +138,52 @@ get_breaking_changes_summary() {
     return 1
 }
 
+# =============================================================================
+# Breaking-change markers (T3.3.1 accessibility contract)
+#
+# Per the ratified fixture philosophy (tests/fixtures/dashboard/no-color/
+# notes.md): text labels carry ALL classification meaning; color and emoji are
+# strictly additive overlays. The "[breaking]" text label is therefore always
+# present; the ⚠️ glyph may only follow it as decoration, and only when the
+# caller's stdout is a TTY, NO_COLOR is unset (the no-color convention), and
+# the explicit BREW_CHANGE_NO_EMOJI=1 opt-out is not set.
+# =============================================================================
+
+# True when decorative emoji may be drawn at all.
+_breaking_emoji_allowed() {
+    [[ "${BREW_CHANGE_NO_EMOJI:-0}" != "1" \
+        && -z "${NO_COLOR:-}" \
+        && -t 1 ]]
+}
+
+# Text-first breaking marker: the bracketed label alone carries the meaning;
+# the ⚠️ glyph is strictly additive decoration (never the only cue).
+breaking_display_marker() {
+    if _breaking_emoji_allowed; then
+        printf '[breaking] ⚠️'
+    else
+        printf '[breaking]'
+    fi
+}
+
 # Function to format breaking changes indicator for display
 format_breaking_indicator() {
     local has_breaking="$1"
 
     if [[ "$has_breaking" == "true" || "$has_breaking" == "1" ]]; then
-        echo "⚠️"
+        breaking_display_marker
     else
         echo ""
     fi
 }
 
-# Function to add breaking changes prefix to package header
+# Function to add breaking changes marker to package header
 add_breaking_prefix() {
     local package_name="$1"
     local has_breaking="$2"
 
     if [[ "$has_breaking" == "true" || "$has_breaking" == "1" ]]; then
-        echo "⚠️ $package_name (contains breaking changes)"
+        echo "$package_name $(breaking_display_marker)"
     else
         echo "$package_name"
     fi

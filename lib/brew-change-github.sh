@@ -4,38 +4,64 @@
 # Global variable for GitHub authentication token
 GITHUB_AUTH_TOKEN=""
 
+# True (0) when this invocation will actually gather GitHub evidence: an
+# upgrade/all/breaking-changes flag or at least one package argument.
+# Zero-argument simple-list and -v runs never contact GitHub, so they must
+# not see auth guidance. ORIGINAL_ARGS is set by the launcher before
+# sourcing; the guard keeps standalone sourcing contexts (set -u) safe.
+_github_auth_evidence_invocation() {
+    local arg
+    [[ -n "${ORIGINAL_ARGS+x}" ]] || return 1
+    for arg in "${ORIGINAL_ARGS[@]}"; do
+        case "$arg" in
+            -u|--upgrade|-a|--all|-b|--id-breaking)
+                return 0
+                ;;
+            -*)
+                ;;  # other flags (e.g. -v, --plain) fetch no release evidence
+            *)
+                return 0  # package argument
+                ;;
+        esac
+    done
+    return 1
+}
+
 # Function to initialize GitHub CLI authentication
-# Note: All paths return success (0) because the script can proceed with unauthenticated requests
+# Note: All paths return success (0) because the script can proceed with
+# unauthenticated requests.
+# Auth guidance (T3.1.2): exactly one benefit-focused tip line, printed at
+# most once per run, only when no token was obtained AND this invocation
+# will actually gather GitHub evidence. GITHUB_AUTH_TIP_SHOWN is set before
+# parallel workers fork, so workers (which call this function again) inherit
+# the flag and never repeat the tip.
 init_github_auth() {
     # Only check once
     if [[ -n "$GITHUB_AUTH_TOKEN" ]]; then
         return 0
     fi
 
-    # Check if GitHub CLI is installed
-    if ! command -v gh >/dev/null 2>&1; then
-        echo "Warning: GitHub CLI (gh) not found. Install for higher API rate limits:" >&2
-        echo "  brew install gh" >&2
-        echo "  Then run: gh auth login" >&2
-        return 0
+    local have_gh="false"
+    if command -v gh >/dev/null 2>&1; then
+        have_gh="true"
+        if gh auth status >/dev/null 2>&1 \
+            && GITHUB_AUTH_TOKEN=$(gh auth token 2>/dev/null) \
+            && [[ -n "$GITHUB_AUTH_TOKEN" ]]; then
+            # Authenticated: no guidance needed
+            return 0
+        fi
+        GITHUB_AUTH_TOKEN=""
     fi
 
-    # Check if authenticated
-    if ! gh auth status >/dev/null 2>&1; then
-        echo "Warning: Not authenticated with GitHub CLI. Run 'gh auth login' for higher API rate limits." >&2
-        echo "  Current rate limit: 60 requests/hour (unauthenticated)" >&2
-        echo "  With auth: 5000 requests/hour" >&2
-        return 0
+    if [[ -z "${GITHUB_AUTH_TIP_SHOWN:-}" ]] && _github_auth_evidence_invocation; then
+        GITHUB_AUTH_TIP_SHOWN=1
+        if [[ "$have_gh" == "true" ]]; then
+            echo "Tip: authenticate GitHub for 5000 requests/hour instead of 60 — run 'gh auth login' — fewer unknown results on large upgrades." >&2
+        else
+            echo "Tip: authenticate GitHub for 5000 requests/hour instead of 60 — brew install gh && gh auth login — fewer unknown results on large upgrades." >&2
+        fi
     fi
-
-    # Get and store the token
-    if GITHUB_AUTH_TOKEN=$(gh auth token 2>/dev/null); then
-        # Successfully authenticated, no need to show message for each package
-        return 0
-    else
-        echo "Warning: Failed to get GitHub token. Using unauthenticated requests (60/hour limit)." >&2
-        return 0
-    fi
+    return 0
 }
 
 # Function to extract GitHub owner/repo from various URL formats

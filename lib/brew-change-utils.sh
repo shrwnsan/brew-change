@@ -1063,10 +1063,16 @@ create_package_header() {
     current_version="${current_version:-[not installed]}"
     [[ "$current_version" == "unknown" ]] && current_version="[not installed]"
 
-    # Build package header with optional breaking changes indicator
+    # Build package header with the text-first breaking marker (T3.3.1):
+    # the "[breaking]" label always carries the meaning; the ⚠️ glyph is a
+    # strictly additive overlay, drawn only when stdout is a TTY without
+    # NO_COLOR and without the explicit BREW_CHANGE_NO_EMOJI=1 opt-out.
     local breaking_indicator=""
     if [[ "$IDENTIFY_BREAKING" == "true" && "$has_breaking" == "true" ]]; then
-        breaking_indicator=" ⚠️"
+        breaking_indicator=" [breaking]"
+        if [[ -t 1 && -z "${NO_COLOR:-}" && "${BREW_CHANGE_NO_EMOJI:-0}" != "1" ]]; then
+            breaking_indicator=" [breaking] ⚠️"
+        fi
     fi
     echo "📦 $package: $current_version → $latest_version ($time_context)$breaking_indicator"
 }

@@ -617,12 +617,14 @@ show_package_changelog() {
                 echo ""
             fi
         else
-            # No suggestions found, show general search advice
+            # No suggestions found, show pipeline-free search guidance
+            # (T3.1.2: never ask users to construct 'brew list | grep')
             if [[ ${#normalized_package} -ge 3 ]]; then
-                echo "To search installed packages, try: brew list | grep $normalized_package"
+                echo "No similar installed packages found."
+                echo "Search Homebrew for the exact name with: brew search $normalized_package"
             else
                 echo "Package name too short for suggestions (minimum 3 characters)"
-                echo "To search installed packages, try: brew list | grep $normalized_package"
+                echo "Search Homebrew for the exact name with: brew search $normalized_package"
             fi
         fi
         return 1

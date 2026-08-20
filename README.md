@@ -59,6 +59,10 @@ brew-change --help
 
 In a pipe or other non-interactive environment, brew-change prints guidance and never starts an upgrade.
 
+### First run
+
+On an interactive `brew-change -u` run you will see a one-line hint on stderr: brew-change checks your outdated packages, shows what changed for each (`r` review), and only upgrades what you explicitly confirm — nothing runs until you approve the exact plan. No account or configuration is needed, and quitting (`q`) changes nothing. The hint is never printed in pipes or scripts, and it is not stored anywhere.
+
 ### Changed defaults (v1.14.0)
 
 `brew-change -u` on a terminal now runs the interactive dashboard by default instead of the plain prompt flow: review each package's evidence provenance read-only (`r`), stage an explicit per-package selection (`s`), upgrade the no-signal set (`u`/Enter), or quit (`q`).
@@ -74,6 +78,18 @@ Escape hatches, in precedence order (`--plain` flag > `BREW_CHANGE_PLAIN=1` envi
 - `--dashboard` and `BREW_CHANGE_DASHBOARD=1`, the pre-v1.14.0 opt-ins, are accepted as documented no-ops.
 
 Piped or redirected runs are unchanged: plain deterministic output, no prompts, no upgrades, and the view flags do not switch views.
+
+### Accessibility
+
+Output meaning never depends on color or emoji: text labels (like `[breaking]` and the dashboard group headers) always carry the full classification, and any emoji is strictly additive decoration on a terminal. The base render — piped output, `NO_COLOR=1`, screen readers, copy-paste — is identical by construction.
+
+```bash
+export NO_COLOR=1                      # no-color convention: also suppresses decorative emoji
+export BREW_CHANGE_NO_EMOJI=1          # explicit no-emoji opt-out (labels unchanged)
+export BREW_CHANGE_STATIC_PROGRESS=1   # plain "stage n/N" progress line, no spinner animation
+```
+
+`BREW_CHANGE_STATIC_PROGRESS=1` keeps the progress lifecycle (TTY-only drawing, cleared line before the dashboard, restored terminal state) but replaces the animated spinner with a static line that updates only when the count changes.
 
 ## 📦 Installation
 

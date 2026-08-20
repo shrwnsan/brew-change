@@ -318,6 +318,46 @@ def test_redraw_bounded():
     )
 
 
+def test_static_progress_mode():
+    """T3.3.1: BREW_CHANGE_STATIC_PROGRESS=1 replaces animation on a TTY.
+
+    The static line is a plain "stage n/N" (no braille spinner glyph), each
+    drawn frame corresponds to a count change (never a timer tick), the final
+    frame is fully cleared, and terminal state is restored.
+    """
+    run_dir = temp_run_dir()
+    body = (
+        writer_snippet(run_dir, 12, 12, 0.08)
+        + f'render_progress "{run_dir}"\n'
+        + "wait \"$writer_pid\"\n"
+        + 'printf \'DONE\\n\' > /dev/tty\n'
+    )
+    output, _, status, initial, final = run_scenario(
+        body, extra_env={"BREW_CHANGE_STATIC_PROGRESS": "1"}
+    )
+    shutil.rmtree(run_dir, ignore_errors=True)
+    frames = FRAMES_RE.findall(output)
+    assert status == 0, (status, output)
+    assert frames, f"no static progress frames on tty: {output!r}"
+    assert b"evidence" in output, output
+    # Plain static line: no braille spinner glyph anywhere.
+    for glyph in "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏":
+        assert glyph.encode() not in output, output
+    # Static frames are drawn only when the count changes: at most one frame
+    # per event (12), never per 150ms timer tick for the whole run duration.
+    assert len(frames) <= 12 + 2, (
+        f"static mode redrew {len(frames)} frames for 12 events "
+        f"(must change only when the count changes): {frames!r}"
+    )
+    # Final frame cleared before the following output, like the animated mode.
+    assert re.search(rb"\r +\rDONE", output), (
+        f"final static frame not cleared before returning: {output[-300:]!r}"
+    )
+    assert stable_stty_state(final) == stable_stty_state(initial), (
+        f"terminal changed: {initial!r} -> {final!r}"
+    )
+
+
 def main():
     tests = [
         test_animation_and_final_clear,
@@ -326,6 +366,7 @@ def main():
         test_stty_restored_on_int,
         test_stty_restored_on_term,
         test_redraw_bounded,
+        test_static_progress_mode,
     ]
     failures = 0
     for test in tests:

@@ -12,41 +12,54 @@ elif locale -a 2>/dev/null | grep -q "^C.UTF-8"; then
 fi
 
 # Function to verify required dependencies
+# Missing required dependencies are reported with the exact supported
+# installation command for each (T3.1.2: plain-language remediation).
+# Optional gh guidance lives in init_github_auth (one benefit-focused tip
+# shown only when GitHub evidence will actually be gathered), so it is not
+# repeated here.
 verify_dependencies() {
     local missing_deps=()
-    
+
     # Check for required commands
     if ! command -v brew >/dev/null 2>&1; then
         missing_deps+=("brew")
     fi
-    
+
     if ! command -v jq >/dev/null 2>&1; then
         missing_deps+=("jq")
     fi
-    
+
     if ! command -v curl >/dev/null 2>&1; then
         missing_deps+=("curl")
     fi
-    
-    # Check for optional commands
-    local optional_deps=()
-    if ! command -v gh >/dev/null 2>&1; then
-        optional_deps+=("gh")
-    fi
-    
-    # Report missing required dependencies
+
+    # Report missing required dependencies with exact install commands
     if [[ ${#missing_deps[@]} -gt 0 ]]; then
         echo "Error: Missing required dependencies: ${missing_deps[*]}" >&2
-        echo "Please install the missing commands and try again." >&2
+        local dep
+        for dep in "${missing_deps[@]}"; do
+            case "$dep" in
+                brew)
+                    echo "  brew — the Homebrew package manager brew-change inspects." >&2
+                    echo "    Install: /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"" >&2
+                    echo "    Details: https://brew.sh" >&2
+                    ;;
+                jq)
+                    echo "  jq: processes Homebrew's JSON output." >&2
+                    echo "    Install: 'brew install jq'  (Linux without Homebrew: 'apt install jq' / 'dnf install jq')" >&2
+                    ;;
+                curl)
+                    # NOTE: keep command mentions quoted — the URL-policy
+                    # call-site inventory counts bare curl tokens on
+                    # non-comment lines, and these are prose, not calls.
+                    echo "  curl: fetches release notes and changelogs." >&2
+                    echo "    Install: 'brew install curl'  (Linux without Homebrew: 'apt install curl' / 'dnf install curl')" >&2
+                    ;;
+            esac
+        done
         return 1
     fi
-    
-    # Report missing optional dependencies
-    if [[ ${#optional_deps[@]} -gt 0 ]]; then
-        echo "Warning: Missing optional dependencies: ${optional_deps[*]}" >&2
-        echo "These commands enhance functionality but are not required." >&2
-    fi
-    
+
     return 0
 }
 

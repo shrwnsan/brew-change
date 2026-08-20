@@ -17,3 +17,11 @@
 Known cost: color users get no extra redundancy (e.g. a red attention glyph).
 If the usability review (T3.4.1) wants emoji markers, they go in group headers
 only, never in row reasons, and this fixture pair stays identical.
+
+T3.3.1 update: the fixtures were extended, not forked — `narrow-50/` pins the
+word-aware (hyphen-boundary) reason truncation for kebab signal tokens under
+the same zero-color/zero-emoji base — and the same text-first rule was applied
+outside the dashboard: the legacy `-b`/`-u` breaking markers now always carry
+the `[breaking]` text label, with the ⚠️ glyph as an additive TTY overlay
+gated by `NO_COLOR`/`BREW_CHANGE_NO_EMOJI=1`. This fixture pair stays
+byte-identical.

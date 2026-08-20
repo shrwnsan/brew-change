@@ -318,6 +318,19 @@ prompt_upgrade_action() {
     done
 }
 
+# Breaking marker for the selection prompt (T3.3.1 accessibility contract):
+# the "[breaking]" text label always carries the meaning; the ⚠️ glyph is
+# strictly additive decoration. The prompt itself is written to /dev/tty (it
+# only exists in the interactive flow), so the gate here is the env policy:
+# NO_COLOR convention plus the explicit BREW_CHANGE_NO_EMOJI=1 opt-out.
+selection_breaking_marker() {
+    if [[ -z "${NO_COLOR:-}" && "${BREW_CHANGE_NO_EMOJI:-0}" != "1" ]]; then
+        printf ' [breaking] ⚠️'
+    else
+        printf ' [breaking]'
+    fi
+}
+
 # Interactive per-package selection prompt
 # Args:
 #   $@: Array of package names to choose from
@@ -336,7 +349,7 @@ prompt_package_selection() {
         local breaking_marker=""
 
         if is_package_breaking "$pkg"; then
-            breaking_marker=" ⚠️"
+            breaking_marker="$(selection_breaking_marker)"
         elif is_package_default_selected "$pkg"; then
             default_response="y"
         else

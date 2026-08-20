@@ -43,6 +43,9 @@ run_suite "dashboard renderer" bash "$SCRIPT_DIR/test-dashboard-render.sh"
 run_suite "dashboard actions" bash "$SCRIPT_DIR/test-dashboard-actions.sh"
 run_suite "locale export" bash "$SCRIPT_DIR/test-locale-export.sh"
 run_suite "errexit hardening" bash "$SCRIPT_DIR/test-errexit-hardening.sh"
+run_suite "first-run guidance" bash "$SCRIPT_DIR/test-first-run-guidance.sh"
+run_suite "remediation wording" bash "$SCRIPT_DIR/test-remediation-wording.sh"
+run_suite "accessibility modes" bash "$SCRIPT_DIR/test-accessibility-modes.sh"
 
 printf '\nDeterministic suites: %d passed, %d failed\n' "$passed" "$failed"
 [[ $failed -eq 0 ]]

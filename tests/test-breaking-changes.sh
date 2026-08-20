@@ -192,16 +192,37 @@ This function is deprecated:"
 }
 
 # Test suite for format_breaking_indicator function
+#
+# T3.3.1 accessibility contract (tests/fixtures/dashboard/no-color/notes.md):
+# text labels carry ALL classification meaning; the ⚠️ emoji is strictly
+# additive decoration. Command substitution runs with piped stdout (never a
+# TTY), so every non-TTY mode below must produce the text label only.
 test_format_breaking_indicator() {
     log_info "Testing format_breaking_indicator function..."
 
-    # Test with breaking changes
+    # Default (non-TTY): the "[breaking]" text label alone.
     local result
     result=$(format_breaking_indicator "true")
-    if [[ "$result" == "⚠️" ]]; then
+    if [[ "$result" == "[breaking]" ]]; then
         log_test_result "Format Indicator (Breaking)" "pass"
     else
-        log_test_result "Format Indicator (Breaking)" "fail" "Expected '⚠️', got '$result'"
+        log_test_result "Format Indicator (Breaking)" "fail" "Expected '[breaking]', got '$result'"
+    fi
+
+    # NO_COLOR convention: still the text label, never the emoji.
+    result=$(NO_COLOR=1 format_breaking_indicator "true")
+    if [[ "$result" == "[breaking]" ]]; then
+        log_test_result "Format Indicator (NO_COLOR)" "pass"
+    else
+        log_test_result "Format Indicator (NO_COLOR)" "fail" "Expected '[breaking]', got '$result'"
+    fi
+
+    # Explicit no-emoji opt-out: still the text label.
+    result=$(BREW_CHANGE_NO_EMOJI=1 format_breaking_indicator "true")
+    if [[ "$result" == "[breaking]" ]]; then
+        log_test_result "Format Indicator (No-Emoji Knob)" "pass"
+    else
+        log_test_result "Format Indicator (No-Emoji Knob)" "fail" "Expected '[breaking]', got '$result'"
     fi
 
     # Test without breaking changes
@@ -213,17 +234,32 @@ test_format_breaking_indicator() {
     fi
 }
 
-# Test suite for add_breaking_prefix function
+# Test suite for add_breaking_prefix function (T3.3.1: text label primary,
+# emoji additive; non-TTY output therefore carries the text label only).
 test_add_breaking_prefix() {
     log_info "Testing add_breaking_prefix function..."
 
-    # Test with breaking changes
+    # Test with breaking changes: label follows the name, no emoji off-TTY.
     local result
     result=$(add_breaking_prefix "mypackage" "true")
-    if [[ "$result" == "⚠️ mypackage (contains breaking changes)" ]]; then
+    if [[ "$result" == "mypackage [breaking]" ]]; then
         log_test_result "Breaking Prefix (Breaking)" "pass"
     else
         log_test_result "Breaking Prefix (Breaking)" "fail" "Unexpected result: '$result'"
+    fi
+
+    # NO_COLOR and the explicit no-emoji knob keep the same text label.
+    result=$(NO_COLOR=1 add_breaking_prefix "mypackage" "true")
+    if [[ "$result" == "mypackage [breaking]" ]]; then
+        log_test_result "Breaking Prefix (NO_COLOR)" "pass"
+    else
+        log_test_result "Breaking Prefix (NO_COLOR)" "fail" "Unexpected result: '$result'"
+    fi
+    result=$(BREW_CHANGE_NO_EMOJI=1 add_breaking_prefix "mypackage" "true")
+    if [[ "$result" == "mypackage [breaking]" ]]; then
+        log_test_result "Breaking Prefix (No-Emoji Knob)" "pass"
+    else
+        log_test_result "Breaking Prefix (No-Emoji Knob)" "fail" "Unexpected result: '$result'"
     fi
 
     # Test without breaking changes
