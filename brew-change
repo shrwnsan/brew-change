@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # Version information
-readonly VERSION="1.15.0"
+readonly VERSION="1.16.0"
 
 # ---------------------------------------------------------------------------
 # Early validation: handle side-effect-free options before any brew/auth/cache
@@ -19,7 +19,7 @@ ORIGINAL_ARGS=("$@")
 
 # Usage text (heredoc, no external deps)
 usage() {
-    cat << 'EOF'
+	cat << 'EOF'
 Usage: brew-change [OPTIONS] [PACKAGE ...]
 
 Shows changelog information for Homebrew packages.
@@ -51,6 +51,9 @@ Options:
   -h, --help           Show this help message
       --version        Show version information
 
+Commands:
+  export               Print the last assessment export to stdout
+
 If no PACKAGE is specified and no flags, shows simple list like 'brew outdated'.
 
 Trusted update workflow (-u; no account or setup needed):
@@ -79,6 +82,7 @@ EOF
 # Everything else is deferred to full argument parsing after sourcing.
 _PRE_PARSE_SHOW_HELP="false"
 _PRE_PARSE_SHOW_VERSION="false"
+_PRE_PARSE_HAS_EXPORT="false"
 _PRE_PARSE_HAS_DRY_RUN="false"
 _PRE_PARSE_HAS_UPGRADE="false"
 _PRE_PARSE_HAS_EVIDENCE_MODE="false"
@@ -92,6 +96,9 @@ for _arg in "${ORIGINAL_ARGS[@]}"; do
             ;;
         --version)
             _PRE_PARSE_SHOW_VERSION="true"
+            ;;
+        export)
+            _PRE_PARSE_HAS_EXPORT="true"
             ;;
         -n|--dry-run)
             _PRE_PARSE_HAS_DRY_RUN="true"
@@ -193,25 +200,32 @@ elif command -v brew &>/dev/null; then
 fi
 readonly LIB_DIR
 
-source "$LIB_DIR/brew-change-config.sh"
-source "$LIB_DIR/brew-change-utils.sh"
-source "$LIB_DIR/brew-change-interactive.sh"
-source "$LIB_DIR/brew-change-breaking.sh"
-source "$LIB_DIR/brew-change-assessment.sh"
-source "$LIB_DIR/brew-change-github.sh"
-source "$LIB_DIR/brew-change-npm.sh"
-source "$LIB_DIR/brew-change-brew.sh"
-source "$LIB_DIR/brew-change-non-github.sh"
-source "$LIB_DIR/brew-change-display.sh"
-source "$LIB_DIR/brew-change-verdict.sh"
-source "$LIB_DIR/brew-change-parallel.sh"
-source "$LIB_DIR/brew-change-progress.sh"
-source "$LIB_DIR/brew-change-upgrade.sh"
-source "$LIB_DIR/brew-change-dashboard-ui.sh"
+	source "$LIB_DIR/brew-change-config.sh"
+	source "$LIB_DIR/brew-change-utils.sh"
+	source "$LIB_DIR/brew-change-interactive.sh"
+	source "$LIB_DIR/brew-change-breaking.sh"
+	source "$LIB_DIR/brew-change-assessment.sh"
+	source "$LIB_DIR/brew-change-github.sh"
+	source "$LIB_DIR/brew-change-npm.sh"
+	source "$LIB_DIR/brew-change-brew.sh"
+	source "$LIB_DIR/brew-change-non-github.sh"
+	source "$LIB_DIR/brew-change-display.sh"
+	source "$LIB_DIR/brew-change-verdict.sh"
+	source "$LIB_DIR/brew-change-parallel.sh"
+	source "$LIB_DIR/brew-change-progress.sh"
+	source "$LIB_DIR/brew-change-upgrade.sh"
+	source "$LIB_DIR/brew-change-dashboard-ui.sh"
+	source "$LIB_DIR/brew-change-export.sh"
 
 # Verify dependencies
 if ! verify_dependencies; then
     exit 1
+fi
+
+# Handle export command (must be after library sourcing for read_assessment_export)
+if [[ "$_PRE_PARSE_HAS_EXPORT" == "true" ]]; then
+    read_assessment_export
+    exit $?
 fi
 
 # Pre-initialize GitHub auth token so subshells inherit it
@@ -609,6 +623,11 @@ else
             # Collect evidence and classify with missing-row synthesis
             classify_upgrade_evidence "$UPGRADE_STATUS_DIR" "${inventory_tokens[@]+"${inventory_tokens[@]}"}"
 
+            # Write assessment export for external consumers (tasks-005)
+            # This happens after classification but before dashboard/prompt
+            # so the export is available even if the user quits.
+            write_assessment_export "$UPGRADE_STATUS_DIR/assessment.jsonl" || true
+
             # T2.4.3: the renderer must terminate BEFORE any prompt or
             # dashboard output is drawn. classify_upgrade_evidence has just
             # written the final stage events, so the renderer satisfies its
@@ -650,6 +669,9 @@ else
                 done < <(extract_outdated_package_tokens "$outdated_packages" 2>/dev/null)
 
                 if classify_upgrade_evidence "$UPGRADE_STATUS_DIR" "${inventory_tokens[@]+"${inventory_tokens[@]}"}"; then
+                    # Write assessment export for external consumers (tasks-005)
+                    write_assessment_export "$UPGRADE_STATUS_DIR/assessment.jsonl" || true
+
                     verdict_block=$(render_verdict_summary "$UPGRADE_STATUS_DIR/assessment.jsonl")
                     if [[ -n "$verdict_block" ]]; then
                         printf '\n%s\n\n' "$verdict_block"
