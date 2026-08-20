@@ -8,34 +8,51 @@
 
 The v1.16.0 verdict run (2026-08-20/21, real inventory) decomposes as
 4 pattern-hit breaking · 2 major-only attention · 14 no-signal · 16–17
-unknown. Inspecting those rows against the upstream sources yields an
-error taxonomy with very different fixes:
+unknown. A second independent run on v1.17.0 (2026-08-21, 37 packages,
+320s) reproduced the same decomposition (6 attention · 14 no-signal ·
+17 unknown) and every error class below — the taxonomy is stable, not a
+one-run artifact. Inspecting those rows against the upstream sources
+yields an error taxonomy with very different fixes:
 
-- **(a) Pattern false positive** — `nnn` matched `drop support` inside
-  "add Kitty drag-and-drop support to `dragdrop`". Substring grep,
-  no word boundary. *Deterministic fix:* anchor the pattern list at
-  word boundaries (and consider dropping bare `"breaking"` in favor of
-  the phrase forms). Cheap, testable, no model needed.
-- **(b) Retrieval gap** — `vercel 58→59` shows as major-only attention
+- **(a) Pattern false positive (substring)** — `nnn` matched
+  `drop support` inside "add Kitty drag-and-drop support to
+  `dragdrop`". Substring grep, no word boundary. *Deterministic fix:*
+  anchor the pattern list at word boundaries (and consider dropping
+  bare `"breaking"` in favor of the phrase forms). Cheap, testable, no
+  model needed.
+- **(b) Version-bump heuristic false positive (compare URLs)** — the
+  `v[0-9]+\.0\.0` heuristic (intended: "a 2.0.0-style tag suggests a
+  breaking major") fires on **Full Changelog compare links** whenever
+  the *from* version is `x.0.0`: `simdutf 9.0.0 → 9.1.0` is a routine
+  minor bump, but its notes carry `…compare/v9.0.0...v9.1.0` and the
+  `v9.0.0` in the URL matches. Fingerprint in both field runs: the
+  breaking row's evidence excerpt is the link label
+  `**Full Changelog**:…`. So two of the four "pattern-hit breaking"
+  rows in the field decomposition — (a) and (b) — are false positives.
+  *Deterministic fix:* require version-tag context (release headings
+  or standalone tags), never matches inside URLs/link lines. Fixing
+  this also fixes the excerpt picker, which selects the first matching
+  line and therefore surfaces the link label.
+- **(c) Retrieval gap** — `vercel 58→59` shows as major-only attention
   with "no notes", but the notes exist: the `vercel/vercel` monorepo
   publishes per-package changesets with explicit "Major Changes"
-  sections (github.com/vercel/vercel/releases, tag `vercel@59.0.0`), and
-  vercel.com/docs/cli/release-notes groups every release by SemVer
+  sections (github.com/vercel/vercel/releases, tag `vercel@59.0.0`),
+  and vercel.com/docs/cli/release-notes groups every release by SemVer
   impact. The npm-first detection path never fetched them. *Deterministic
   fix:* fall back to the GitHub repo release for npm packages whose
   registry metadata points at one. Had those notes been fetched, the
   existing `major changes` pattern would have fired on its own.
-- **(c) True classification gap** — notes fetched, no pattern match,
+- **(d) True classification gap** — notes fetched, no pattern match,
   semantics genuinely ambiguous (e.g. "we rewrote the config format"
   contains no configured pattern). Rare in the field run; this is the
   only case where a model classifies better than the pattern set.
-- **(d) No-notes unknowns (16–17 rows)** — casks (dropbox, spotify,
+- **(e) No-notes unknowns (16–17 rows)** — casks (dropbox, spotify,
   …) and registry-silent formulae. Nothing was fetched, so nothing
   evidence-based can be said. Only parametric recall could speak here,
   and version-specific recall is exactly where models hallucinate.
 
-Two of the four observed error classes are fixed deterministically and
-should be fixed first (or alongside) regardless of the AI decision.
+Three of the five observed error classes are fixed deterministically
+and should be fixed first (or alongside) regardless of the AI decision.
 
 ## 2. Design space: three possible LLM roles
 
@@ -219,9 +236,11 @@ opt-in only (`--ai`), never default, no telemetry, no state.
 - **GO (conditional)** on Task 2 v1 = R1 only: opt-in `--ai`,
   glm-4.7-by-default OpenAI-compatible call, batched single request,
   upgrade-only mapping with `ai:` provenance, cached verdicts, fallback
-  verbatim. Preceded (or accompanied) by the two deterministic fixes —
-  word-boundary patterns (§1a) and npm→GitHub notes fallback (§1b) —
-  which resolve more of the observed field errors than the model would.
+  verbatim. Preceded (or accompanied) by the three deterministic fixes —
+  word-boundary patterns (§1a), URL-aware version-bump matching (§1b),
+  and npm→GitHub notes fallback (§1c) — which resolve more of the
+  observed field errors than the model would (three of five classes,
+  including two of the four false "breaking" rows).
 - **NO-GO:** R2 (model-side retrieval — URL-policy violation) and R3
   reclassification (evidence-model violation). R3-as-annotation is a
   recorded non-goal for v1.
@@ -233,6 +252,8 @@ opt-in only (`--ai`), never default, no telemetry, no state.
 Flag spelling (`--ai` vs `--triage-ai`), the confidence threshold
 (0.7 proposed), whether `ai-likely-breaking` rows render in the
 verdict's Breaking group or a distinct group, stderr skip-notice
-wording, and whether the §1b GitHub fallback for npm packages ships in
-the same release (recommended: yes — it is user-visible value even
-without `--ai`).
+wording, and whether the §1b/§1c deterministic fixes (URL-aware
+version-bump matching and the GitHub fallback for npm packages) ship in
+the same release (recommended: yes — they are user-visible value even
+without `--ai`, and both false "breaking" rows in the field runs come
+from them).
