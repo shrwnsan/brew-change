@@ -885,6 +885,25 @@ Acceptance:
 - Cache use is visible without overwhelming compact output.
 - Unknown reasons are actionable where possible.
 
+### T3.2.2 — Evidence re-entry: unify raw-response caching
+
+**State:** Blocked by Phase 3 entry gate and T3.2.1 (may land in the same change)
+
+**Complexity:** L
+
+**Writes:** utils/config, evidence producers/display, launcher flag, dashboard quit path, tests/docs
+
+Acceptance (per ratified docs/research-008-evidence-cache-resume.md):
+
+- One `$CACHE_DIR/http/` raw-response cache boundary covers validated JSON, non-empty text, and GitHub requests; analysis always re-runs over cached bodies.
+- Endpoint-class TTLs distinguish low-volatility exact GitHub resources (24h) from mutable collections, npm, and scraped/branch-based content (≤1h).
+- Keys separate anonymous requests and distinct authenticated token fingerprints without storing or exposing tokens.
+- Request-scoped metadata propagates `network-fresh`, `cached-fresh`, or `cached-stale`, retrieval epoch, and age into evidence rows; run-scoped event files provide race-free parallel/subshell hit accounting.
+- Only validated stale content may survive a failed refresh; corrupt entries fail closed. A stale no-signal result remains unknown.
+- One cache summary and the exact quit re-entry hint are TTY-only and preserve stdout purity; selections are never persisted.
+- `--fresh` removes only the HTTP namespace. Pruning keeps that namespace within 512 entries and 100 MiB without touching unrelated caches.
+- Deterministic tests cover all three response types, endpoint TTLs, three auth partitions, concurrency, provenance, stale/corrupt behavior, namespace isolation/budgets, and TTY output.
+
 ### T3.3.1 — Polish accessible output modes
 
 **State:** Blocked by Phase 3 entry gate  
@@ -1032,7 +1051,7 @@ Do not parallelize record consumers until T2.1.1 is approved. After approval, cl
 
 ### Phase 3 batching rule
 
-First-run guidance, remediation wording, provenance display, and accessibility fixtures may proceed independently once their Phase 2 contracts are stable. Usability checks and release integration remain maintainer-owned gates.
+First-run guidance, remediation wording, provenance display, and accessibility fixtures may proceed independently once their Phase 2 contracts are stable. Evidence re-entry follows provenance or shares one integration owner with it; do not dispatch them as independent implementation tasks because both change evidence producers and records. Usability checks and release integration remain maintainer-owned gates.
 
 ## 11. Phase Execution Checklist
 
