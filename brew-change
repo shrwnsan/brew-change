@@ -343,30 +343,35 @@ if [ ${#PACKAGES[@]} -gt 0 ]; then
                 # No conflicts found, show standard error message
                 echo "Error: Package '$PACKAGE' not found in Homebrew"
                 echo ""
-                # Check for similar packages if package is long enough
+                # Check for similar packages if package is long enough.
+                # The suggestion list itself is shown in non-interactive mode
+                # too (T3.1.2): users never need to construct a shell
+                # pipeline like 'brew list | grep'.
+                suggestions=""
                 if command -v jq >/dev/null 2>&1; then
-                    best_suggestion=""
-                    if best_suggestion=$(get_best_suggestion "$PACKAGE" 2>/dev/null); then
-                        echo "Similar installed packages:"
-                        find_similar_packages "$PACKAGE"
-                        echo ""
-                        # Check if running interactively
-                        if is_interactive_mode; then
+                    suggestions="$(find_similar_packages "$PACKAGE" 2>/dev/null || true)"
+                fi
+                if [[ -n "$suggestions" ]]; then
+                    echo "$suggestions"
+                    echo ""
+                    # Check if running interactively
+                    if is_interactive_mode; then
+                        best_suggestion=""
+                        if best_suggestion=$(get_best_suggestion "$PACKAGE" 2>/dev/null); then
                             if prompt_for_confirmation "Continue with '$best_suggestion'? (y/N): "; then
                                 echo ""
                                 echo "Processing changelog for 1 package..."
                                 echo ""
                                 show_package_changelog "$best_suggestion"
                             fi
-                        else
-                            # Non-interactive mode: skip suggestion
-                            echo "To search installed packages, try: brew list | grep $PACKAGE"
                         fi
                     else
-                        echo "To search installed packages, try: brew list | grep $PACKAGE"
+                        # Non-interactive mode: point at the exact names above
+                        echo "Run 'brew-change <package>' with the exact name from the list above."
                     fi
                 else
-                    echo "To search installed packages, try: brew list | grep $PACKAGE"
+                    echo "No similar installed packages found."
+                    echo "Search Homebrew for the exact name with: brew search $PACKAGE"
                 fi
             fi
             exit 1
