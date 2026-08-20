@@ -1,0 +1,13 @@
+Verdict: 4 attention · 2 no-signal · 2 unknown
+
+Breaking changes (3)
+  abseil 20260526.0 → 20260817.0
+    absl::void_t is now deprecated; users should use C++17 std::void_t…
+  nnn 5.2 → 5.3
+    removed support for the legacy plugin interface
+  ripgrep 13.1.0 → 14.0.0
+    Removed support for legacy configuration files.
+Major version transitions (1)
+  vercel 58.9.0 → 59.1.4
+No risk signal found (2)
+Unknown (2) — no usable release notes; review individually

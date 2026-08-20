@@ -203,6 +203,7 @@ source "$LIB_DIR/brew-change-npm.sh"
 source "$LIB_DIR/brew-change-brew.sh"
 source "$LIB_DIR/brew-change-non-github.sh"
 source "$LIB_DIR/brew-change-display.sh"
+source "$LIB_DIR/brew-change-verdict.sh"
 source "$LIB_DIR/brew-change-parallel.sh"
 source "$LIB_DIR/brew-change-progress.sh"
 source "$LIB_DIR/brew-change-upgrade.sh"
@@ -544,6 +545,19 @@ else
             progress_renderer_start
         fi
 
+        # tasks-004 Task 1: plain -b runs (no -u) reuse the assessment
+        # record pipeline so the run can end with an honest verdict
+        # summary. Workers already gate their evidence-row, provenance,
+        # and brew-info memo writes on UPGRADE_STATUS_DIR, so giving -b
+        # its own status dir activates exactly the -u recording path —
+        # no renderer, no dashboard, and changelogs keep streaming.
+        if [[ "$UPGRADE_MODE" != "true" && "$IDENTIFY_BREAKING" == "true" ]]; then
+            UPGRADE_STATUS_DIR=$(mktemp -d -t brew-change-status.XXXXXX 2>/dev/null)
+            export UPGRADE_STATUS_DIR
+            register_temp_dir "$UPGRADE_STATUS_DIR"
+            assessment_record_init "$UPGRADE_STATUS_DIR" "$outdated_packages"
+        fi
+
         # Dashboard quiet-changelogs: when the interactive dashboard will own
         # the terminal for this run, suppress the inline per-package
         # changelog dump before evidence gathering starts (the dashboard's
@@ -623,6 +637,27 @@ else
                 run_upgrade_prompt "$outdated_packages"
             fi
         else
+            # tasks-004 Task 1: verdict summary for plain -b runs. Same
+            # stage boundary as -u (consolidate + classify + synthesize
+            # missing rows); the renderer is pure stdout and is skipped
+            # entirely when no records were produced. A classification
+            # failure must not lose the run's output — warn on stderr and
+            # continue to the generic hint.
+            if [[ "$IDENTIFY_BREAKING" == "true" && -n "${UPGRADE_STATUS_DIR:-}" ]]; then
+                inventory_tokens=()
+                while IFS=$'\t' read -r pkg _ptype; do
+                    [[ -n "$pkg" && "$pkg" != "null" ]] && inventory_tokens+=("$pkg")
+                done < <(extract_outdated_package_tokens "$outdated_packages" 2>/dev/null)
+
+                if classify_upgrade_evidence "$UPGRADE_STATUS_DIR" "${inventory_tokens[@]+"${inventory_tokens[@]}"}"; then
+                    verdict_block=$(render_verdict_summary "$UPGRADE_STATUS_DIR/assessment.jsonl")
+                    if [[ -n "$verdict_block" ]]; then
+                        printf '\n%s\n\n' "$verdict_block"
+                    fi
+                else
+                    echo "Warning: verdict summary unavailable for this run" >&2
+                fi
+            fi
             echo "Run 'brew upgrade' to upgrade all packages, or 'brew upgrade <package>' for individual packages."
         fi
     elif [ "$SHOW_VERSIONS" = "true" ]; then
