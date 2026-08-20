@@ -47,6 +47,7 @@ run_suite "errexit hardening" bash "$SCRIPT_DIR/test-errexit-hardening.sh"
 run_suite "first-run guidance" bash "$SCRIPT_DIR/test-first-run-guidance.sh"
 run_suite "remediation wording" bash "$SCRIPT_DIR/test-remediation-wording.sh"
 run_suite "accessibility modes" bash "$SCRIPT_DIR/test-accessibility-modes.sh"
+run_suite "b verdict summary" bash "$SCRIPT_DIR/test-b-verdict-summary.sh"
 
 printf '\nDeterministic suites: %d passed, %d failed\n' "$passed" "$failed"
 [[ $failed -eq 0 ]]

@@ -1,0 +1,5 @@
+Verdict: 0 attention · 2 no-signal · 1 unknown
+
+No breaking-change patterns or major version transitions detected across 3 packages.
+No risk signal found (2)
+Unknown (1) — no usable release notes; review individually

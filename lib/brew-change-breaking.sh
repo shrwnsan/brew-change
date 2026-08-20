@@ -117,8 +117,11 @@ get_breaking_changes_summary() {
 
     # Try to extract breaking changes section
     # Look for common headers like "## Breaking", "### BREAKING CHANGES", etc.
+    # -n, not -p: only the explicitly printed capture is emitted — with -p
+    # perl also prints the whole input after it, gluing the snapshot onto
+    # the section and making no-match runs return the full notes verbatim.
     local breaking_section
-    breaking_section=$(echo "$release_notes" | perl -pe '
+    breaking_section=$(echo "$release_notes" | perl -0777 -ne '
         BEGIN { undef $/; }
         # Try to match breaking section headers
         if (/(?:^|\n)[#]+\s*\[?(?:BREAKING|Breaking|breaking)[\s:]?(?:CHANGES|Changes)?\]?\s*?\n(.*?)(?:(?:[#]+)|$)/s) {

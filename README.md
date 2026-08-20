@@ -59,6 +59,26 @@ brew-change --help
 
 In a pipe or other non-interactive environment, brew-change prints guidance and never starts an upgrade.
 
+### Breaking-change verdict (`-b`)
+
+`brew-change -b` processes every outdated package and ends with a verdict that answers the only question a `-b` run has: are there any breaking packages or none? The verdict uses the same honest three-state assessment as the `-u` dashboard, computed from the evidence the run already fetched:
+
+```
+Verdict: 4 attention · 2 no-signal · 19 unknown
+
+Breaking changes (2)
+  abseil 20260526.0 → 20260817.0
+    absl::void_t is now deprecated; users should use C++17 std::void_t…
+  nnn 5.2 → 5.3
+    removed support for the legacy plugin interface
+Major version transitions (1)
+  vercel 58.9.0 → 59.1.4
+No risk signal found (2)
+Unknown (19) — no usable release notes; review individually
+```
+
+When nothing matches, the run says so explicitly ("No breaking-change patterns or major version transitions detected across N packages.") while still disclosing the unknown count — packages without release notes are never reported as clean. Piped output is identical to the terminal base render (`NO_COLOR` changes nothing).
+
 ### First run
 
 On an interactive `brew-change -u` run you will see a one-line hint on stderr: brew-change checks your outdated packages, shows what changed for each (`r` review), and only upgrades what you explicitly confirm — nothing runs until you approve the exact plan. No account or configuration is needed, and quitting (`q`) changes nothing. The hint is never printed in pipes or scripts, and it is not stored anywhere.
@@ -169,6 +189,7 @@ rm -rf ~/.cache/brew-change/*
 
 ## 📈 Recent Updates
 
+- **Unreleased**: `brew-change -b` ends with an honest verdict summary (attention split into breaking changes and major version transitions, no-signal and unknown counts, all-clear line that never claims safe)
 - **Unreleased trusted-update foundation**: Honest three-state assessments, canonical cask identities, exact package previews, final confirmation, deterministic tests, signal-safe terminal cleanup, and a strict evidence URL policy
 - **v1.11.0–v1.11.5**: Made `-u` interactive by default, added `--dry-run`, and refined prompt/spinner behavior
 - **v1.10.0–v1.10.1**: Improved interactive upgrade UX and ensured Homebrew receives `--yes`
