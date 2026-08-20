@@ -51,6 +51,11 @@ Options:
 
 If no PACKAGE is specified and no flags, shows simple list like 'brew outdated'.
 
+Trusted update workflow (-u; no account or setup needed):
+  Check    inventory of outdated packages (like 'brew outdated')
+  Review   [r]eview each package's source and reasons before anything runs
+  Upgrade  nothing upgrades until you confirm the exact plan; quit any time
+
 Examples:
   brew-change -u                # Trusted update workflow: interactive dashboard
   brew-change -u --plain        # Trusted update workflow with the previous prompt flow
@@ -483,6 +488,17 @@ else
             # Inventory stage: emit one initial assessment record per outdated
             # package into the per-run status dir (T2.1.2 record contract).
             assessment_record_init "$UPGRADE_STATUS_DIR" "$outdated_packages"
+
+            # T3.1.1 first-run guidance: one concise hint on interactive
+            # dashboard runs only (VIEW_USE_DASHBOARD already excludes
+            # piped runs, --plain, and BREW_CHANGE_PLAIN=1). STDERR only —
+            # stdout byte-purity of piped/dashboard output is inviolable —
+            # printed before the progress renderer owns the status line.
+            # Non-persistent by design: no state files, no per-run marker,
+            # so every interactive dashboard run shows it.
+            if [[ "$VIEW_USE_DASHBOARD" == "true" ]]; then
+                printf 'New here? brew-change checks outdated packages, shows what changed, and only upgrades what you approve — nothing runs until you confirm.\n' >&2
+            fi
 
             # T2.4.3: live progress UI during evidence/classify. The renderer
             # is the only code that draws terminal frames; the start/stop

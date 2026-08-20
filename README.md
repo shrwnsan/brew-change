@@ -59,6 +59,10 @@ brew-change --help
 
 In a pipe or other non-interactive environment, brew-change prints guidance and never starts an upgrade.
 
+### First run
+
+On an interactive `brew-change -u` run you will see a one-line hint on stderr: brew-change checks your outdated packages, shows what changed for each (`r` review), and only upgrades what you explicitly confirm — nothing runs until you approve the exact plan. No account or configuration is needed, and quitting (`q`) changes nothing. The hint is never printed in pipes or scripts, and it is not stored anywhere.
+
 ### Changed defaults (v1.14.0)
 
 `brew-change -u` on a terminal now runs the interactive dashboard by default instead of the plain prompt flow: review each package's evidence provenance read-only (`r`), stage an explicit per-package selection (`s`), upgrade the no-signal set (`u`/Enter), or quit (`q`).
