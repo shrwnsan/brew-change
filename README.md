@@ -26,6 +26,9 @@ brew-change -u --dry-run
 # Highlight packages with breaking changes (-b implies -a)
 brew-change -b
 
+# Export last assessment for external tools (e.g., brew-usage)
+brew-change export
+
 # Show version information
 brew-change --version
 
@@ -120,6 +123,37 @@ export BREW_CHANGE_STATIC_PROGRESS=1   # plain "stage n/N" progress line, no spi
 ```
 
 `BREW_CHANGE_STATIC_PROGRESS=1` keeps the progress lifecycle (TTY-only drawing, cleared line before the dashboard, restored terminal state) but replaces the animated spinner with a static line that updates only when the count changes.
+
+### Assessment export
+
+`brew-change export` prints the last assessment run data to stdout as JSON. External tools like [brew-usage](https://github.com/shrwnsan/brew-usage) can consume this to integrate brew-change's assessment knowledge without coupling to its internal data formats.
+
+```bash
+brew-change export    # Print last assessment as JSON to stdout
+```
+
+The export is written automatically at the end of any assessment run (`-u` or `-b`) to `~/.brew-change/last-assessment.json` with a stable, versioned schema designed for external consumers:
+
+```json
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-20T12:34:56Z",
+  "packages": [
+    {
+      "name": "node",
+      "display_name": "node",
+      "kind": "formula",
+      "installed_version": "22.6.0",
+      "available_version": "22.8.0",
+      "classification": "attention",
+      "matched_signals": ["major-version-transition"],
+      "retrieval_status": "fresh"
+    }
+  ]
+}
+```
+
+The export includes package names, versions, classifications (attention/no-signal/unknown), and matched signals while excluding internal implementation details and large payloads. Consumers should gate on `schema_version` and treat missing or unsupported schema versions as non-events (never errors). See [docs/tasks-005-assessment-export-surface.md](docs/tasks-005-assessment-export-surface.md) for the full consumer contract and schema design.
 
 ## 📦 Installation
 

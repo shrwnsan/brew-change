@@ -2,7 +2,7 @@
 
 All notable changes to brew-change are documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+The format is based on [Keep a Changelog](https://keepalivachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.16.0] - 2026-08-21
 
 ### Added
+- Assessment export surface (tasks-005): `brew-change export` subcommand prints the last assessment export to stdout; assessment runs (`-u` and `-b`) now write `~/.brew-change/last-assessment.json` with a stable, versioned JSON schema designed for external consumers (brew-usage). The export is a deliberate projection of the internal assessment contract — it includes package names, versions, classifications, and signals while excluding internal fields and large payloads. Missing or schema-mismatched exports are treated as non-events by consumers (never errors). The schema starts at version 1.
 - `-b` end-of-run verdict summary (tasks-004 Task 1): plain `brew-change -b` runs now record evidence through the same assessment pipeline as `-u` and end with a compact verdict block — `Verdict: A attention · D no-signal · E unknown`, attention rows split into breaking changes (with one-line evidence excerpts) and major version transitions, counts for no-signal/unknown, and an explicit all-clear line when nothing matched. The all-clear never claims an upgrade is safe and always discloses the unknown count. Piped output is byte-identical to `NO_COLOR=1`.
 
 ### Fixed
