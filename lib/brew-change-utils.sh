@@ -490,136 +490,338 @@ _bc_fetch_with_redirects() {
     done
 }
 
-# Function to fetch text content (non-JSON) with retries and policy enforcement.
-# Uses the same validate_url() as the JSON helper.
-fetch_url_with_retry_text() {
-    local url="$1"
+# =============================================================================
+# HTTP RESPONSE CACHE (T3.2.2, docs/research-008-evidence-cache-resume.md)
+# =============================================================================
+# One raw-response cache boundary shared by fetch_url_with_retry,
+# fetch_url_with_retry_text, and fetch_url_policy_aware. Only successful
+# responses accepted by the caller's validator are stored; classification
+# always re-runs over the cached body so pattern changes take effect
+# immediately. Entries live in a dedicated $CACHE_DIR/http/ namespace with
+# owner-only permissions and atomic writes.
 
-    # Enforce URL policy
+_http_cache_dir() { printf '%s/http' "$CACHE_DIR"; }
+
+# Test-overridable clock (BREW_CHANGE_PROMPT_TIMEOUT testability precedent).
+_http_cache_now() { printf '%s\n' "${BREW_CHANGE_TEST_NOW:-$(date +%s)}"; }
+
+_http_cache_sha256() { # stdin -> hex digest
+    { command -v sha256sum >/dev/null 2>&1 && sha256sum || shasum -a 256; } | cut -d' ' -f1
+}
+
+# Auth partition label: "anon" or a truncated SHA-256 token fingerprint.
+# The complete key material (URL + partition) is hashed again before it
+# becomes a filename; raw tokens and standalone fingerprints are never
+# written to disk, logs, or UI (research-008 Decision 1).
+_http_cache_partition() { # token
+    local token="${1:-}"
+    if [[ -z "$token" ]]; then
+        printf 'anon\n'
+    else
+        printf '%s\n' "$token" | _http_cache_sha256 | cut -c1-16
+    fi
+}
+
+_http_cache_path() { # url token
+    local key
+    key=$(printf '%s\n%s\n' "$1" "$(_http_cache_partition "$2")" | _http_cache_sha256)
+    printf '%s/%s.cache\n' "$(_http_cache_dir)" "$key"
+}
+
+# Endpoint-class TTL (research-008): low-volatility exact GitHub tag, ref,
+# and commit-SHA objects may use 24h — they are not immutable (release bodies
+# can be edited, refs can move) but change rarely. Mutable collections
+# (/releases), npm responses, scraped pages, and branch-based content use
+# at most 1h.
+_http_cache_ttl() { # url
+    local url="$1"
+    if [[ "$url" == https://api.github.com/* ]]; then
+        if [[ "$url" == */releases/tags/* || "$url" == */git/refs/tags/* ]]; then
+            printf '%s\n' "$HTTP_CACHE_TTL_EXACT_GITHUB_SECONDS"
+            return
+        fi
+        if [[ "$url" =~ (/git/)?/commits/[0-9a-f]{40}$ ]]; then
+            printf '%s\n' "$HTTP_CACHE_TTL_EXACT_GITHUB_SECONDS"
+            return
+        fi
+    fi
+    printf '%s\n' "$HTTP_CACHE_TTL_DEFAULT_SECONDS"
+}
+
+# Quiet body validator used at every cache read and write: syntactically
+# valid JSON for json requests (GitHub error envelopes rejected), or a
+# non-empty body for text requests.
+_http_cache_validate_body() { # body kind
+    local body="$1" kind="$2"
+    if [[ "$kind" == "json" ]]; then
+        printf '%s' "$body" | jq . >/dev/null 2>&1 || return 1
+        if printf '%s' "$body" | jq -e '.message' >/dev/null 2>&1; then return 1; fi
+        if printf '%s' "$body" | jq -e '.documentation_url' >/dev/null 2>&1; then return 1; fi
+        return 0
+    fi
+    [[ -n "$body" ]]
+}
+
+# Entry file format: one jq -c metadata header line
+# {"retrieved_at":<epoch>,"ttl":<seconds>,"kind":"json|text"}, body on the
+# remaining lines. Returns 0 and prints the body when a validated unexpired
+# entry exists; 2 when the entry is expired but was valid at read time
+# (kept on disk as the stale-fallback candidate); 1 on miss or corruption
+# (corrupt entries are deleted and fail closed — never used as fallback).
+_http_cache_lookup() { # url token kind
+    local url="$1" token="$2" kind="$3"
+    local path body header retrieved ttl now
+    path=$(_http_cache_path "$url" "$token")
+    [[ -f "$path" ]] || return 1
+    header=$(head -n 1 "$path" 2>/dev/null) || return 1
+    if ! printf '%s' "$header" | jq -e 'type=="object" and (.retrieved_at|type=="number") and (.ttl|type=="number")' >/dev/null 2>&1; then
+        rm -f "$path" 2>/dev/null || true
+        return 1
+    fi
+    body=$(tail -n +2 "$path" 2>/dev/null)
+    if ! _http_cache_validate_body "$body" "$kind"; then
+        rm -f "$path" 2>/dev/null || true
+        return 1
+    fi
+    retrieved=$(printf '%s' "$header" | jq -r '.retrieved_at')
+    ttl=$(printf '%s' "$header" | jq -r '.ttl')
+    now=$(_http_cache_now)
+    if (( now - retrieved < ttl )); then
+        printf '%s\n' "$body"
+        return 0
+    fi
+    return 2
+}
+
+_http_cache_store() { # body url token kind
+    local body="$1" url="$2" token="$3" kind="$4"
+    local dir path tmp
+    dir=$(_http_cache_dir)
+    mkdir -p "$dir" 2>/dev/null || return 1
+    chmod 700 "$dir" 2>/dev/null || true
+    path=$(_http_cache_path "$url" "$token")
+    # Leading-dot temp name so the existing crashed-writer cleanup pattern
+    # (.*.tmp.*) also covers this namespace.
+    tmp="$(dirname "$path")/.$(basename "$path").tmp.${BASHPID:-$$}"
+    if ! ( umask 077
+           jq -cn --argjson retrieved "$(_http_cache_now)" \
+                   --argjson ttl "$(_http_cache_ttl "$url")" \
+                   --arg kind "$kind" \
+                   '{retrieved_at:$retrieved, ttl:$ttl, kind:$kind}' > "$tmp"
+           printf '%s\n' "$body" >> "$tmp" ); then
+        rm -f "$tmp" 2>/dev/null || true
+        return 1
+    fi
+    chmod 600 "$tmp" 2>/dev/null || true
+    if ! mv "$tmp" "$path" 2>/dev/null; then
+        rm -f "$tmp" 2>/dev/null || true
+        return 1
+    fi
+    chmod 600 "$path" 2>/dev/null || true
+}
+
+# Request-scoped provenance written atomically to a caller-supplied path:
+# {"provenance":"network-fresh|cached-fresh|cached-stale",
+#  "retrieved_at":<epoch>,"age_seconds":<n>}. File side effects survive
+# command-substitution subshells and parallel workers, which shell globals
+# cannot (research-008 Decision 3).
+_http_cache_write_meta() { # meta_path provenance retrieved_at
+    local meta_path="$1" provenance="$2" retrieved_at="$3"
+    [[ -n "$meta_path" ]] || return 0
+    [[ "$retrieved_at" =~ ^[0-9]+$ ]] || return 0
+    local age=$(( $(_http_cache_now) - retrieved_at ))
+    (( age < 0 )) && age=0
+    local tmp="${meta_path}.tmp.${BASHPID:-$$}"
+    if ! jq -cn --arg p "$provenance" --argjson r "$retrieved_at" --argjson a "$age" \
+            '{provenance:$p, retrieved_at:$r, age_seconds:$a}' > "$tmp" 2>/dev/null; then
+        rm -f "$tmp" 2>/dev/null || true
+        return 0
+    fi
+    mv "$tmp" "$meta_path" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
+}
+
+# Run-scoped hit accounting: every cache serve appends one uniquely named
+# event file ("<epoch> <class>") to $BREW_CHANGE_HTTP_CACHE_EVENTS. Unique
+# filenames avoid concurrent counter updates across subshells and parallel
+# workers.
+_http_cache_emit_event() { # class retrieved_at
+    local dir="${BREW_CHANGE_HTTP_CACHE_EVENTS:-}"
+    [[ -n "$dir" ]] || return 0
+    [[ -d "$dir" ]] || mkdir -p "$dir" 2>/dev/null || return 0
+    local f="$dir/e$$.$RANDOM.$(date +%s%N 2>/dev/null || date +%s)"
+    printf '%s %s\n' "$2" "$1" > "$f" 2>/dev/null || true
+    chmod 600 "$f" 2>/dev/null || true
+}
+
+# Aggregate event files for the TTY banner: "count=N oldest_age=S".
+http_cache_hit_summary() {
+    local dir="${BREW_CHANGE_HTTP_CACHE_EVENTS:-}"
+    local now count=0 oldest="" f epoch cls
+    now=$(_http_cache_now)
+    if [[ -n "$dir" && -d "$dir" ]]; then
+        for f in "$dir"/*; do
+            [[ -f "$f" ]] || continue
+            IFS=' ' read -r epoch cls < "$f" || continue
+            [[ "$epoch" =~ ^[0-9]+$ ]] || continue
+            count=$((count + 1))
+            if [[ -z "$oldest" ]] || (( epoch < oldest )); then oldest="$epoch"; fi
+        done
+    fi
+    if (( count == 0 )); then
+        printf 'count=0\n'
+    else
+        printf 'count=%d oldest_age=%d\n' "$count" "$(( now - oldest ))"
+    fi
+}
+
+# Enforce budgets on the HTTP namespace only: at most 512 entries and
+# 100 MiB total, evicting oldest-retrieved entries first (research-008
+# Decision 4). Entries carry their own retrieval epoch, so no stat-mtime
+# portability surface is involved; sizes come from wc -c; dot-prefixed
+# temporary write artifacts are never counted as entries. Unrelated caches
+# are untouched.
+http_cache_prune() {
+    local dir; dir=$(_http_cache_dir)
+    [[ -d "$dir" ]] || return 0
+    local max_entries=${BREW_CHANGE_HTTP_CACHE_MAX_ENTRIES:-512}
+    local max_bytes=${BREW_CHANGE_HTTP_CACHE_MAX_BYTES:-104857600}
+    local -a entries=() lines=()
+    local f epoch size total=0 count
+    while IFS= read -r f; do
+        entries+=("$f")
+        total=$(( total + $(wc -c < "$f") ))
+    done < <(find "$dir" -maxdepth 1 -type f -name '*.cache' 2>/dev/null)
+    count=${#entries[@]}
+    (( count <= max_entries && total <= max_bytes )) && return 0
+    for f in "${entries[@]}"; do
+        epoch=$(head -n 1 "$f" 2>/dev/null | jq -r '.retrieved_at // 0' 2>/dev/null) || epoch=0
+        [[ "$epoch" =~ ^[0-9]+$ ]] || epoch=0
+        lines+=("$(printf '%020d %s' "$epoch" "$f")")
+    done
+    while IFS= read -r line; do
+        (( count <= max_entries && total <= max_bytes )) && break
+        f=${line#* }
+        size=$(wc -c < "$f" 2>/dev/null) || size=0
+        rm -f "$f" 2>/dev/null || true
+        total=$(( total - size ))
+        count=$((count - 1))
+    done < <(printf '%s\n' "${lines[@]}" | sort -n)
+    return 0
+}
+
+# --fresh: remove and recreate ONLY the HTTP namespace. github-patterns.json,
+# brew-info caches, the legacy flat JSON cache, and all unrelated state are
+# preserved. Because old HTTP entries are gone for this run, --fresh cannot
+# fall back to them (research-008 Decision 4).
+http_cache_reset_fresh() {
+    local dir; dir=$(_http_cache_dir)
+    rm -rf "$dir" 2>/dev/null || true
+    mkdir -p "$dir" 2>/dev/null || return 1
+    chmod 700 "$dir" 2>/dev/null || true
+}
+
+# Shared cached fetch backing all three public fetch functions.
+# Args: url token kind meta_path
+# Stdout: the response body. Provenance goes to meta_path; cache serves also
+# emit run-scoped event files. Lifecycle: validated unexpired entry ->
+# cached-fresh; expired -> network refresh (validated, atomically replaced)
+# -> network-fresh; failed refresh -> previously validated entry ->
+# cached-stale; corrupt entry deleted and failed closed (research-008 D4).
+_fetch_url_cached() {
+    local url="$1" token="$2" kind="$3" meta_path="$4"
+
+    # Enforce URL policy before any cache or network activity.
     if ! validate_url "$url"; then
         return 1
     fi
 
-    local attempt=1
+    local path body rc retrieved
+    path=$(_http_cache_path "$url" "$token")
+    if body=$(_http_cache_lookup "$url" "$token" "$kind"); then
+        rc=0
+    else
+        rc=$?
+    fi
+    if (( rc == 0 )); then
+        retrieved=$(head -n 1 "$path" | jq -r '.retrieved_at' 2>/dev/null)
+        printf '%s\n' "$body"
+        _http_cache_write_meta "$meta_path" cached-fresh "$retrieved"
+        _http_cache_emit_event cached-fresh "$retrieved"
+        return 0
+    fi
+    # rc == 2: entry expired but valid — retained on disk as the stale
+    # fallback candidate while the refresh runs.
+
+    local attempt=1 response=""
     while [[ $attempt -le $MAX_RETRIES ]]; do
-        local response=""
-        if response=$(_bc_fetch_with_redirects "$url"); then
-            if [[ -n "$response" ]]; then
+        if response=$(_bc_fetch_with_redirects "$url" "$token"); then
+            if [[ -n "$response" ]] && _http_cache_validate_body "$response" "$kind"; then
+                if ! _http_cache_store "$response" "$url" "$token" "$kind"; then
+                    echo "Warning: Failed to cache response for $url" >&2
+                fi
                 printf '%s\n' "$response"
+                _http_cache_write_meta "$meta_path" network-fresh "$(_http_cache_now)"
                 return 0
             fi
         fi
 
         # Handle retry logic
         if handle_network_error $attempt $MAX_RETRIES "$url"; then
-            return 1
+            break
         fi
         ((attempt++))
     done
 
+    # Refresh failed: only a previously validated entry may be served as
+    # cached-stale. A stale no-signal result remains unknown (classification
+    # vocabulary already encodes this; see assessment.sh).
+    if (( rc == 2 )) && body=$(tail -n +2 "$path" 2>/dev/null) \
+        && _http_cache_validate_body "$body" "$kind"; then
+        retrieved=$(head -n 1 "$path" | jq -r '.retrieved_at' 2>/dev/null)
+        echo "Warning: Using stale cache for $url" >&2
+        printf '%s\n' "$body"
+        _http_cache_write_meta "$meta_path" cached-stale "$retrieved"
+        _http_cache_emit_event cached-stale "$retrieved"
+        return 0
+    fi
     return 1
+}
+
+# Function to fetch text content (non-JSON) with retries, caching, and
+# policy enforcement. Optional second arg: request-scoped provenance
+# metadata path (T3.2.1/T3.2.2).
+fetch_url_with_retry_text() {
+    local url="$1" meta_path="${2:-}"
+    _fetch_url_cached "$url" "" text "$meta_path"
 }
 
 # Shared policy-aware authenticated fetch for GitHub API requests.
 # Sends Authorization header ONLY when the host is api.github.com.
-# All requests go through validate_url and manual redirect following.
+# All requests go through validate_url, the shared HTTP response cache
+# (partitioned by token fingerprint), and manual redirect following.
 #
 # Args:
 #   $1  URL
 #   $2  Auth token (optional; if empty, request is unauthenticated)
+#   $3  Optional request-scoped provenance metadata path (T3.2.1/T3.2.2)
 #
 # Stdout: response body on success
 # Returns: 0 on success, 1 on failure
 fetch_url_policy_aware() {
     local url="$1"
     local token="${2:-}"
-
-    # Enforce URL policy
-    if ! validate_url "$url"; then
-        return 1
-    fi
-
-    local attempt=1
-
-    while [[ $attempt -le $MAX_RETRIES ]]; do
-        local response=""
-        if response=$(_bc_fetch_with_redirects "$url" "$token"); then
-            if [[ -n "$response" ]]; then
-                printf '%s\n' "$response"
-                return 0
-            fi
-        fi
-
-        if handle_network_error $attempt $MAX_RETRIES "$url"; then
-            return 1
-        fi
-        ((attempt++))
-    done
-
-    return 1
+    local meta_path="${3:-}"
+    _fetch_url_cached "$url" "$token" json "$meta_path"
 }
 
 # Function to fetch URL with robust retries, caching, and policy enforcement.
-# Uses validate_url() and manual redirect following (max 2 hops).
+# Uses validate_url(), manual redirect following (max 2 hops), and the shared
+# HTTP response cache (T3.2.2). Optional second arg: request-scoped
+# provenance metadata path.
 fetch_url_with_retry() {
     local url="$1"
-    local cache_file
-    cache_file=$(get_cache_file "$url")
-
-    # Validate URL before processing
-    if ! validate_url "$url"; then
-        return 1
-    fi
-
-    # Check cache first
-    if is_cache_valid "$cache_file"; then
-        local cached_response
-        if cached_response=$(cat "$cache_file" 2>/dev/null); then
-            if validate_json_response "$cached_response" "$url"; then
-                echo "$cached_response"
-                return 0
-            else
-                # Cache contains invalid data, remove it
-                rm -f "$cache_file" 2>/dev/null
-            fi
-        fi
-    fi
-
-    local attempt=1
-    while [[ $attempt -le $MAX_RETRIES ]]; do
-        local response=""
-        if response=$(_bc_fetch_with_redirects "$url"); then
-            if [[ -n "$response" ]]; then
-                # Validate response
-                if validate_json_response "$response" "$url"; then
-                    # Cache validated response atomically
-                    if write_cache_atomic "$response" "$cache_file"; then
-                        echo "$response"
-                        return 0
-                    else
-                        echo "Warning: Failed to cache response for $url" >&2
-                        echo "$response"
-                        return 0
-                    fi
-                fi
-            fi
-        fi
-
-        # Handle retry logic
-        if handle_network_error $attempt $MAX_RETRIES "$url"; then
-            return 1
-        fi
-        ((attempt++))
-    done
-
-    # All retries failed, try to use stale cache if available
-    if [[ -f "$cache_file" ]]; then
-        echo "Warning: Using stale cache for $url" >&2
-        cat "$cache_file"
-        return 0
-    fi
-
-    return 1
+    local meta_path="${2:-}"
+    _fetch_url_cached "$url" "" json "$meta_path"
 }
 
 # Function to find similar package names with length threshold

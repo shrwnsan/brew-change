@@ -843,12 +843,13 @@ Exit evidence:
 
 ### Phase 3 entry gate
 
-- Phase 2 integration accepted.
-- Dashboard wording has observed user feedback or structured maintainer review.
+**Passed 2026-08-20.** Phase 2 integration accepted: T2.6.2 default flip shipped in v1.14.0 (#105/#106) with the mechanical gate of T2.7.1 recorded 2026-08-18. Observed user feedback: maintainer field reports drove the v1.14.1–v1.14.4 soak fixes (#107 "field-report follow-ups from the v1.14.0 soak", #109/#114 PTY stalls reproduced from reports, #111 "live soak of brew-change -u (v1.14.2)" review-list corruption), and research-008 (ratified 2026-08-19) originated from a maintainer v1.14.x field report.
+
+Deterministic-runner suite count: 23 at Phase 3 start → 26 after Wave 1 (first-run guidance, remediation wording, accessibility modes; PR #116) → 27 after Wave 2 (HTTP cache).
 
 ### T3.1.1 — Add concise first-run guidance
 
-**State:** Blocked by Phase 3 entry gate  
+**State:** Complete — Wave 1, PR #116 (usage() boundary explainer; one-line non-persistent stderr hint on interactive dashboard runs; README "First run"; suite tests/test-first-run-guidance.sh)  
 **Complexity:** M  
 **Junior-safe:** Yes  
 **Writes:** CLI/help/docs and tests
@@ -862,7 +863,7 @@ Acceptance:
 
 ### T3.1.2 — Replace jargon-heavy remediation
 
-**State:** Blocked by Phase 3 entry gate  
+**State:** Complete — Wave 1, PR #116 (exact dependency install commands; single evidence-gated auth benefit tip replacing every-run warnings; pipeline-free package suggestions; suite tests/test-remediation-wording.sh)  
 **Complexity:** M  
 **Junior-safe:** Yes  
 **Writes:** dependency/error messages and tests
@@ -875,7 +876,7 @@ Acceptance:
 
 ### T3.2.1 — Show evidence provenance and freshness in review
 
-**State:** Blocked by Phase 3 entry gate and T2.1.2  
+**State:** Complete — Wave 2 integration track with T3.2.2 (truthful retrieval_status/retrieved_at from the fetch boundary provenance metadata; human status phrasing + actionable "Next step" hints in review detail; one-word "cached" marker in the compact review list; record-pipeline Suite 9 proves cached serves keep the original epoch and cached-fresh status)  
 **Complexity:** M  
 **Writes:** evidence/display modules and fixtures
 
@@ -887,7 +888,7 @@ Acceptance:
 
 ### T3.2.2 — Evidence re-entry: unify raw-response caching
 
-**State:** Blocked by Phase 3 entry gate and T3.2.1 (may land in the same change)
+**State:** Complete — Wave 2 integration track with T3.2.1, per ratified research-008: one $CACHE_DIR/http/ boundary under fetch_url_with_retry/_text/policy_aware; endpoint-class TTLs (24h exact GitHub tag/ref/commit-SHA objects, 1h everything else); anon/token-fingerprint key partitioning with no token material on disk; request-scoped provenance meta files surviving subshells; run-scoped event-file hit accounting; TTY-only "Reusing N cached responses…" banner and quit-time re-entry hint (stdout byte-pure, PTY-tested); --fresh namespace-scoped reset; 512-entry/100 MiB oldest-first pruning; validated-stale-only fallback with corrupt fail-closed; selections never persisted. Suite tests/test-http-cache.sh (47 assertions) + dashboard-actions PTY scenarios.
 
 **Complexity:** L
 
@@ -906,7 +907,7 @@ Acceptance (per ratified docs/research-008-evidence-cache-resume.md):
 
 ### T3.3.1 — Polish accessible output modes
 
-**State:** Blocked by Phase 3 entry gate  
+**State:** Complete — Wave 1, PR #116 (text-first `[breaking]` markers per the ratified fixture philosophy with additive-gated ⚠️; hyphen-boundary truncation for kebab signal tokens + narrow-50 golden fixture, all existing fixtures byte-unchanged; BREW_CHANGE_STATIC_PROGRESS=1 static progress mode reusing the T2.4.2 lifecycle; suite tests/test-accessibility-modes.sh)  
 **Complexity:** M  
 **Writes:** config/display modules and golden fixtures
 
@@ -919,9 +920,24 @@ Acceptance:
 
 ### T3.4.1 — Conduct novice workflow checks
 
-**State:** Review gate; blocked by T3.1.1, T3.1.2, T3.2.1, and T3.3.1  
+**State:** Review gate; operator session run 2026-08-20 (maintainer-delegated) — no P0 findings; two P2 wording observations recorded; independent human-novice pass recommended post-release as non-blocking follow-up  
 **Complexity:** M  
 **Owner:** Maintainer/product review
+
+Session record (kit: docs/novice-checks-t3.4.1.md, Environment B — deterministic demo: node 22→25 attention, bat no-signal, wrk rate-limited unknown; driven under a PTY against the Wave 1+2 build; all five scenarios exited 0, read-only):
+
+- S1 orientation: dashboard answers "what am I looking at" (counts, three labeled groups, action line); the stderr first-run hint states the confirm-before-anything boundary verbatim; quit → "Dashboard closed." with no mutation. **Check passes on-screen.**
+- S2 no-signal vs unknown: group labels "No risk signal found" vs "Unknown" are distinct and cannot be confused; the per-package semantics (checked-and-clean vs could-not-check, with reason + Next step) live in the r-Review detail, not on the dashboard itself. **Check passes; wording observation O1 (P2).**
+- S3 attention review: r → list → detail shows Reason ("major version transition detected (heuristic)"), source, URL, human retrieval status, freshness, and the evidence snapshot. **Check passes on-screen.**
+- S4 quit without changes: staged selection → declined exact-plan → quit prints "Review discarded. Re-run 'brew-change -u' — cached evidence will be reused where available." + "Dashboard closed."; the fake-brew log showed only the dry-run call. **Check passes on-screen.**
+- S5 which packages upgrade: Enter → "Preview: brew upgrade --dry-run bat" + "About to upgrade: 1 package / bat" + (y/N). Exactly the no-signal set; attention and unknown absent. **Check passes on-screen.**
+
+Observations (rubric classification):
+- **O1 (P2):** the dashboard itself does not state the no-signal/unknown semantic difference in words (the detail view carries it). Wording candidate for a follow-up: one legend line.
+- **O2 (P2):** "Freshness: retrieved unknown" reads oddly for rows without a timestamp; "Upgrade cancelled." prints twice after a declined confirmation; the static footer and the interactive prompt use two hint formats ("[r] Review details" vs "[r]eview").
+- **Caveat (recorded per kit exit rules):** this was an operator session delegated by the maintainer, not an independent novice participant; the comprehension conclusions are affordance-level (the answers are visible on screen), not behavioral. A human-novice pass remains recommended (non-blocking) using the same kit.
+
+Prioritized follow-ups: none blocking; O1/O2 recorded for the next wording wave. No scope-creep requests surfaced (no GUI/daemon asks).
 
 Use scenario prompts rather than teaching the interface. At minimum, verify that a participant can explain:
 
@@ -939,7 +955,7 @@ Acceptance:
 
 ### T3.7.1 — Phase 3 integration and release gate
 
-**State:** Integration; blocked by required Phase 3 implementation and review tasks  
+**State:** Integration; implementation complete (PRs #116, #117), evidence pack below; awaiting T3.4.1 results and maintainer release approval  
 **Complexity:** L  
 **Owner:** Maintainer/integrator
 
@@ -950,6 +966,15 @@ Exit evidence:
 - Provenance and unknown reasons are reviewable.
 - No telemetry, account, daemon, or sponsorship interruption was added.
 - Documentation covers the primary journey for both audiences.
+
+Evidence pack (2026-08-20, pre-release; maintained by the integrator):
+
+- **Verification:** deterministic runner 27/27 suites from clean invocation (23 at Phase 3 start → 26 with Wave 1 → 27 with Wave 2); `bash -n` + `shellcheck --severity=error` clean repo-wide; Linux container run matches the pre-Phase-3 container baseline (the two known python:3.12-slim locale artifacts; ubuntu-latest CI is the authoritative Linux gate and is green on Wave 1); warm-cache full-CLI smoke twice against a real 35-package inventory (60 HTTP cache entries stable, second run cache-served).
+- **No-color/no-emoji:** fixture-locked base render byte-identical under `NO_COLOR` (no-color/mixed golden pair); `[breaking]` text labels carry all meaning with emoji strictly additive (`BREW_CHANGE_NO_EMOJI=1` / `NO_COLOR`); static progress alternative for animation-sensitive users.
+- **Provenance reviewable:** review detail shows source, URL, human-readable retrieval status and freshness plus a "Next step" hint for unknown-class causes; compact rows mark cached evidence; record-pipeline Suite 9 proves cached serves keep the original epoch and truthful status.
+- **No telemetry/accounts/daemons/GUI:** the Phase 3 diff adds no network sink beyond the existing evidence fetches, no accounts (auth stays optional `gh`), no background processes, and no persisted selections (research-008 Decision 2 verified by quit-hint PTY test).
+- **Documentation:** README covers the dashboard first-run journey, evidence caching/`--fresh`, and accessibility knobs; `--help` leads with the trusted update workflow; CHANGELOG [Unreleased] filled for the release notes.
+- **Pending before release:** T3.4.1 novice-check results (materials: docs/novice-checks-t3.4.1.md) and maintainer approval of both PRs plus the version bump (target: 1.15.0 minor — new `--fresh` flag and cache/UI behavior).
 
 ## 8. Phase 4 — Optional Native Reach
 

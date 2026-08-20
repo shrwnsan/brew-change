@@ -2,10 +2,12 @@
 # Non-GitHub package release notes fetcher for brew-change
 
 # Function to fetch release notes from SourceForge
+# Optional fourth arg: request-scoped provenance metadata path (T3.2.1).
 fetch_sourceforge_release_notes() {
     local package_name="$1"
     local version="$2"
     local source_url="$3"
+    local meta_path="${4:-}"
 
     # Extract project name from SourceForge URL
     # Examples:
@@ -25,7 +27,7 @@ fetch_sourceforge_release_notes() {
 
     # Try to fetch the release page and look for release notes/changelog
     local release_page=""
-    if release_page=$(fetch_url_with_retry "$release_url" 2>/dev/null); then
+    if release_page=$(fetch_url_with_retry "$release_url" "$meta_path" 2>/dev/null); then
         # Extract release notes from the page if available
         local release_notes=""
         release_notes=$(echo "$release_page" | grep -A 20 -B 5 -i "release note\|changelog\|what.*new\|changes" | sed 's/<[^>]*>//g' | head -10 | tr -d '\n' | sed 's/^\s*//' | sed 's/\s*$//')
@@ -39,7 +41,7 @@ fetch_sourceforge_release_notes() {
     # Fallback: try main project page for recent news/updates
     local project_url="https://sourceforge.net/projects/$project_name/"
     local project_page=""
-    if project_page=$(fetch_url_with_retry "$project_url" 2>/dev/null); then
+    if project_page=$(fetch_url_with_retry "$project_url" "$meta_path" 2>/dev/null); then
         # Look for recent updates or news
         local recent_news=""
         recent_news=$(echo "$project_page" | grep -A 5 -B 2 -i "version.*$version\|$version.*release" | sed 's/<[^>]*>//g' | head -5 | tr '\n' ' ' | sed 's/^\s*//' | sed 's/\s*$//')
@@ -65,9 +67,11 @@ fetch_sourceforge_release_notes() {
 }
 
 # Function to fetch release notes from CrabNebula packages
+# Optional third arg: request-scoped provenance metadata path (T3.2.1).
 fetch_crabnebula_release_notes() {
     local package_name="$1"
     local version="$2"
+    local meta_path="${3:-}"
 
     # CrabNebula hosts many developer tools, try their main site or docs
     
@@ -80,7 +84,7 @@ fetch_crabnebula_release_notes() {
         # Try CrabNebula's releases or changelog page
         local changelog_url="https://crabnebula.app/releases"
         local changelog_page=""
-        if changelog_page=$(fetch_url_with_retry "$changelog_url" 2>/dev/null); then
+        if changelog_page=$(fetch_url_with_retry "$changelog_url" "$meta_path" 2>/dev/null); then
             # Extract version-specific information
             release_notes=$(echo "$changelog_page" | grep -A 10 -B 2 -i "conductor.*$version\|$version" | sed 's/<[^>]*>//g' | head -8 | tr '\n' ' ' | sed 's/^\s*//' | sed 's/\s*$//')
 
@@ -93,7 +97,7 @@ fetch_crabnebula_release_notes() {
         # Try GitHub releases for CrabNebula conductor if it exists
         local github_url="https://api.github.com/repos/crabnebula/conductor/releases/tags/v$version"
         local github_response=""
-        if github_response=$(fetch_url_with_retry "$github_url" 2>/dev/null); then
+        if github_response=$(fetch_url_with_retry "$github_url" "$meta_path" 2>/dev/null); then
             if [[ "$github_response" != "null" && -n "$github_response" ]]; then
                 local body=$(echo "$github_response" | jq -r '.body // ""' 2>/dev/null)
                 if [[ -n "$body" && "$body" != "null" ]]; then
@@ -107,7 +111,7 @@ fetch_crabnebula_release_notes() {
     # General CrabNebula package search
     local search_url="https://crabnebula.app/packages/$package_name"
     local package_page=""
-    if package_page=$(fetch_url_with_retry "$search_url" 2>/dev/null); then
+    if package_page=$(fetch_url_with_retry "$search_url" "$meta_path" 2>/dev/null); then
         # Look for version information or changelog
         release_notes=$(echo "$package_page" | grep -A 8 -B 2 -i "version.*$version\|changelog\|release.*note" | sed 's/<[^>]*>//g' | head -6 | tr '\n' ' ' | sed 's/^\s*//' | sed 's/\s*$//')
 
@@ -132,9 +136,11 @@ fetch_crabnebula_release_notes() {
 }
 
 # Function to fetch release notes from Factory AI packages
+# Optional third arg: request-scoped provenance metadata path (T3.2.1).
 fetch_factory_ai_release_notes() {
     local package_name="$1"
     local version="$2"
+    local meta_path="${3:-}"
 
     
     # Try Factory AI's website or API
@@ -143,7 +149,7 @@ fetch_factory_ai_release_notes() {
         # Try to find droid release information
         local droid_url="https://factory.ai/droid"
         local droid_page=""
-        if droid_page=$(fetch_url_with_retry "$droid_url" 2>/dev/null); then
+        if droid_page=$(fetch_url_with_retry "$droid_url" "$meta_path" 2>/dev/null); then
             # Look for version-specific information
             local release_notes=""
             release_notes=$(echo "$droid_page" | grep -A 8 -B 2 -i "version.*$version\|droid.*$version\|changelog\|release" | sed 's/<[^>]*>//g' | head -6 | tr '\n' ' ' | sed 's/^\s*//' | sed 's/\s*$//')
@@ -157,7 +163,7 @@ fetch_factory_ai_release_notes() {
         # Try GitHub if droid has a public repo
         local github_url="https://api.github.com/repos/factory-ai/droid/releases/tags/v$version"
         local github_response=""
-        if github_response=$(fetch_url_with_retry "$github_url" 2>/dev/null); then
+        if github_response=$(fetch_url_with_retry "$github_url" "$meta_path" 2>/dev/null); then
             if [[ "$github_response" != "null" && -n "$github_response" ]]; then
                 local body=$(echo "$github_response" | jq -r '.body // ""' 2>/dev/null)
                 if [[ -n "$body" && "$body" != "null" ]]; then
@@ -171,7 +177,7 @@ fetch_factory_ai_release_notes() {
     # General Factory AI search
     local search_url="https://factory.ai/packages/$package_name"
     local package_page=""
-    if package_page=$(fetch_url_with_retry "$search_url" 2>/dev/null); then
+    if package_page=$(fetch_url_with_retry "$search_url" "$meta_path" 2>/dev/null); then
         local release_notes=""
         release_notes=$(echo "$package_page" | grep -A 6 -B 2 -i "version.*$version\|release.*note" | sed 's/<[^>]*>//g' | head -5 | tr '\n' ' ' | sed 's/^\s*//' | sed 's/\s*$//')
 
@@ -185,11 +191,13 @@ fetch_factory_ai_release_notes() {
 }
 
 # Function to fetch release notes from generic package websites
+# Optional fifth arg: request-scoped provenance metadata path (T3.2.1).
 fetch_generic_release_notes() {
     local package_name="$1"
     local version="$2"
     local source_url="$3"
     local domain="$4"
+    local meta_path="${5:-}"
 
     
     # Try to construct a release notes URL based on common patterns
@@ -209,7 +217,7 @@ fetch_generic_release_notes() {
         release_url="${release_url//\{version\}/$version}"
 
         local release_page=""
-        if release_page=$(fetch_url_with_retry "$release_url" 2>/dev/null); then
+        if release_page=$(fetch_url_with_retry "$release_url" "$meta_path" 2>/dev/null); then
             # Look for release content
             local release_notes=""
             release_notes=$(echo "$release_page" | grep -A 15 -B 3 -i "version.*$version\|$version.*release\|changelog\|what.*new" | sed 's/<[^>]*>//g' | head -10 | tr '\n' ' ' | sed 's/^\s*//' | sed 's/\s*$//')
@@ -233,7 +241,7 @@ fetch_generic_release_notes() {
         local official_url="${pattern//\{package_name\}/$package_name}"
 
         local official_page=""
-        if official_page=$(fetch_url_with_retry "$official_url" 2>/dev/null); then
+        if official_page=$(fetch_url_with_retry "$official_url" "$meta_path" 2>/dev/null); then
             # Look for links to release notes, changelog, or documentation
             local release_link=""
             release_link=$(echo "$official_page" | grep -i -o 'href="[^"]*\(changelog\|release\|news\|blog\)[^"]*"' | head -3 | sed 's/href="//' | sed 's/"//' | head -1)
@@ -247,7 +255,7 @@ fetch_generic_release_notes() {
                 fi
 
                 local release_page=""
-                if release_page=$(fetch_url_with_retry "$release_link" 2>/dev/null); then
+                if release_page=$(fetch_url_with_retry "$release_link" "$meta_path" 2>/dev/null); then
                     local release_notes=""
                     release_notes=$(echo "$release_page" | grep -A 10 -B 2 -i "version.*$version\|$version" | sed 's/<[^>]*>//g' | head -8 | tr '\n' ' ' | sed 's/^\s*//' | sed 's/\s*$//')
 
@@ -304,12 +312,16 @@ construct_project_page_url() {
     return 1
 }
 
-# Main function to fetch release notes for non-GitHub packages
+# Main function to fetch release notes for non-GitHub packages.
+# Optional fifth arg: request-scoped provenance metadata path (T3.2.1).
+# Every per-domain fetcher returns immediately after its winning fetch, so
+# the last successful fetch whose meta was written is the content source.
 fetch_non_github_release_notes() {
     local package_name="$1"
     local version="$2"
     local source_url="$3"
     local homepage="$4"  # Add homepage parameter
+    local meta_path="${5:-}"
 
     if [[ -z "$source_url" || "$source_url" == "null" ]]; then
         # Try documentation repo approach using homepage
@@ -335,16 +347,16 @@ fetch_non_github_release_notes() {
     # Route to appropriate fetcher based on domain
     case "$domain" in
         "downloads.sourceforge.net"|"sourceforge.net")
-            fetch_sourceforge_release_notes "$package_name" "$version" "$source_url"
+            fetch_sourceforge_release_notes "$package_name" "$version" "$source_url" "$meta_path"
             ;;
         "cdn.crabnebula.app"|"crabnebula.app")
-            fetch_crabnebula_release_notes "$package_name" "$version"
+            fetch_crabnebula_release_notes "$package_name" "$version" "$meta_path"
             ;;
         "downloads.factory.ai"|"factory.ai")
-            fetch_factory_ai_release_notes "$package_name" "$version"
+            fetch_factory_ai_release_notes "$package_name" "$version" "$meta_path"
             ;;
         *)
-            fetch_generic_release_notes "$package_name" "$version" "$source_url" "$domain"
+            fetch_generic_release_notes "$package_name" "$version" "$source_url" "$domain" "$meta_path"
             ;;
     esac
 }

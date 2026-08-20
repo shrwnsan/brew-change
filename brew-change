@@ -38,6 +38,8 @@ Options:
                         never prompt or upgrade.
                         Use --dry-run to preview without executing
   -n, --dry-run        Preview upgrade without executing (use with -u)
+      --fresh          Re-probe all evidence this run: clears only the HTTP
+                        response cache first (other caches are kept)
       --plain          Use the previous prompt flow for -u instead of the
                         dashboard (also via BREW_CHANGE_PLAIN=1; the flag
                         beats the environment variable)
@@ -79,6 +81,7 @@ _PRE_PARSE_SHOW_HELP="false"
 _PRE_PARSE_SHOW_VERSION="false"
 _PRE_PARSE_HAS_DRY_RUN="false"
 _PRE_PARSE_HAS_UPGRADE="false"
+_PRE_PARSE_HAS_EVIDENCE_MODE="false"
 _PRE_PARSE_HAS_INVALID="false"
 _PRE_PARSE_INVALID_OPT=""
 
@@ -95,13 +98,24 @@ for _arg in "${ORIGINAL_ARGS[@]}"; do
             ;;
         -u|--upgrade)
             _PRE_PARSE_HAS_UPGRADE="true"
+            _PRE_PARSE_HAS_EVIDENCE_MODE="true"
             ;;
-        -a|--all|-v|--verbose|-b|--id-breaking|--dashboard|--plain) ;;
+        -a|--all|-b|--id-breaking)
+            _PRE_PARSE_HAS_EVIDENCE_MODE="true"
+            ;;
+        --fresh)
+            # T3.2.2: evidence re-probe; only meaningful when evidence will
+            # be gathered (validated below).
+            ;;
+        -v|--verbose|--dashboard|--plain) ;;
         -*)
             _PRE_PARSE_HAS_INVALID="true"
             _PRE_PARSE_INVALID_OPT="$_arg"
             ;;
-        *) ;;
+        *)
+            # A package argument gathers changelog evidence too.
+            _PRE_PARSE_HAS_EVIDENCE_MODE="true"
+            ;;
     esac
 done
 
@@ -119,8 +133,19 @@ fi
 # --dry-run without -u is invalid
 if [[ "$_PRE_PARSE_HAS_DRY_RUN" == "true" && "$_PRE_PARSE_HAS_UPGRADE" == "false" ]]; then
     echo "Error: --dry-run requires --upgrade" >&2
+    echo "Example: brew-change -u --dry-run" >&2
     exit 1
 fi
+
+# --fresh only matters when evidence will be gathered (T3.2.2)
+for _arg in "${ORIGINAL_ARGS[@]}"; do
+    if [[ "$_arg" == "--fresh" && "$_PRE_PARSE_HAS_EVIDENCE_MODE" == "false" ]]; then
+        echo "Error: --fresh requires an evidence-gathering mode (-u, -a, -b, or a PACKAGE)" >&2
+        echo "Example: brew-change -u --fresh" >&2
+        exit 1
+    fi
+done
+unset _arg
 
 # Unknown option
 if [[ "$_PRE_PARSE_HAS_INVALID" == "true" ]]; then
@@ -202,6 +227,7 @@ UPGRADE_MODE="false"
 DRY_RUN_MODE="false"
 DASHBOARD_MODE="false"
 PLAIN_MODE="false"
+FRESH_MODE="false"
 PACKAGES=()
 
 # Re-parse original arguments for full flag resolution
@@ -233,6 +259,12 @@ while [[ $# -gt 0 ]]; do
             ;;
         --plain)
             PLAIN_MODE="true"
+            shift
+            ;;
+        --fresh)
+            # T3.2.2: remove and recreate only the HTTP response cache
+            # before evidence gathering (see the pre-gather block below).
+            FRESH_MODE="true"
             shift
             ;;
         -v|--verbose)
@@ -529,6 +561,25 @@ else
         if [[ -n "${PROGRESS_RENDERER_PID:-}" ]]; then
             BREW_CHANGE_DEFER_SUMMARY=1
         fi
+
+        # T3.2.2 evidence re-entry (research-008): --fresh removes and
+        # recreates ONLY the HTTP response cache (github-patterns, brew-info
+        # caches, and unrelated state are preserved, and stale fallback is
+        # impossible because old entries are gone); pruning enforces the
+        # 512-entry / 100 MiB budgets on that namespace only; the run-scoped
+        # cache-events directory receives one uniquely named file per cache
+        # serve so subshells and parallel workers need no shared counters.
+        if [[ "$FRESH_MODE" == "true" ]]; then
+            if ! http_cache_reset_fresh; then
+                echo "Warning: --fresh cache reset failed; continuing with existing cache" >&2
+            fi
+        fi
+        http_cache_prune || true
+        if [[ "$UPGRADE_MODE" == "true" ]]; then
+            export BREW_CHANGE_HTTP_CACHE_EVENTS="${BREW_CHANGE_HTTP_CACHE_EVENTS:-$UPGRADE_STATUS_DIR/http-cache-events}"
+            mkdir -p "$BREW_CHANGE_HTTP_CACHE_EVENTS" 2>/dev/null || true
+        fi
+
         process_packages_parallel "$outdated_packages" "$PARALLEL_JOBS"
         BREW_CHANGE_DEFER_SUMMARY=0
 

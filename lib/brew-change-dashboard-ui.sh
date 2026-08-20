@@ -313,6 +313,36 @@ _dashboard_compact_reason() { # reason
     fi
 }
 
+# Human phrasing for the retrieval-status vocabulary (T3.2.1): the review
+# detail shows what the status means, not just the token.
+_dashboard_status_phrase() { # status
+    case "$1" in
+        fresh)         printf 'fresh (retrieved this run)' ;;
+        cached-fresh)  printf 'cached (reused, within freshness policy)' ;;
+        stale)         printf 'stale cache (refresh failed; treated as unknown)' ;;
+        rate-limited)  printf 'rate-limited by GitHub' ;;
+        malformed)     printf 'malformed response' ;;
+        contradictory) printf 'contradictory evidence' ;;
+        unsupported)   printf 'unsupported source' ;;
+        failed)        printf 'fetch failed' ;;
+        unavailable)   printf 'no notes available upstream' ;;
+        *)             printf '%s' "$1" ;;
+    esac
+}
+
+# One actionable remediation line for unknown-class statuses (T3.2.1);
+# empty when there is nothing useful to suggest.
+_dashboard_status_hint() { # status
+    case "$1" in
+        rate-limited) printf 'authenticate GitHub for a higher limit: brew install gh && gh auth login' ;;
+        stale)        printf 're-probe with: brew-change -u --fresh' ;;
+        failed)       printf 'check network and re-run; cached evidence will be reused where available' ;;
+        malformed)    printf 'upstream returned invalid data; re-probe later with --fresh' ;;
+        unsupported|unavailable) printf 'open the evidence URL to review manually' ;;
+        *)            return 0 ;;
+    esac
+}
+
 # Differential token for one review-list row (same derivation as the
 # dashboard rows):
 #   attention -> matched_signals tokens comma-joined (fallback: compact
@@ -320,11 +350,14 @@ _dashboard_compact_reason() { # reason
 #   unknown   -> retrieval_status token, except "unavailable" (the dominant
 #                no-action case), which is suppressed exactly as in the
 #                dashboard's Unknown group;
-#   no-signal -> no suffix.
+#   no-signal -> no suffix, except a one-word "cached" marker when the
+#                evidence was served from a fresh cache entry (T3.2.1:
+#                cache use stays visible in the compact list without
+#                overwhelming it).
 # A malformed record row must degrade to a tokenless line, never leak jq's
 # parse error into a drawn screen (the record text is data, not code).
 _dashboard_review_token() { # json-record
-    local record="$1" token cls
+    local record="$1" token cls status
     cls=$(jq -r '.classification // "unknown"' <<< "$record" 2>/dev/null || true)
     case "$cls" in
         attention)
@@ -341,7 +374,12 @@ _dashboard_review_token() { # json-record
             [[ "$token" == "unavailable" ]] && token=""
             ;;
         *)
-            token=""
+            status=$(jq -r '.retrieval_status // ""' <<< "$record" 2>/dev/null || true)
+            if [[ "$status" == "cached-fresh" ]]; then
+                token="cached"
+            else
+                token=""
+            fi
             ;;
     esac
     printf '%s' "$token"
@@ -436,8 +474,13 @@ _dashboard_review_detail() { # records package [position [total]]
     if [[ -n "$url" && "$url" != "null" ]]; then
         printf 'Evidence URL:     %s\n' "$url"
     fi
-    printf 'Retrieval status: %s\n' "$status"
+    # Truthful provenance (T3.2.1): human phrasing for the retrieval
+    # vocabulary plus one actionable hint where a next step exists.
+    printf 'Retrieval status: %s\n' "$(_dashboard_status_phrase "$status")"
     printf 'Freshness:        retrieved %s\n' "$(_dashboard_freshness "$at")"
+    local hint
+    hint=$(_dashboard_status_hint "$status")
+    [[ -n "$hint" ]] && printf 'Next step:        %s\n' "$hint"
     if [[ -n "$snap" && "$snap" != "null" ]]; then
         printf 'Evidence snapshot:\n'
         while IFS= read -r snap; do
@@ -838,6 +881,35 @@ _dashboard_upgrade_state() { # records_var refresh_func pkgs...
 # DASHBOARD state / entry point
 # ---------------------------------------------------------------------------
 
+# Human-readable age for the TTY cache banner (research-008 Decision 3).
+_dashboard_humanize_age() { # seconds
+    local s="$1"
+    if (( s < 60 )); then printf '%ds' "$s"
+    elif (( s < 3600 )); then printf '%dm' "$(( s / 60 ))"
+    elif (( s < 86400 )); then printf '%dh' "$(( s / 3600 ))"
+    else printf '%dd' "$(( s / 86400 ))"
+    fi
+}
+
+# TTY-only cache summary (research-008 Decision 3): one line when cached
+# responses were reused this run, aggregated from the run-scoped event
+# files. Goes to the controlling terminal only — captured stdout stays
+# pure — and does not promise that every probe was cached.
+_dashboard_cache_banner() {
+    local summary count oldest
+    command -v http_cache_hit_summary >/dev/null 2>&1 || return 0
+    summary=$(http_cache_hit_summary 2>/dev/null) || return 0
+    count=${summary#count=}
+    count=${count%% *}
+    [[ "$count" =~ ^[0-9]+$ ]] || return 0
+    (( count > 0 )) || return 0
+    oldest="?"
+    if [[ "$summary" =~ oldest_age=([0-9]+) ]]; then
+        oldest=$(_dashboard_humanize_age "${BASH_REMATCH[1]}")
+    fi
+    _dashboard_say "Reusing $count cached responses (oldest $oldest old). Use --fresh to re-probe."
+}
+
 # Print the compact action prompt on its own line. Split out of
 # _dashboard_render so the invalid-key path can re-print just the prompt
 # without re-rendering the whole dashboard. Records the drawn width in
@@ -892,6 +964,10 @@ run_dashboard_mode() {
 
     _dashboard_install_traps
 
+    # T3.2.2 re-entry banner: shown before the first render so it never
+    # interleaves with dashboard frames. TTY-only (stdout purity).
+    _dashboard_cache_banner
+
     local -a no_signal=() selected=()
     local key rc input msg clear_width skip_render=false
 
@@ -942,12 +1018,23 @@ run_dashboard_mode() {
                     _dashboard_upgrade_state records "$refresh_func" \
                         ${no_signal[@]+"${no_signal[@]}"}
                 else
+                    _dashboard_say ""
+                    if (( ${#selected[@]} > 0 )); then
+                        _dashboard_say "Review discarded. Re-run 'brew-change -u' — cached evidence will be reused where available."
+                    fi
                     _dashboard_say "Dashboard closed."
                     _dashboard_exit_ok
                 fi
                 ;;
             q|Q)
                 _dashboard_say ""
+                # Quit with a staged selection remains an abort (research-008
+                # Decision 2): selections never persist, and the TTY-only
+                # hint tells the user a re-run is cheap, not that every
+                # probe is cached.
+                if (( ${#selected[@]} > 0 )); then
+                    _dashboard_say "Review discarded. Re-run 'brew-change -u' — cached evidence will be reused where available."
+                fi
                 _dashboard_say "Dashboard closed."
                 _dashboard_exit_ok
                 ;;
