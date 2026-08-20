@@ -95,6 +95,28 @@ on a major bump — is that "no breaking" or "unknown"?).
       whole input (no-match runs returned the full notes verbatim);
       now `perl -0777 -ne`, explicit prints only.
 
+Release evidence (v1.16.0, 2026-08-21):
+
+- Implementation merged via #122 (squash 29881ab); version bump #123
+  merged after both CI matrix jobs passed (macOS 7m48s, ubuntu 10m51s)
+  and the local preflight deterministic runner passed 28/28 suites from
+  a clean invocation on the release HEAD.
+- Tag `v1.16.0` → https://github.com/shrwnsan/brew-change/releases/tag/v1.16.0
+  (notes = the dated CHANGELOG section); source archive SHA256
+  `e819efc5f3f4e75f5321f47fefdfb3c27638feeeb90086d3fe13d483a9a3302f`.
+- Tap formula bumped via shrwnsan/homebrew-tap#43 (no lift needed — the
+  tap repo has no branch protection).
+- End-to-end validation: `brew upgrade` 1.15.0 → 1.16.0 (Homebrew-
+  verified sha256), `brew test` and `brew audit` clean, installed CLI
+  reports 1.16.0, live `-b` run on the real inventory ends with the
+  verdict block.
+- Process note (transparency): #122 and #123 were merged via the
+  established disclosed lift-merge-restore (branch protection requires
+  one approving review; the sole write-access account authored both PRs;
+  the maintainer approved in-session and directed both the merge and the
+  release; protection restored to its exact prior state immediately
+  after each merge, verified by API diff).
+
 ## Task 2: LLM-assisted triage (only if Task 0 says go)
 
 - [ ] PRD from research-009's contracts; opt-in only; labeled provenance
