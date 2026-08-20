@@ -14,6 +14,11 @@ source "$SCRIPT_DIR/lib/test-utils.sh"
 
 export BREW_CHANGE_MAX_RETRIES=1
 export BREW_CHANGE_SUBPROCESS="true"
+# Isolated cache (T3.2.2): the redirect scenarios below exercise the shared
+# HTTP response cache, which must never read or pollute the user's real
+# ~/.cache/brew-change with fixture bodies.
+export BREW_CHANGE_CACHE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bc-url-policy.XXXXXX")"
+trap 'rm -rf "$BREW_CHANGE_CACHE_DIR"' EXIT
 source "$SCRIPT_DIR/../lib/brew-change-config.sh"
 source "$SCRIPT_DIR/../lib/brew-change-utils.sh"
 source "$SCRIPT_DIR/../lib/brew-change-non-github.sh"
@@ -229,7 +234,11 @@ case "$url" in
         ;;
     https://github.com/final)
         printf 'HTTP/1.1 200 OK\r\n\r\n' > "$headers"
-        printf 'release notes' > "$output"
+        # JSON body: this endpoint serves both the text-fetch redirect
+        # scenarios (any non-empty body validates) and the auth-confinement
+        # scenario, whose policy-aware (JSON) fetch must accept it now that
+        # the shared cache boundary validates response kinds (T3.2.2).
+        printf '{"note":"release notes"}' > "$output"
         ;;
     *) exit 125 ;;
 esac
@@ -238,7 +247,7 @@ chmod +x "$COMMAND_HARNESS_BIN/curl"
 
 : > "$COMMAND_HARNESS_LOG"
 redirect_result=$(fetch_url_with_retry_text "https://api.github.com/start-allowed" 2>/dev/null)
-if [[ "$redirect_result" == "release notes" ]] && [[ $(wc -l < "$COMMAND_HARNESS_LOG" | tr -d ' ') -eq 2 ]]; then
+if [[ "$redirect_result" == '{"note":"release notes"}' ]] && [[ $(wc -l < "$COMMAND_HARNESS_LOG" | tr -d ' ') -eq 2 ]]; then
     echo "PASS: allowed redirect is followed exactly once"
     pass=$((pass+1))
 else
@@ -260,7 +269,7 @@ fi
 
 : > "$COMMAND_HARNESS_LOG"
 auth_result=$(fetch_url_policy_aware "https://api.github.com/start-auth" "secret-token" 2>/dev/null)
-if [[ "$auth_result" == "release notes" ]] \
+if [[ "$auth_result" == '{"note":"release notes"}' ]] \
     && sed -n '1p' "$COMMAND_HARNESS_LOG" | grep -q $'\tAuthorization: token secret-token' \
     && ! sed -n '2p' "$COMMAND_HARNESS_LOG" | grep -q 'Authorization:'; then
     echo "PASS: authorization is stripped on redirect away from api.github.com"
@@ -274,7 +283,7 @@ fi
 root_result=$(fetch_url_with_retry_text "https://api.github.com/start-root" 2>/dev/null)
 relative_result=$(fetch_url_with_retry_text "https://api.github.com/path/start-relative" 2>/dev/null)
 scheme_relative_result=$(fetch_url_with_retry_text "https://api.github.com/start-scheme-relative" 2>/dev/null)
-if [[ "$root_result" == "root-relative" && "$relative_result" == "path-relative" && "$scheme_relative_result" == "release notes" ]]; then
+if [[ "$root_result" == "root-relative" && "$relative_result" == "path-relative" && "$scheme_relative_result" == '{"note":"release notes"}' ]]; then
     echo "PASS: root, path, and scheme-relative redirects resolve correctly"
     pass=$((pass+1))
 else

@@ -136,6 +136,27 @@ assert_eq "-n no fake commands invoked" "" "$RUN_BC_LOG"
 assert_contains "-n error message" "Error:" "$RUN_BC_STDERR"
 
 # ---------------------------------------------------------------------------
+# Suite 2b: --fresh requires an evidence-gathering mode (T3.2.2)
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Suite 2b: --fresh without evidence mode ==="
+echo ""
+
+echo "Test 6b: --fresh alone exits non-zero before any brew/curl call"
+run_brew_change_harness --fresh
+assert_eq "--fresh exit code" "1" "$RUN_BC_EXIT"
+assert_eq "--fresh no fake commands invoked" "" "$RUN_BC_LOG"
+assert_contains "--fresh error message" "Error:" "$RUN_BC_STDERR"
+assert_contains "--fresh error names a valid example" "brew-change -u --fresh" "$RUN_BC_STDERR"
+assert_contains "--fresh error names the requirement" "evidence-gathering mode" "$RUN_BC_STDERR"
+
+echo ""
+echo "Test 6c: --help documents --fresh"
+run_brew_change_harness --help
+assert_contains "--help mentions --fresh" "--fresh" "$RUN_BC_STDOUT"
+assert_contains "--help explains --fresh scope" "HTTP" "$RUN_BC_STDOUT"
+
+# ---------------------------------------------------------------------------
 # Suite 3: Unknown options fail early
 # ---------------------------------------------------------------------------
 echo ""
