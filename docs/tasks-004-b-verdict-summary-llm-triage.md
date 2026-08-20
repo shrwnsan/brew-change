@@ -49,8 +49,7 @@ on a major bump — is that "no breaking" or "unknown"?).
 
 ## Task 1: `-b` end-of-run verdict summary (independent of Task 0)
 
-**State:** Implemented (feat/b-verdict-summary) — with three ratified
-deviations from the original checkboxes, recorded below.
+**State:** Passed — released as v1.16.0 (2026-08-21) via PR #122 (squash 29881ab); maintainer-approved, disclosed lift-merge-restore per the established procedure. Three ratified deviations from the original checkboxes, recorded below.
 
 - [x] After parallel processing completes: a summary block — the counts
       line `Verdict: A attention · D no-signal · E unknown` followed by

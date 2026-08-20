@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-08-21
+
 ### Added
 - `-b` end-of-run verdict summary (tasks-004 Task 1): plain `brew-change -b` runs now record evidence through the same assessment pipeline as `-u` and end with a compact verdict block — `Verdict: A attention · D no-signal · E unknown`, attention rows split into breaking changes (with one-line evidence excerpts) and major version transitions, counts for no-signal/unknown, and an explicit all-clear line when nothing matched. The all-clear never claims an upgrade is safe and always discloses the unknown count. Piped output is byte-identical to `NO_COLOR=1`.
 
