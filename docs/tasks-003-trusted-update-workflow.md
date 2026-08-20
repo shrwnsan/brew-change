@@ -920,9 +920,24 @@ Acceptance:
 
 ### T3.4.1 — Conduct novice workflow checks
 
-**State:** Review gate; implementation tasks T3.1.1/T3.1.2/T3.3.1 complete (PR #116) and T3.2.1/T3.2.2 complete (Wave 2) — scenario materials prepared, awaiting maintainer run  
+**State:** Review gate; operator session run 2026-08-20 (maintainer-delegated) — no P0 findings; two P2 wording observations recorded; independent human-novice pass recommended post-release as non-blocking follow-up  
 **Complexity:** M  
 **Owner:** Maintainer/product review
+
+Session record (kit: docs/novice-checks-t3.4.1.md, Environment B — deterministic demo: node 22→25 attention, bat no-signal, wrk rate-limited unknown; driven under a PTY against the Wave 1+2 build; all five scenarios exited 0, read-only):
+
+- S1 orientation: dashboard answers "what am I looking at" (counts, three labeled groups, action line); the stderr first-run hint states the confirm-before-anything boundary verbatim; quit → "Dashboard closed." with no mutation. **Check passes on-screen.**
+- S2 no-signal vs unknown: group labels "No risk signal found" vs "Unknown" are distinct and cannot be confused; the per-package semantics (checked-and-clean vs could-not-check, with reason + Next step) live in the r-Review detail, not on the dashboard itself. **Check passes; wording observation O1 (P2).**
+- S3 attention review: r → list → detail shows Reason ("major version transition detected (heuristic)"), source, URL, human retrieval status, freshness, and the evidence snapshot. **Check passes on-screen.**
+- S4 quit without changes: staged selection → declined exact-plan → quit prints "Review discarded. Re-run 'brew-change -u' — cached evidence will be reused where available." + "Dashboard closed."; the fake-brew log showed only the dry-run call. **Check passes on-screen.**
+- S5 which packages upgrade: Enter → "Preview: brew upgrade --dry-run bat" + "About to upgrade: 1 package / bat" + (y/N). Exactly the no-signal set; attention and unknown absent. **Check passes on-screen.**
+
+Observations (rubric classification):
+- **O1 (P2):** the dashboard itself does not state the no-signal/unknown semantic difference in words (the detail view carries it). Wording candidate for a follow-up: one legend line.
+- **O2 (P2):** "Freshness: retrieved unknown" reads oddly for rows without a timestamp; "Upgrade cancelled." prints twice after a declined confirmation; the static footer and the interactive prompt use two hint formats ("[r] Review details" vs "[r]eview").
+- **Caveat (recorded per kit exit rules):** this was an operator session delegated by the maintainer, not an independent novice participant; the comprehension conclusions are affordance-level (the answers are visible on screen), not behavioral. A human-novice pass remains recommended (non-blocking) using the same kit.
+
+Prioritized follow-ups: none blocking; O1/O2 recorded for the next wording wave. No scope-creep requests surfaced (no GUI/daemon asks).
 
 Use scenario prompts rather than teaching the interface. At minimum, verify that a participant can explain:
 
