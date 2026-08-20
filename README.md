@@ -79,6 +79,18 @@ Escape hatches, in precedence order (`--plain` flag > `BREW_CHANGE_PLAIN=1` envi
 
 Piped or redirected runs are unchanged: plain deterministic output, no prompts, no upgrades, and the view flags do not switch views.
 
+### Accessibility
+
+Output meaning never depends on color or emoji: text labels (like `[breaking]` and the dashboard group headers) always carry the full classification, and any emoji is strictly additive decoration on a terminal. The base render — piped output, `NO_COLOR=1`, screen readers, copy-paste — is identical by construction.
+
+```bash
+export NO_COLOR=1                      # no-color convention: also suppresses decorative emoji
+export BREW_CHANGE_NO_EMOJI=1          # explicit no-emoji opt-out (labels unchanged)
+export BREW_CHANGE_STATIC_PROGRESS=1   # plain "stage n/N" progress line, no spinner animation
+```
+
+`BREW_CHANGE_STATIC_PROGRESS=1` keeps the progress lifecycle (TTY-only drawing, cleared line before the dashboard, restored terminal state) but replaces the animated spinner with a static line that updates only when the count changes.
+
 ## 📦 Installation
 
 ### Quick Install

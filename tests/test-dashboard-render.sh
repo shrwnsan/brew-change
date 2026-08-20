@@ -24,7 +24,7 @@ pass() { passed=$((passed + 1)); }
 fail() { failed=$((failed + 1)); printf 'FAIL: %s\n' "$1" >&2; }
 
 # TTY-view scenarios: fixture dir -> terminal width budget.
-SCENARIOS="mixed:80 all-no-signal:80 all-unknown:80 long-names:80 narrow-60:60 no-color:80 no-outdated:80"
+SCENARIOS="mixed:80 all-no-signal:80 all-unknown:80 long-names:80 narrow-60:60 narrow-50:50 no-color:80 no-outdated:80"
 
 # --- Byte-exact conformance against every golden fixture --------------------
 
@@ -217,6 +217,22 @@ if [[ $line == *'alpha-signal-token, beta-signal-token…' && $line != *gamma* &
     pass
 else
     fail "overflowing token list not truncated at a token boundary: '$line'"
+fi
+
+# T3.3.1 narrow-terminal readability: a single kebab-case signal token too
+# wide for the reason budget must truncate at a hyphen boundary (word-aware),
+# never mid-word ("major-version-tra…" is unreadable; "major-version…" is).
+# Name 44 chars -> reason budget 17 at width 80.
+cat > "$diffdir/kebab.jsonl" <<'EOF'
+{"package":"visual-studio-code-insiders@nightly-channel","display_name":"visual-studio-code-insiders@nightly-channel","kind":"cask","installed_version":"1.0.0","available_version":"2.0.0","evidence_source":"github","evidence_url":null,"retrieved_at":1723900000,"retrieval_status":"fresh","evidence_snapshot":null,"classification":"attention","reasons":["Major version transition (1 to 2)"],"matched_signals":["major-version-transition"],"assessment_recommendation":false,"operational_eligibility":true,"default_selected":false}
+EOF
+kebab_out="$diffdir/kebab.txt"
+render_dashboard_records "$diffdir/kebab.jsonl" 80 > "$kebab_out"
+line=$(grep '  visual-studio' "$kebab_out")
+if [[ $line == *'major-version…' ]]; then
+    pass
+else
+    fail "kebab token truncated mid-word at narrow budget: '$line'"
 fi
 
 # --- Locale-churn regression (intermittent full-CLI PTY stall) ---------------

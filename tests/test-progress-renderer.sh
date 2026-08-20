@@ -135,6 +135,23 @@ test_non_tty_emits_no_frames() {
         && [[ "$out" != *"⠋"* ]]
 }
 
+# T3.3.1 static progress mode: BREW_CHANGE_STATIC_PROGRESS=1 keeps the
+# no-TTY contract exactly — events consumed, dump observable, nothing drawn.
+test_static_mode_non_tty_consumes_without_frames() {
+    local run_dir
+    run_dir="$(make_run_dir)"
+    {
+        echo '{"stage":"evidence","completed":1,"total":4,"package":"node"}'
+        echo '{"stage":"evidence","completed":2,"total":4,"package":"git"}'
+    } > "$run_dir/progress.jsonl"
+    local out
+    out="$(BREW_CHANGE_STATIC_PROGRESS=1 run_renderer "$run_dir")"
+    trash "$run_dir" 2>/dev/null || rm -rf "$run_dir"
+    [[ "$out" == *"STAGE=evidence COUNT=2 TOTAL=4"* ]] \
+        && [[ "$out" != *$'\r'* ]] \
+        && [[ "$out" != *"⠋"* ]]
+}
+
 # Lifecycle helpers: without a TTY the start must be a strict no-op (no
 # background renderer, empty PROGRESS_RENDERER_PID, no sentinel side
 # effects) and the stop must ignore the empty pid cleanly — including under
@@ -168,6 +185,7 @@ run_case "malformed lines skipped" test_malformed_lines_are_skipped
 run_case "stage transition resets state" test_stage_transition_resets_state
 run_case "missing progress file is a no-op" test_missing_file_is_noop
 run_case "non-tty run emits no frames" test_non_tty_emits_no_frames
+run_case "static mode non-tty consumes without frames" test_static_mode_non_tty_consumes_without_frames
 run_case "renderer start/stop without a TTY is a no-op" test_renderer_start_stop_without_tty
 
 # PTY animation and terminal-safety suite (single deterministic entry point).

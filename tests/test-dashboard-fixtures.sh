@@ -25,7 +25,7 @@ read -r -d '' CONTRACT_KEYS <<'EOF' || true
 ["assessment_recommendation","available_version","classification","default_selected","display_name","evidence_snapshot","evidence_source","evidence_url","installed_version","kind","matched_signals","operational_eligibility","package","reasons","retrieval_status","retrieved_at"]
 EOF
 
-SCENARIOS="mixed all-no-signal all-unknown no-outdated long-names narrow-60 no-color piped"
+SCENARIOS="mixed:80 all-no-signal:80 all-unknown:80 no-outdated:80 long-names:80 narrow-60:60 narrow-50:50 no-color:80 piped:80"
 
 validate_input() { # scenario-dir
     local dir="$1" line_no=0 line ok
@@ -68,8 +68,8 @@ group_header_regex() { # class -> header prefix
     esac
 }
 
-validate_render() { # scenario-dir
-    local dir="$1"
+validate_render() { # scenario-dir [width]
+    local dir="$1" width="${2:-80}"
     local input="$dir/input.jsonl" render="$dir/expected.txt"
     local total att ns unk
     total=$(jq -s 'length' "$input")
@@ -133,10 +133,24 @@ validate_render() { # scenario-dir
     if [[ $rows == "$total" ]]; then pass; else fail "$dir: row count $rows != total $total"; fi
 
     # Footer: [u] count matches when present; must be absent when ns == 0.
+    # Below the width where the [r]+[u]+[q] footer fits, [u] legitimately
+    # degrades away (ratified ladder: [s] drops first, [q] never drops —
+    # narrow-50 is the first fixture below that threshold). A missing [u]
+    # is only valid when the full footer exceeds the scenario's width
+    # budget and [q] Quit still survives.
     if (( ns > 0 )); then
         local footer_ns
         footer_ns=$(grep -o '\[u\] Upgrade no-signal ([0-9]*)' "$render" | grep -o '[0-9]*')
-        if [[ $footer_ns == "$ns" ]]; then pass; else fail "$dir: footer no-signal count '$footer_ns' != $ns"; fi
+        if [[ -n $footer_ns ]]; then
+            if [[ $footer_ns == "$ns" ]]; then pass; else fail "$dir: footer no-signal count '$footer_ns' != $ns"; fi
+        else
+            local full_footer="[r] Review details  [u] Upgrade no-signal ($ns)  [q] Quit"
+            if (( ${#full_footer} > width )) && grep -q '\[q\] Quit' "$render"; then
+                pass
+            else
+                fail "$dir: footer dropped [u] though it fits width $width or [q] Quit missing"
+            fi
+        fi
     else
         if grep -q '\[u\] Upgrade no-signal' "$render"; then
             fail "$dir: footer offers upgrade-no-signal with 0 no-signal records"
@@ -147,14 +161,16 @@ validate_render() { # scenario-dir
 }
 
 for s in $SCENARIOS; do
-    d="$FIXTURE_DIR/$s"
+    name="${s%%:*}"
+    width="${s##*:}"
+    d="$FIXTURE_DIR/$name"
     if [[ -f $d/input.jsonl && -f $d/expected.txt ]]; then
         validate_input "$d"
         # The piped scenario is the plain name-only variant; its render is
         # checked by the scenario-specific invariant below, not the TTY rules.
-        [[ $s == piped ]] || validate_render "$d"
+        [[ $name == piped ]] || validate_render "$d" "$width"
     else
-        fail "$s: missing input.jsonl or expected.txt"
+        fail "$name: missing input.jsonl or expected.txt"
     fi
 done
 
@@ -178,7 +194,7 @@ fi
 # column); unknown rows' reason — when the column survives degradation — is a
 # bare retrieval-status token from the ^[a-z-]+$ vocabulary, except that the
 # dominant no-action token "unavailable" is suppressed entirely.
-for s in mixed all-no-signal all-unknown long-names narrow-60 no-color; do
+for s in mixed all-no-signal all-unknown long-names narrow-60 narrow-50 no-color; do
     r="$FIXTURE_DIR/$s/expected.txt"
     bad_label=$(awk '/^  [^ ]/ && /Needs attention|No risk signal|Unknown/' "$r")
     if [[ -z $bad_label ]]; then

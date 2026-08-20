@@ -111,6 +111,10 @@ _dashboard_trunc() { # string width
 
 # Truncate to at most `width` characters at a token boundary, appending a
 # single "…" when anything was removed — never mid-word when avoidable.
+# Word boundaries are spaces and, for space-free text (the signal vocabulary
+# is kebab-case ^[a-z-]+$), hyphens: a budget too small for
+# "major-version-transition" yields "major-version…", never
+# "major-version-tra…" (T3.3.1 narrow-terminal readability).
 _dashboard_trunc_words() { # string width
     local s="$1" w="$2" cut b
     if _dashboard_locale_counts_chars; then
@@ -122,6 +126,9 @@ _dashboard_trunc_words() { # string width
         if [[ $cut == *" "* ]]; then
             b="${cut% *}"          # drop the trailing partial token
             b="${b%,}"             # ...and its joining comma
+            (( ${#b} >= 1 )) && cut="$b"
+        elif [[ $cut == *"-"* ]]; then
+            b="${cut%-*}"          # kebab token: cut at the last hyphen
             (( ${#b} >= 1 )) && cut="$b"
         fi
         printf '%s…' "$cut"
@@ -137,6 +144,9 @@ _dashboard_trunc_words() { # string width
     if [[ $cut == *" "* ]]; then
         b="${cut% *}"          # drop the trailing partial token
         b="${b%,}"             # ...and its joining comma
+        (( ${#b} >= 1 )) && cut="$b"
+    elif [[ $cut == *"-"* ]]; then
+        b="${cut%-*}"          # kebab token: cut at the last hyphen
         (( ${#b} >= 1 )) && cut="$b"
     fi
     printf '%s…' "$cut"

@@ -58,9 +58,15 @@ _progress_parse_line() {
     esac
 }
 
-# Draw one frame to /dev/tty, overwriting the previous frame.
+# Draw one frame to /dev/tty, overwriting the previous frame. Static mode
+# (BREW_CHANGE_STATIC_PROGRESS=1, T3.3.1) omits the spinner glyph: the frame
+# is a plain "stage n/N [package]" line with no animation.
 _progress_draw() {
-    local frame="${PROG_SPIN_CHAR} ${PROG_STAGE} ${PROG_COMPLETED}/${PROG_TOTAL}"
+    local lead="${PROG_SPIN_CHAR} "
+    if [[ "${BREW_CHANGE_STATIC_PROGRESS:-0}" == "1" ]]; then
+        lead=""
+    fi
+    local frame="${lead}${PROG_STAGE} ${PROG_COMPLETED}/${PROG_TOTAL}"
     if [[ -n "$PROG_PACKAGE" ]]; then
         frame+=" $PROG_PACKAGE"
     fi
@@ -137,6 +143,13 @@ _restore_progress_traps() {
 # idle window passes with no further events (so a following stage is picked
 # up), or immediately when the file does not exist.
 #
+# Static alternative (T3.3.1): BREW_CHANGE_STATIC_PROGRESS=1 keeps the exact
+# same lifecycle (same /dev/tty line, bounded redraw, final frame fully
+# cleared, terminal state restored on all exits, nothing drawn when stdout
+# is not a TTY) but draws no spinner animation — the frame is a plain
+# "stage n/N" line that is redrawn only when the displayed count changes,
+# never on a timer.
+#
 # Safety: no animation when stdout is not a TTY or
 # BREW_CHANGE_PARALLEL_MODE=true (events are still consumed silently);
 # stty saved before the first draw and restored on all exits; INT/TERM
@@ -149,6 +162,8 @@ render_progress() {
     local animate=true
     [[ -t 1 ]] || animate=false
     [[ "${BREW_CHANGE_PARALLEL_MODE:-}" == "true" ]] && animate=false
+    local static=false
+    [[ "${BREW_CHANGE_STATIC_PROGRESS:-0}" == "1" ]] && static=true
 
     # Renderer state. PROG_COMPLETED is the derived global count (number of
     # events for the stage, deduped by package); it only grows within a
@@ -159,6 +174,9 @@ render_progress() {
     local line
     local -i last_draw_us=0 last_event_us=0
     local saw_event=false
+    # Static mode: the "stage:count:total" key currently on screen; the frame
+    # is redrawn only when it changes.
+    local static_drawn=""
     # Lines already consumed. The file is re-opened and re-read each poll
     # cycle instead of held open on a persistent fd: after EOF, a
     # regular-file read never un-blocks in bash (notably on Linux), so
@@ -200,6 +218,7 @@ render_progress() {
                     PROG_COMPLETED=0
                     PROG_TOTAL=0
                     prog_seen=()
+                    static_drawn=""
                     if [[ "$animate" == "true" ]]; then
                         _progress_clear_line
                         last_draw_us=0
@@ -227,7 +246,17 @@ render_progress() {
 
         _progress_now_us
         if [[ "$animate" == "true" ]]; then
-            if (( last_draw_us == 0 )) \
+            if [[ "$static" == "true" ]]; then
+                # Static mode: no timer-driven redraw. The frame changes only
+                # when the displayed stage/count/total changes, so the redraw
+                # count is bounded by the event count by construction.
+                local key="${PROG_STAGE}:${PROG_COMPLETED}:${PROG_TOTAL}"
+                if [[ -n "$PROG_STAGE" && "$key" != "$static_drawn" ]]; then
+                    _progress_draw
+                    static_drawn="$key"
+                    last_draw_us=$PROGRESS_NOW_US
+                fi
+            elif (( last_draw_us == 0 )) \
                 || (( PROGRESS_NOW_US - last_draw_us >= PROGRESS_REDRAW_US )); then
                 PROG_SPIN_IDX=$(( (PROG_SPIN_IDX + 1) % ${#PROGRESS_SPIN_CHARS} ))
                 PROG_SPIN_CHAR="${PROGRESS_SPIN_CHARS:PROG_SPIN_IDX:1}"
