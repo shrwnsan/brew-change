@@ -178,6 +178,7 @@ export BREW_CHANGE_SUBPROCESS=""
         + "".join(f"export {k}='{v}'\n" for k, v in (extra_env or {}).items())
         + f'''
 source "{LIB}/brew-change-config.sh"
+source "{LIB}/brew-change-utils.sh"
 source "{LIB}/brew-change-interactive.sh"
 source "{LIB}/brew-change-upgrade.sh"
 source "{LIB}/brew-change-dashboard-ui.sh"
@@ -622,6 +623,96 @@ def test_explicit_dashboard_flag_dispatches_dashboard():
     assert DASH_PROMPT in stdout, stdout
 
 
+def test_cache_banner_is_tty_only_and_stdout_pure():
+    """T3.2.2: run-scoped cache events become one TTY banner, never stdout."""
+    with tempfile.TemporaryDirectory() as tmp:
+        records = write_records(tmp)
+        events = os.path.join(tmp, "http-cache-events")
+        os.makedirs(events)
+        now = int(time.time())
+        with open(os.path.join(events, "e1.1.%d" % (now - 3600)), "w") as fh:
+            fh.write("%d cached-fresh\n" % (now - 3600))
+        with open(os.path.join(events, "e2.2.%d" % (now - 60)), "w") as fh:
+            fh.write("%d cached-fresh\n" % (now - 60))
+        captured = os.path.join(tmp, "out.txt")
+        body = (
+            f'export BREW_CHANGE_HTTP_CACHE_EVENTS="{events}"\n'
+            "export BREW_CHANGE_PROMPT_TIMEOUT=60\n"
+            + refresh_none()
+            + f'run_dashboard_mode "{records}" test_refresh > "{captured}"\n'
+            'printf "EXIT=%s\\n" "$?" > /dev/tty\n'
+        )
+        output, status = run_scenario(
+            body,
+            write_after_ready=[
+                (b"Reusing 2 cached responses", b"q\n", 0.3),
+            ],
+        )
+        assert status == 0, (status, output)
+        assert b"Reusing 2 cached responses" in output, output
+        assert b"Use --fresh to re-probe" in output, output
+        with open(captured, "rb") as fh:
+            captured_bytes = fh.read()
+        assert b"Reusing" not in captured_bytes, captured_bytes
+        assert b"--fresh" not in captured_bytes, captured_bytes
+
+
+def test_quit_with_staged_selection_prints_reentry_hint():
+    """T3.2.2 (research-008 Decision 2): quitting after staging a selection
+    (and declining the exact-plan confirmation) prints the quit-time
+    re-entry hint; quitting without a staged selection stays quiet."""
+    with tempfile.TemporaryDirectory() as tmp:
+        records = write_records(tmp)
+        outdated = {
+            "formulae": [{"name": "node"}, {"name": "bat"}],
+            "casks": [{"token": "docker"}],
+        }
+        bindir, log, outdated_file = make_fake_brew(tmp, outdated)
+        body = (
+            f'export PATH="{bindir}:$PATH"\n'
+            f'export FAKE_BREW_LOG="{log}"\n'
+            f'export FAKE_BREW_OUTDATED="{outdated_file}"\n'
+            "export BREW_CHANGE_PROMPT_TIMEOUT=60\n"
+            'export DRY_RUN_MODE=""\n'
+            + refresh_none()
+            + f'run_dashboard_mode "{records}" test_refresh\n'
+            'printf "EXIT=%s\\n" "$?" > /dev/tty\n'
+        )
+        output, status = run_scenario(
+            body,
+            write_after_ready=[
+                (b"[q]uit (Enter = u):", b"s\n", 0.3),
+                (b"Select: ", b"node\n", 0.3),
+                (b"staged.", b"\n", 0.3),
+                (b"dry-run", b"n\n", 0.3),
+                (b"[q]uit (Enter = u):", b"q\n", 0.3),
+            ],
+        )
+        assert status == 0, (status, output)
+        assert (
+            b"Review discarded. Re-run 'brew-change -u' "
+            b"\xe2\x80\x94 cached evidence will be reused where available."
+        ) in output, output
+        assert b"Dashboard closed." in output, output
+
+    with tempfile.TemporaryDirectory() as tmp:
+        records = write_records(tmp)
+        body = (
+            "export BREW_CHANGE_PROMPT_TIMEOUT=60\n"
+            + refresh_none()
+            + f'run_dashboard_mode "{records}" test_refresh\n'
+            'printf "EXIT=%s\\n" "$?" > /dev/tty\n'
+        )
+        output, status = run_scenario(
+            body,
+            write_after_ready=[
+                (b"[q]uit (Enter = u):", b"q\n", 0.3),
+            ],
+        )
+        assert status == 0, (status, output)
+        assert b"Review discarded" not in output, output
+
+
 def main():
     tests = [
         test_u_reaches_preview_and_decline_returns,
@@ -636,6 +727,8 @@ def main():
         test_plain_flag_selects_prompt_flow,
         test_plain_env_selects_prompt_flow,
         test_explicit_dashboard_flag_dispatches_dashboard,
+        test_cache_banner_is_tty_only_and_stdout_pure,
+        test_quit_with_staged_selection_prints_reentry_hint,
     ]
     failures = 0
     for test in tests:

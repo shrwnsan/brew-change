@@ -843,12 +843,13 @@ Exit evidence:
 
 ### Phase 3 entry gate
 
-- Phase 2 integration accepted.
-- Dashboard wording has observed user feedback or structured maintainer review.
+**Passed 2026-08-20.** Phase 2 integration accepted: T2.6.2 default flip shipped in v1.14.0 (#105/#106) with the mechanical gate of T2.7.1 recorded 2026-08-18. Observed user feedback: maintainer field reports drove the v1.14.1–v1.14.4 soak fixes (#107 "field-report follow-ups from the v1.14.0 soak", #109/#114 PTY stalls reproduced from reports, #111 "live soak of brew-change -u (v1.14.2)" review-list corruption), and research-008 (ratified 2026-08-19) originated from a maintainer v1.14.x field report.
+
+Deterministic-runner suite count: 23 at Phase 3 start → 26 after Wave 1 (first-run guidance, remediation wording, accessibility modes; PR #116) → 27 after Wave 2 (HTTP cache).
 
 ### T3.1.1 — Add concise first-run guidance
 
-**State:** Blocked by Phase 3 entry gate  
+**State:** Complete — Wave 1, PR #116 (usage() boundary explainer; one-line non-persistent stderr hint on interactive dashboard runs; README "First run"; suite tests/test-first-run-guidance.sh)  
 **Complexity:** M  
 **Junior-safe:** Yes  
 **Writes:** CLI/help/docs and tests
@@ -862,7 +863,7 @@ Acceptance:
 
 ### T3.1.2 — Replace jargon-heavy remediation
 
-**State:** Blocked by Phase 3 entry gate  
+**State:** Complete — Wave 1, PR #116 (exact dependency install commands; single evidence-gated auth benefit tip replacing every-run warnings; pipeline-free package suggestions; suite tests/test-remediation-wording.sh)  
 **Complexity:** M  
 **Junior-safe:** Yes  
 **Writes:** dependency/error messages and tests
@@ -875,7 +876,7 @@ Acceptance:
 
 ### T3.2.1 — Show evidence provenance and freshness in review
 
-**State:** Blocked by Phase 3 entry gate and T2.1.2  
+**State:** Complete — Wave 2 integration track with T3.2.2 (truthful retrieval_status/retrieved_at from the fetch boundary provenance metadata; human status phrasing + actionable "Next step" hints in review detail; one-word "cached" marker in the compact review list; record-pipeline Suite 9 proves cached serves keep the original epoch and cached-fresh status)  
 **Complexity:** M  
 **Writes:** evidence/display modules and fixtures
 
@@ -887,7 +888,7 @@ Acceptance:
 
 ### T3.2.2 — Evidence re-entry: unify raw-response caching
 
-**State:** Blocked by Phase 3 entry gate and T3.2.1 (may land in the same change)
+**State:** Complete — Wave 2 integration track with T3.2.1, per ratified research-008: one $CACHE_DIR/http/ boundary under fetch_url_with_retry/_text/policy_aware; endpoint-class TTLs (24h exact GitHub tag/ref/commit-SHA objects, 1h everything else); anon/token-fingerprint key partitioning with no token material on disk; request-scoped provenance meta files surviving subshells; run-scoped event-file hit accounting; TTY-only "Reusing N cached responses…" banner and quit-time re-entry hint (stdout byte-pure, PTY-tested); --fresh namespace-scoped reset; 512-entry/100 MiB oldest-first pruning; validated-stale-only fallback with corrupt fail-closed; selections never persisted. Suite tests/test-http-cache.sh (47 assertions) + dashboard-actions PTY scenarios.
 
 **Complexity:** L
 
@@ -906,7 +907,7 @@ Acceptance (per ratified docs/research-008-evidence-cache-resume.md):
 
 ### T3.3.1 — Polish accessible output modes
 
-**State:** Blocked by Phase 3 entry gate  
+**State:** Complete — Wave 1, PR #116 (text-first `[breaking]` markers per the ratified fixture philosophy with additive-gated ⚠️; hyphen-boundary truncation for kebab signal tokens + narrow-50 golden fixture, all existing fixtures byte-unchanged; BREW_CHANGE_STATIC_PROGRESS=1 static progress mode reusing the T2.4.2 lifecycle; suite tests/test-accessibility-modes.sh)  
 **Complexity:** M  
 **Writes:** config/display modules and golden fixtures
 
@@ -919,7 +920,7 @@ Acceptance:
 
 ### T3.4.1 — Conduct novice workflow checks
 
-**State:** Review gate; blocked by T3.1.1, T3.1.2, T3.2.1, and T3.3.1  
+**State:** Review gate; implementation tasks T3.1.1/T3.1.2/T3.3.1 complete (PR #116) and T3.2.1/T3.2.2 complete (Wave 2) — scenario materials prepared, awaiting maintainer run  
 **Complexity:** M  
 **Owner:** Maintainer/product review
 

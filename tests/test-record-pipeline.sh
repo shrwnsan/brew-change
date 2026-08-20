@@ -363,6 +363,92 @@ printf '%s' '{"formulae":[{"name":"git","versions":{"stable":"2.50.0"}}],"casks"
 )
 assert_eq "invalidation returns 0 under set -e" "0" "$?"
 
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Suite 9: evidence provenance truthfulness (T3.2.1/T3.2.2) ==="
+# A cached serve must not be stamped as newly retrieved: the record keeps
+# the original retrieval epoch and a cached-fresh status, and no network
+# request happens (research-008 Decision 3).
+
+node_info='{"name":"node","homepage":"https://github.com/node/node","urls":{"stable":{"url":"https://nodejs.org/dist/node-v22.8.0.tar.gz"}},"versions":{"stable":"22.8.0"}}'
+node_release='{"tag_name":"v22.8.0","published_at":"2026-08-01T00:00:00Z","html_url":"https://github.com/node/node/releases/tag/v22.8.0","body":"## Changes\n- bug fixes and performance work"}'
+
+install_dispatching_curl() { # status body  — URL-aware fake curl for the GitHub tag endpoint
+    local status="$1" body="$2"
+    cat > "$COMMAND_HARNESS_BIN/curl" <<FAKE_CURL
+#!/usr/bin/env bash
+output="" headers="" write_out="" url=""
+{
+    printf 'curl'
+    for arg in "\$@"; do printf '\t%s' "\$arg"; done
+    printf '\n'
+} >> "\$COMMAND_HARNESS_LOG"
+while (( \$# )); do
+    case "\$1" in
+        -o) output="\$2"; shift 2 ;;
+        -D) headers="\$2"; shift 2 ;;
+        -w) write_out="\$2"; shift 2 ;;
+        https://*) url="\$1"; shift ;;
+        *) shift ;;
+    esac
+done
+case "\$url" in
+    https://api.github.com/repos/node/node/releases/tags/*)
+        printf 'HTTP/1.1 $status OK\r\n\r\n' > "\$headers"
+        printf '%s' '$body' > "\$output"
+        [[ -n "\$write_out" ]] && printf '${status}'
+        exit 0
+        ;;
+esac
+exit 125
+FAKE_CURL
+    chmod +x "$COMMAND_HARNESS_BIN/curl"
+}
+
+T1=$((1800000000))
+T2=$((T1 + 600))
+
+# First run: network fetch, provenance network-fresh.
+export BREW_CHANGE_TEST_NOW="$T1"
+setup_run
+assessment_record_init "$run_dir" "$(outdated_json)"
+fake_brew_info "{\"formulae\":[$node_info],\"casks\":[]}"
+install_dispatching_curl 200 "$node_release"
+: > "$COMMAND_HARNESS_LOG"
+show_package_changelog_full "node" "22.6.0" "22.8.0" "$node_info" >/dev/null 2>&1
+consolidate_assessment_records "$run_dir"
+node_row=$(grep -F '"package":"node"' "$run_dir/assessment.jsonl" | head -1)
+assert_eq "network run records retrieval_status fresh" "fresh" \
+    "$(printf '%s' "$node_row" | jq -r '.retrieval_status')"
+assert_eq "network run records the fetch epoch" "$T1" \
+    "$(printf '%s' "$node_row" | jq -r '.retrieved_at')"
+assert_eq "network run hit the endpoint once" "1" \
+    "$(grep -c 'releases/tags' "$COMMAND_HARNESS_LOG" || true)"
+teardown_run
+
+# Second run ten minutes later, network dead: cached serve must keep the
+# ORIGINAL epoch and tell the truth about reuse.
+export BREW_CHANGE_TEST_NOW="$T2"
+setup_run
+assessment_record_init "$run_dir" "$(outdated_json)"
+fake_brew_info "{\"formulae\":[$node_info],\"casks\":[]}"
+install_dispatching_curl 503 '{"message":"Service Unavailable"}'
+: > "$COMMAND_HARNESS_LOG"
+show_package_changelog_full "node" "22.6.0" "22.8.0" "$node_info" >/dev/null 2>&1
+consolidate_assessment_records "$run_dir"
+classify_upgrade_evidence "$run_dir" >/dev/null 2>&1
+node_row2=$(grep -F '"package":"node"' "$run_dir/assessment.jsonl" | head -1)
+assert_eq "cached run records cached-fresh, not fresh" "cached-fresh" \
+    "$(printf '%s' "$node_row2" | jq -r '.retrieval_status')"
+assert_eq "cached run keeps the original retrieval epoch" "$T1" \
+    "$(printf '%s' "$node_row2" | jq -r '.retrieved_at')"
+assert_eq "cached run performs no network request" "0" \
+    "$(grep -c 'releases/tags' "$COMMAND_HARNESS_LOG" || true)"
+assert_eq "cached adequate evidence still classifies no-signal" "no-signal" \
+    "$(printf '%s' "$node_row2" | jq -r '.classification')"
+teardown_run
+unset BREW_CHANGE_TEST_NOW
+
 echo ""
 echo "======================================"
 echo "Record Pipeline Results: $pass passed, $fail failed"

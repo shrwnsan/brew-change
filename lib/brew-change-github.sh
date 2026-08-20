@@ -257,10 +257,13 @@ extract_github_repo_from_package_file() {
     return 1
 }
 
-# Function to fetch GitHub release notes with retry
+# Function to fetch GitHub release notes with retry.
+# Optional third arg: request-scoped provenance metadata path (T3.2.1);
+# the metadata reflects the fetch whose response is actually returned.
 fetch_github_release() {
     local repo="$1"
     local tag="$2"
+    local meta_path="${3:-}"
     local release_url="https://api.github.com/repos/${repo}/releases/tags/${tag}"
 
     # Try the exact tag first
@@ -269,8 +272,9 @@ fetch_github_release() {
     # Initialize GitHub authentication
     init_github_auth
 
-    # Use policy-aware fetch (handles auth + URL validation + redirects)
-    response=$(fetch_url_policy_aware "$release_url" "$GITHUB_AUTH_TOKEN" 2>/dev/null)
+    # Use policy-aware fetch (auth + URL validation + redirects + the
+    # shared token-partitioned HTTP response cache)
+    response=$(fetch_url_policy_aware "$release_url" "$GITHUB_AUTH_TOKEN" "$meta_path" 2>/dev/null)
 
     # If direct tag lookup failed, try with 'v' prefix if not already present
     if [[ -z "$response" || "$response" == "null" || $(echo "$response" | jq -r '.message' 2>/dev/null) == "Not Found" ]]; then
@@ -279,7 +283,7 @@ fetch_github_release() {
             local vrelease_url="https://api.github.com/repos/${repo}/releases/tags/${vtag}"
 
             # Try with v prefix via policy-aware fetch
-            response=$(fetch_url_policy_aware "$vrelease_url" "$GITHUB_AUTH_TOKEN" 2>/dev/null)
+            response=$(fetch_url_policy_aware "$vrelease_url" "$GITHUB_AUTH_TOKEN" "$meta_path" 2>/dev/null)
 
             # If we found a response with v prefix, update the tag for later use
             if [[ -n "$response" && "$response" != "null" && $(echo "$response" | jq -r '.message // empty' 2>/dev/null) != "Not Found" ]]; then
@@ -293,8 +297,10 @@ fetch_github_release() {
         local latest_releases_url="https://api.github.com/repos/${repo}/releases"
         local latest_response=""
 
-        # Use policy-aware fetch for latest releases
-        latest_response=$(fetch_url_policy_aware "$latest_releases_url" "$GITHUB_AUTH_TOKEN" 2>/dev/null)
+        # Use policy-aware fetch for latest releases; provenance threads
+        # through because the returned matching release is this fetch's
+        # content.
+        latest_response=$(fetch_url_policy_aware "$latest_releases_url" "$GITHUB_AUTH_TOKEN" "$meta_path" 2>/dev/null)
 
         # Find a release that contains our version number (handle various formats)
         if [[ -n "$latest_response" && "$latest_response" != "null" ]]; then
@@ -337,8 +343,10 @@ fetch_github_release() {
         if [[ -n "$commit_url" && "$commit_url" != "null" && "$commit_url" != "" ]]; then
             local commit_response=""
 
-            # Use policy-aware fetch for commit lookup
-            commit_response=$(fetch_url_policy_aware "$commit_url" "$GITHUB_AUTH_TOKEN" 2>/dev/null)
+            # Use policy-aware fetch for commit lookup; the synthesized
+            # response below is built from this fetch's content, so it
+            # carries the commit fetch's provenance.
+            commit_response=$(fetch_url_policy_aware "$commit_url" "$GITHUB_AUTH_TOKEN" "$meta_path" 2>/dev/null)
 
             if [[ -n "$commit_response" && "$commit_response" != "null" ]]; then
                 local commit_date

@@ -80,6 +80,19 @@ if [[ -z "${CACHE_EXPIRY:-}" ]]; then
     readonly CACHE_EXPIRY=3600       # 1 hour cache expiry
 fi
 
+# HTTP response-cache TTLs (T3.2.2, research-008). Exact low-volatility
+# GitHub tag/ref/commit objects may be reused for 24h; mutable collections,
+# npm responses, scraped pages, and branch-based content use at most 1h.
+# Entry-count and byte budgets (512 / 100 MiB) live in the prune function
+# and are env-overridable for tests only.
+if [[ -z "${HTTP_CACHE_TTL_EXACT_GITHUB_SECONDS:-}" ]]; then
+    readonly HTTP_CACHE_TTL_EXACT_GITHUB_SECONDS=86400
+fi
+
+if [[ -z "${HTTP_CACHE_TTL_DEFAULT_SECONDS:-}" ]]; then
+    readonly HTTP_CACHE_TTL_DEFAULT_SECONDS=3600
+fi
+
 if [[ -z "${MAX_RETRIES:-}" ]]; then
     readonly MAX_RETRIES=${BREW_CHANGE_MAX_RETRIES:-3}           # max network retry attempts
 fi

@@ -79,6 +79,16 @@ Escape hatches, in precedence order (`--plain` flag > `BREW_CHANGE_PLAIN=1` envi
 
 Piped or redirected runs are unchanged: plain deterministic output, no prompts, no upgrades, and the view flags do not switch views.
 
+### Evidence caching and re-entry
+
+Every evidence fetch (GitHub API, npm registry, scraped release pages) goes through one HTTP response cache under `~/.cache/brew-change/http/`, so a re-run after quitting the dashboard reuses earlier responses instead of re-probing. The dashboard's review shows where each package's evidence came from and how fresh it is; rows served from cache say so, and quitting with a staged selection prints a one-line hint on the terminal about re-running.
+
+```bash
+brew-change -u --fresh   # re-probe all evidence this run (clears only the HTTP cache)
+```
+
+`--fresh` removes and recreates only the HTTP response cache; the GitHub breaking-change patterns, the brew-info cache, and everything else are preserved. The HTTP cache is bounded (at most 512 entries / 100 MiB, oldest entries pruned first), never stores authentication tokens (cache keys use a SHA-256-derived token fingerprint instead), and authenticated responses are partitioned away from anonymous ones.
+
 ### Accessibility
 
 Output meaning never depends on color or emoji: text labels (like `[breaking]` and the dashboard group headers) always carry the full classification, and any emoji is strictly additive decoration on a terminal. The base render — piped output, `NO_COLOR=1`, screen readers, copy-paste — is identical by construction.

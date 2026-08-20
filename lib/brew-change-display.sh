@@ -317,14 +317,38 @@ record_major_version_evidence() {
     append_assessment_evidence "$package" "inventory" "" "" "unavailable" ""
 }
 
+# Read a request-scoped provenance file and map it onto the record's
+# retrieval_status vocabulary (research-008 Decision 3): network-fresh ->
+# fresh, cached-fresh -> cached-fresh, cached-stale -> stale. Prints
+# "<epoch> <status>" on success; returns 1 when no truthful provenance
+# exists (callers fall back to honest now/fresh for this run).
+_read_provenance_pair() { # meta_path
+    local meta_path="$1" provenance retrieved
+    [[ -n "$meta_path" && -f "$meta_path" ]] || return 1
+    retrieved=$(jq -r '.retrieved_at // ""' "$meta_path" 2>/dev/null)
+    provenance=$(jq -r '.provenance // ""' "$meta_path" 2>/dev/null)
+    [[ "$retrieved" =~ ^[1-9][0-9]*$ ]] || return 1
+    case "$provenance" in
+        network-fresh) printf '%s fresh\n' "$retrieved" ;;
+        cached-fresh)  printf '%s cached-fresh\n' "$retrieved" ;;
+        cached-stale)  printf '%s stale\n' "$retrieved" ;;
+        *) return 1 ;;
+    esac
+}
+
 # Record evidence for a non-GitHub release-notes retrieval outcome. Fresh
 # requires actual notes content plus a retrieval timestamp; anything else
-# degrades to failed (classification stays the engine's job).
+# degrades to failed (classification stays the engine's job). Optional
+# fifth/sixth args carry the truthful provenance pair from the fetch
+# boundary (T3.2.1); without them the outcome is recorded as fetched now.
 _record_non_github_evidence() {
     local package="$1" source="$2" url="$3" notes="$4"
+    local retrieved_at="${5:-}" status="${6:-}"
 
     if [[ -n "$notes" && "$notes" != "null" ]]; then
-        append_assessment_evidence "$package" "$source" "$url" "$(date +%s)" "fresh" "$notes"
+        [[ "$retrieved_at" =~ ^[1-9][0-9]*$ ]] || retrieved_at=$(date +%s)
+        [[ -n "$status" ]] || status="fresh"
+        append_assessment_evidence "$package" "$source" "$url" "$retrieved_at" "$status" "$notes"
     else
         append_assessment_evidence "$package" "$source" "$url" "" "failed" ""
     fi
@@ -363,6 +387,17 @@ _show_package_changelog_full_body() {
         return 0
     fi
 
+    # Request-scoped provenance metadata path (research-008 Decision 3):
+    # the shared HTTP cache boundary writes truthful provenance for the
+    # response this worker's fetches actually return. Unique per worker
+    # (BASHPID) and per call; lives in the per-run status dir, so it is
+    # cleaned with the run and never persists selections or state.
+    local _prov_meta=""
+    if [[ -n "${UPGRADE_STATUS_DIR:-}" && -d "$UPGRADE_STATUS_DIR" ]]; then
+        mkdir -p "$UPGRADE_STATUS_DIR/prov" 2>/dev/null || true
+        _prov_meta="$UPGRADE_STATUS_DIR/prov/${package}.$BASHPID.$RANDOM.json"
+    fi
+
     record_major_version_evidence "$package" "$current_version" "$latest_version"
 
     # Get package details
@@ -386,7 +421,7 @@ _show_package_changelog_full_body() {
         # Handle npm registry package
         is_npm_package=true
         local npm_release_date
-        if npm_release_date=$(get_npm_release_date "$source_url" "$latest_version" 2>/dev/null); then
+        if npm_release_date=$(get_npm_release_date "$source_url" "$latest_version" "$_prov_meta" 2>/dev/null); then
             local npm_package_name
             npm_package_name=$(extract_npm_package_name "$source_url")
             release_json=$(create_npm_package_info "$npm_package_name" "$latest_version" "$npm_release_date")
@@ -418,7 +453,7 @@ _show_package_changelog_full_body() {
             if [[ -n "$domain" ]]; then
                 echo "🔍 Searching for release notes from $domain..."
                 local non_github_result=""
-                if non_github_result=$(fetch_non_github_release_notes "$package" "$latest_version" "$source_url" "$homepage"); then
+                if non_github_result=$(fetch_non_github_release_notes "$package" "$latest_version" "$source_url" "$homepage" "$_prov_meta"); then
                     # Extract the actual web URL from the result (lines containing URLs)
                     local web_url=""
                     web_url=$(echo "$non_github_result" | grep -o -E 'https?://[^[:space:]]+' | tail -1)
@@ -426,7 +461,11 @@ _show_package_changelog_full_body() {
                     # Extract release notes (everything except the URL lines)
                     local release_notes=""
                     release_notes=$(echo "$non_github_result" | grep -v -E '^https?://' | sed '/^$/d')
-                    _record_non_github_evidence "$package" "$domain" "$web_url" "$release_notes"
+                    local prov_pair="" prov_epoch="" prov_status=""
+                    if prov_pair=$(_read_provenance_pair "$_prov_meta"); then
+                        read -r prov_epoch prov_status <<< "$prov_pair"
+                    fi
+                    _record_non_github_evidence "$package" "$domain" "$web_url" "$release_notes" "$prov_epoch" "$prov_status"
 
                     if [[ -n "$release_notes" && "$release_notes" != "null" ]]; then
                         # Real release notes found - show them
@@ -519,7 +558,7 @@ _show_package_changelog_full_body() {
                 # Strip revision number for GitHub lookup
                 github_version="${latest_version%_*}"
             fi
-            release_json=$(fetch_github_release "$github_repo" "$github_version" 2>/dev/null)
+            release_json=$(fetch_github_release "$github_repo" "$github_version" "$_prov_meta" 2>/dev/null)
             if [[ -n "$release_json" && "$release_json" != "null" ]]; then
                 relative_date=$(get_release_relative_date "$release_json")
             else
@@ -543,7 +582,7 @@ _show_package_changelog_full_body() {
         # Try to fetch non-GitHub release notes
         if [[ -n "$domain" ]]; then
             local non_github_result=""
-            if non_github_result=$(fetch_non_github_release_notes "$package" "$latest_version" "$source_url" "$homepage"); then
+            if non_github_result=$(fetch_non_github_release_notes "$package" "$latest_version" "$source_url" "$homepage" "$_prov_meta"); then
                 # Extract the actual web URL from the result (lines containing URLs)
                 local web_url=""
                 web_url=$(echo "$non_github_result" | grep -o -E 'https?://[^[:space:]]+' | tail -1)
@@ -551,7 +590,11 @@ _show_package_changelog_full_body() {
                 # Extract release notes (everything except the URL lines)
                 local release_notes=""
                 release_notes=$(echo "$non_github_result" | grep -v -E '^https?://' | sed '/^$/d')
-                _record_non_github_evidence "$package" "$domain" "$web_url" "$release_notes"
+                local prov_pair="" prov_epoch="" prov_status=""
+                if prov_pair=$(_read_provenance_pair "$_prov_meta"); then
+                    read -r prov_epoch prov_status <<< "$prov_pair"
+                fi
+                _record_non_github_evidence "$package" "$domain" "$web_url" "$release_notes" "$prov_epoch" "$prov_status"
 
                 if [[ -n "$release_notes" && "$release_notes" != "null" ]]; then
                     # Real release notes found - show them
@@ -629,11 +672,26 @@ _show_package_changelog_full_body() {
         # No-signal adequacy requires a nonempty valid release-note body,
         # not merely metadata (published_at, tag name, etc.).
         if [[ -n "$body" && "$body" != "null" ]]; then
-            # A publication timestamp is not retrieval time. Record when the
-            # adequate evidence was fetched for this assessment.
-            retrieved_at=$(date +%s)
-            if [[ "$retrieved_at" =~ ^[1-9][0-9]*$ ]]; then
-                retrieval_status="fresh"
+            # Truthful provenance (T3.2.1/T3.2.2): the fetch boundary
+            # recorded how this response was actually obtained — freshly
+            # retrieved, reused from a fresh cache entry, or served stale
+            # after a failed refresh. A publication timestamp is not
+            # retrieval time; cached responses keep their original
+            # retrieval epoch instead of being stamped as new.
+            local prov_pair="" prov_epoch="" prov_status=""
+            if prov_pair=$(_read_provenance_pair "$_prov_meta"); then
+                read -r prov_epoch prov_status <<< "$prov_pair"
+            fi
+            if [[ -n "$prov_epoch" ]]; then
+                retrieved_at="$prov_epoch"
+                retrieval_status="$prov_status"
+            else
+                # No provenance recorded (e.g. locally synthesized info):
+                # this run produced the evidence now.
+                retrieved_at=$(date +%s)
+                if [[ "$retrieved_at" =~ ^[1-9][0-9]*$ ]]; then
+                    retrieval_status="fresh"
+                fi
             fi
         else
             # Metadata alone is not adequate release evidence.

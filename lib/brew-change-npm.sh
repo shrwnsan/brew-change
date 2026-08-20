@@ -32,13 +32,15 @@ is_npm_registry_url() {
     return 1
 }
 
-# Function to fetch npm package information from registry
+# Function to fetch npm package information from registry.
+# Optional second arg: request-scoped provenance metadata path (T3.2.1).
 fetch_npm_package_info() {
     local package_name="$1"
+    local meta_path="${2:-}"
     local registry_url="https://registry.npmjs.org/${package_name}"
 
     # Use existing fetch_url_with_retry function which handles caching
-    fetch_url_with_retry "$registry_url"
+    fetch_url_with_retry "$registry_url" "$meta_path"
 }
 
 # Function to extract release date for specific version from npm package info
@@ -63,10 +65,12 @@ extract_npm_release_date() {
     return 1
 }
 
-# Function to get npm release date for a package version
+# Function to get npm release date for a package version.
+# Optional third arg: request-scoped provenance metadata path (T3.2.1).
 get_npm_release_date() {
     local url="$1"
     local version="$2"
+    local meta_path="${3:-}"
 
     # Extract package name from URL
     local package_name
@@ -76,7 +80,7 @@ get_npm_release_date() {
 
     # Fetch package information from npm registry
     local package_info
-    if ! package_info=$(fetch_npm_package_info "$package_name"); then
+    if ! package_info=$(fetch_npm_package_info "$package_name" "$meta_path"); then
         return 1
     fi
 
