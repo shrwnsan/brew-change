@@ -431,6 +431,25 @@ _show_package_changelog_full_body() {
         fi
     fi
 
+    # research-009 §1c npm→GitHub notes fallback: the npm registry
+    # carries no release notes, but its repository field usually names
+    # the upstream GitHub repo that publishes them (vercel-class
+    # packages ship per-package changeset releases like vercel@59.1.4
+    # there while the homepage points elsewhere). Resolving it here and
+    # letting the standard GitHub path below run keeps every downstream
+    # behavior — URL policy, HTTP cache, provenance, evidence recording
+    # — unchanged; the registry document is already in the run's cache
+    # from the date lookup, so this adds no fetch in the common path.
+    local npm_github_fallback=false
+    if [[ "$is_npm_package" == "true" ]] \
+        && { [[ -z "$homepage" || "$homepage" == "null" ]] || [[ ! "$homepage" =~ github\.com ]]; }; then
+        local npm_registry_repo=""
+        if npm_registry_repo=$(get_npm_github_repo "$source_url" "$_prov_meta" 2>/dev/null); then
+            homepage="https://github.com/${npm_registry_repo}"
+            npm_github_fallback=true
+        fi
+    fi
+
     # Try to extract GitHub repo (even for npm packages if homepage points to GitHub)
     local github_repo=""
     local should_use_github=false
@@ -546,7 +565,10 @@ _show_package_changelog_full_body() {
         fi
 
         # For npm+GitHub packages, use GitHub release notes but keep npm release date if we have it
-        if [[ "$is_npm_package" == "true" && "$should_use_github" == "true" && -n "$release_json" ]]; then
+        # npm_github_fallback (registry-metadata fallback) opts OUT of
+        # this skip: the npm info carries only a placeholder body, and
+        # the whole point of the fallback is the real GitHub notes.
+        if [[ "$is_npm_package" == "true" && "$should_use_github" == "true" && -n "$release_json" && "$npm_github_fallback" != "true" ]]; then
             # We have npm info - keep it for display but don't fetch GitHub (avoid API calls)
             # The npm info already has the date, and GitHub release notes will be fetched later if needed
             :
@@ -662,8 +684,10 @@ _show_package_changelog_full_body() {
         local body
         body=$(echo "$release_json" | jq -r '.body // empty' 2>/dev/null)
 
-        # Determine evidence source: prefer npm when available.
-        if [[ "$is_npm_package" == "true" ]]; then
+        # Determine evidence source: prefer npm when available, except
+        # under the registry-metadata fallback where the notes body
+        # actually came from GitHub.
+        if [[ "$is_npm_package" == "true" && "$npm_github_fallback" != "true" ]]; then
             evidence_source="npm"
         elif [[ "$should_use_github" == "true" ]]; then
             evidence_source="github"
@@ -738,8 +762,11 @@ _show_package_changelog_full_body() {
     echo ""
 
     # Process and display release notes using shared function
-    # For npm+GitHub packages, show GitHub release notes with npm date
-    if [[ "$is_npm_package" == "true" && "$should_use_github" == "true" ]]; then
+    # For npm+GitHub packages, show GitHub release notes with npm date.
+    # The registry-metadata fallback already holds the GitHub release in
+    # release_json (fetched once above), so it takes the standard path
+    # instead of fetching again here.
+    if [[ "$is_npm_package" == "true" && "$should_use_github" == "true" && "$npm_github_fallback" != "true" ]]; then
         # Fetch GitHub release notes for npm+GitHub packages
         local github_release_json=""
         # Handle revision numbers in version (e.g., 0.61_1 -> 0.61)
