@@ -94,6 +94,56 @@ get_npm_release_date() {
     return 0
 }
 
+# Resolve the upstream GitHub repository from npm registry metadata
+# (research-009 §1c npm→GitHub notes fallback). The registry carries no
+# release notes, but its repository field usually points at the GitHub
+# repo that publishes them — including monorepo changeset tags like
+# vercel@59.1.4 that the registry itself never describes.
+# Echoes "owner/repo"; returns 1 when no GitHub repository is named or
+# the registry document is unavailable.
+# Args:
+#   $1: package registry URL (registry.npmjs.org/<name>)
+#   $2: optional request-scoped provenance metadata path (T3.2.1)
+get_npm_github_repo() {
+    local url="$1"
+    local meta_path="${2:-}"
+
+    local package_name
+    if ! package_name=$(extract_npm_package_name "$url"); then
+        return 1
+    fi
+
+    local package_info
+    if ! package_info=$(fetch_npm_package_info "$package_name" "$meta_path"); then
+        return 1
+    fi
+
+    # repository is an object {type,url} or a plain string; accept full
+    # git URLs and the "github:owner/repo" shorthand.
+    local repo_url
+    repo_url=$(echo "$package_info" | jq -r '
+        if (.repository | type) == "object" then (.repository.url // empty)
+        else (.repository // empty) end | tostring' 2>/dev/null)
+    [[ -n "$repo_url" && "$repo_url" != "null" ]] || return 1
+
+    local github_url_re='github\.com[/:]([^/]+)/([^/]+)'
+    local github_shorthand_re='^github:([^/]+)/([^/]+)'
+    local owner_repo=""
+    if [[ "$repo_url" =~ $github_url_re || "$repo_url" =~ $github_shorthand_re ]]; then
+        owner_repo="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+    else
+        return 1
+    fi
+    owner_repo="${owner_repo%.git}"
+
+    # Conservative shape check: exactly owner/repo of sane characters
+    # (also rejects any trailing URL junk the capture picked up).
+    [[ "$owner_repo" =~ ^[[:alnum:]._-]+/[[:alnum:]._-]+$ ]] || return 1
+
+    printf '%s\n' "$owner_repo"
+    return 0
+}
+
 # Function to create a minimal npm package info JSON for display
 create_npm_package_info() {
     local package_name="$1"

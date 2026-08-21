@@ -7,6 +7,17 @@
 
 # Function to check if release notes contain breaking changes
 # Returns 0 if breaking changes detected, 1 otherwise
+#
+# Precision rules (research-009 §1a/§1b, field-validated twice — the
+# v1.16.0 36-package and v1.17.0 37-package runs each carried 2 of 4
+# "breaking" rows as false positives without them):
+#   1. Phrase patterns anchor at word boundaries: the char before a
+#      match must be start-of-line or non-alphanumeric/non-hyphen, so a
+#      pattern word embedded in a hyphenated compound or a larger word
+#      ("drag-and-drop support", "unremoved") does not match.
+#   2. URLs are stripped before matching, so the vN.0.0 version-bump
+#      heuristic cannot fire on Full Changelog compare links and URL
+#      paths cannot trip phrase patterns.
 detect_breaking_changes() {
     local release_notes="$1"
 
@@ -77,20 +88,44 @@ detect_breaking_changes() {
         "protocol changes"            # Plural
     )
 
-    # Check for breaking change patterns
+    # Strip URLs (scheme through following whitespace) once: version
+    # tags and phrase words inside URLs/compare links are not signal;
+    # markdown link TEXT survives (real signal).
+    local notes_scan
+    notes_scan=$(printf '%s\n' "$notes_lower" | sed -E 's#https?://[^[:space:]]+##g')
+
+    # Single alternation match with boundary anchors: left of a match
+    # must be start-of-line or a character that is neither alphanumeric
+    # nor a hyphen (blocks "drag-and-drop" -> "drop support" and
+    # "unremoved" -> "removed"); right of it must be non-alphanumeric
+    # or end of line (blocks partial-word suffixes; ":" and "-" stay
+    # legal, so "breaking:" and "breaking-change" keep matching).
+    # One grep replaces the previous one-grep-per-pattern loop (~50
+    # subprocesses per package).
+    local alternation=""
+    local pattern
     for pattern in "${breaking_patterns[@]}"; do
-        if echo "$notes_lower" | grep -q "$pattern"; then
-            return 0  # Breaking changes detected
-        fi
+        # Trim a trailing-space variant ("removed ") to its word form:
+        # the space is part of the pattern, so a right boundary after it
+        # would see the next word's first letter and reject the match.
+        # The boundary class itself supplies the separation.
+        pattern="${pattern% }"
+        alternation+="${alternation:+|}${pattern}"
     done
+    if printf '%s\n' "$notes_scan" | grep -qE "(^|[^[:alnum:]-])(${alternation})([^[:alnum:]]|$)"; then
+        return 0  # Breaking changes detected
+    fi
 
     # Also check for common markdown patterns that indicate breaking sections
-    if echo "$notes_lower" | grep -q "###\?\s*breaking"; then
+    if printf '%s\n' "$notes_scan" | grep -q "###\?[[:space:]]*breaking"; then
         return 0
     fi
 
-    # Check for version bump patterns (e.g., "2.0.0" usually indicates breaking changes)
-    if echo "$notes_lower" | grep -qE "major (version )?release|major update|v[0-9]+\.0\.0"; then
+    # Check for version bump patterns (e.g., "2.0.0" usually indicates
+    # breaking changes) — scanned after URL stripping so compare-link
+    # version tags ("…compare/v9.0.0...v9.1.0") cannot fire the
+    # heuristic.
+    if printf '%s\n' "$notes_scan" | grep -qE "(^|[^[:alnum:]-])(major (version )?release|major update|v[0-9]+\.0\.0)([^[:alnum:]]|$)"; then
         return 0
     fi
 

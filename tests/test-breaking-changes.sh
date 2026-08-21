@@ -271,12 +271,96 @@ test_add_breaking_prefix() {
     fi
 }
 
+# Field-validated precision cases (research-009 §1a/§1b, two independent
+# runs: v1.16.0 36-package and v1.17.0 37-package inventories). The two
+# false-positive classes below produced 2 of the 4 "breaking" rows in
+# those runs; each case names its field origin.
+test_pattern_precision_field_cases() {
+    log_info "Testing pattern precision (field-validated false positives)..."
+
+    # False positive class 1: pattern word embedded in a hyphenated
+    # compound (nnn, both field runs) — "drop support" must not match
+    # inside "drag-and-drop support".
+    local test_notes="nnn v5.3 release notes.
+- [x] add native preview pane (P)
+- [x] add Kitty drag-and-drop support to \`dragdrop\`"
+    if detect_breaking_changes "$test_notes"; then
+        log_test_result "Hyphenated Compound (nnn field case)" "fail" "False positive on 'drag-and-drop support'"
+    else
+        log_test_result "Hyphenated Compound (nnn field case)" "pass"
+    fi
+
+    # Same class, generic: "removed " must not match inside "unremoved".
+    test_notes="Refactored the unremoved legacy paths and updated docs."
+    if detect_breaking_changes "$test_notes"; then
+        log_test_result "Word Prefix (unremoved)" "fail" "False positive on 'unremoved'"
+    else
+        log_test_result "Word Prefix (unremoved)" "pass"
+    fi
+
+    # False positive class 2: the vN.0.0 version-bump heuristic firing on
+    # Full Changelog compare URLs (simdutf, both field runs) — the from
+    # version v9.0.0 sits inside the compare link.
+    test_notes="## What's Changed
+- icelake: use unsigned shift base in utf16_to_latin1 tail mask
+- fix doubled length in binary_length_from_base64
+→ Full Changelog: https://github.com/simdutf/simdutf/compare/v9.0.0...v9.1.0"
+    if detect_breaking_changes "$test_notes"; then
+        log_test_result "Compare URL Version Tags (simdutf field case)" "fail" "False positive on compare-URL v9.0.0"
+    else
+        log_test_result "Compare URL Version Tags (simdutf field case)" "pass"
+    fi
+
+    # Boundary-safe positives that must keep matching after the fix.
+
+    test_notes="- removed support for the legacy plugin interface"
+    if detect_breaking_changes "$test_notes"; then
+        log_test_result "Bullet 'removed support' still matches" "pass"
+    else
+        log_test_result "Bullet 'removed support' still matches" "fail" "Lost true positive"
+    fi
+
+    test_notes="We will drop support for Python 3.7"
+    if detect_breaking_changes "$test_notes"; then
+        log_test_result "Prose 'drop support' still matches" "pass"
+    else
+        log_test_result "Prose 'drop support' still matches" "fail" "Lost true positive"
+    fi
+
+    test_notes="This is a major release with a new architecture"
+    if detect_breaking_changes "$test_notes";then
+        log_test_result "'major release' still matches" "pass"
+    else
+        log_test_result "'major release' still matches" "fail" "Lost true positive"
+    fi
+
+    # Version tag in prose (not inside a URL) keeps its heuristic signal.
+    test_notes="Upgrading to v2.0.0 brings the rewritten configuration format"
+    if detect_breaking_changes "$test_notes"; then
+        log_test_result "Prose v2.0.0 tag still matches" "pass"
+    else
+        log_test_result "Prose v2.0.0 tag still matches" "fail" "Lost true positive"
+    fi
+
+    # A URL on the same line must not suppress a real signal elsewhere
+    # in the notes.
+    test_notes="Removed the legacy flag entirely.
+Full Changelog: https://github.com/o/r/compare/v1.0.0...v1.1.0"
+    if detect_breaking_changes "$test_notes"; then
+        log_test_result "URL line does not suppress real signal" "pass"
+    else
+        log_test_result "URL line does not suppress real signal" "fail" "URL stripping too aggressive"
+    fi
+}
+
 # Main test execution
 main() {
     log_info "Starting breaking changes detection tests..."
     echo ""
 
     test_breaking_changes_detection
+    echo ""
+    test_pattern_precision_field_cases
     echo ""
     test_format_breaking_indicator
     echo ""
