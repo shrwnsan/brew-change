@@ -238,10 +238,20 @@ assert_eq "malformed input produces packages array with only valid records" "$MA
 
 # --- Test 13: brew-change export subcommand (if main script exists) -----
 if [[ -x "$REPO_ROOT/brew-change" ]]; then
+    # The launcher verifies dependencies (brew/jq/curl) before the export
+    # subcommand runs, and CI's ubuntu runners have no brew command — the
+    # export path never invokes it, so a stub satisfying command -v is
+    # enough. Without this the subcommand fails at verify_dependencies on
+    # Linux (first surfaced when this suite was registered in CI).
+    STUB_BIN="${TEST_EXPORT_DIR}/stub-bin"
+    mkdir -p "$STUB_BIN"
+    printf '#!/bin/sh\nexit 0\n' > "${STUB_BIN}/brew"
+    chmod +x "${STUB_BIN}/brew"
+
     # First create a valid export file
     write_assessment_export "$OUT" >/dev/null 2>&1
 
-    EXPORT_OUTPUT=$("$REPO_ROOT/brew-change" export 2>&1)
+    EXPORT_OUTPUT=$(PATH="${STUB_BIN}:${PATH}" "$REPO_ROOT/brew-change" export 2>&1)
     EXPORT_EXIT=$?
 
     if [[ $EXPORT_EXIT -eq 0 ]]; then
@@ -259,7 +269,7 @@ if [[ -x "$REPO_ROOT/brew-change" ]]; then
 
     # Test export when file doesn't exist
     rm -f "$ASSESSMENT_EXPORT_FILE"
-    NO_EXPORT_OUTPUT=$("$REPO_ROOT/brew-change" export 2>&1)
+    NO_EXPORT_OUTPUT=$(PATH="${STUB_BIN}:${PATH}" "$REPO_ROOT/brew-change" export 2>&1)
     NO_EXPORT_EXIT=$?
 
     if [[ $NO_EXPORT_EXIT -ne 0 ]]; then

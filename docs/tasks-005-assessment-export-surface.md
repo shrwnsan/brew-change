@@ -141,14 +141,18 @@ ASSESSMENT_DATA=$(brew-change export 2>/dev/null || echo '{"schema_version":1,"p
 
 ### Task 4: Testing
 
+**State:** Covered by `tests/test-assessment-export.sh` (15 scenarios, 34 assertions) — registered in the deterministic runner / CI by PR #132 after shipping unregistered (gap found during the 2026-08-24 board review).
+
 - [ ] Test export file written after `-u` assessment run
 - [ ] Test export file written after `-b` assessment run
-- [ ] Test `brew-change export` prints valid JSON
-- [ ] Test `brew-change export` errors cleanly when absent
-- [ ] Test schema_version field present and correct
-- [ ] Test graceful handling of malformed/partial data
-- [ ] Test consumer contract: missing file = non-event
-- [ ] Test consumer contract: schema_version mismatch = non-event
+- [x] Test `brew-change export` prints valid JSON
+- [x] Test `brew-change export` errors cleanly when absent
+- [x] Test schema_version field present and correct
+- [x] Test graceful handling of malformed/partial data
+- [x] Test consumer contract: missing file = non-event
+- [x] Test consumer contract: schema_version mismatch = non-event
+
+Note: the two unchecked launcher-level items (export written after real `-u`/`-b` runs) are exercised indirectly by the subcommand and writer tests; a dedicated launcher-integration pair remains a small follow-up if wanted.
 
 ### Task 5: Documentation
 
