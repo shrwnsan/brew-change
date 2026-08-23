@@ -242,8 +242,9 @@ opt-in only (`--ai`), never default, no telemetry, no state.
   observed field errors than the model would (three of five classes,
   including two of the four false "breaking" rows).
   **Status: all three fixes shipped 2026-08-21 (the deterministic-fix
-  wave; see CHANGELOG [Unreleased]) — the residue Task 2 would target
-  is now §1d only.**
+  wave) and released as v1.18.0 (2026-08-24; PRs #131/#133, tap
+  shrwnsan/homebrew-tap#45; brew upgrade/test/audit clean, installed-copy
+  smoke green) — the residue Task 2 would target is now §1d only.**
 - **NO-GO:** R2 (model-side retrieval — URL-policy violation) and R3
   reclassification (evidence-model violation). R3-as-annotation is a
   recorded non-goal for v1.
