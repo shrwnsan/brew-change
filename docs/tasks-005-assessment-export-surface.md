@@ -156,16 +156,16 @@ Note: the two unchecked launcher-level items (export written after real `-u`/`-b
 
 ### Task 5: Documentation
 
-- [ ] Update README.md with export subcommand documentation
-- [ ] Document schema in this tasks-005 file
-- [ ] Document consumer contract and graceful degradation
-- [ ] Note that internal assessment.jsonl is explicitly NOT public API
+- [x] Update README.md with export subcommand documentation (Quick Start line + "Assessment export" section with schema example; verified 2026-08-24)
+- [x] Document schema in this tasks-005 file (schema block + Design Decisions below)
+- [x] Document consumer contract and graceful degradation (missing file / schema mismatch = non-event, README + suite tests 14–15)
+- [x] Note that internal assessment.jsonl is explicitly NOT public API (Design Decisions: "Why not expose assessment.jsonl directly?")
 
 ### Task 6: Version and CHANGELOG
 
-- [ ] Bump version (current: 1.15.0 → 1.16.0)
-- [ ] Add CHANGELOG entry following repo conventions
-- [ ] Use conventional commit format: `feat(export): ... (tasks-005 Task N)`
+- [x] Bump version — shipped as **v1.17.0** (2026-08-21; this file's "1.15.0 → 1.16.0" line predates the verdict-summary release taking 1.16.0)
+- [x] Add CHANGELOG entry following repo conventions ([1.17.0] section, incl. the re-versioning note)
+- [x] Use conventional commit format: `feat(export): ... (tasks-005)` (#125)
 
 ## Design Decisions
 

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-08-24
+
 ### Fixed
 - Breaking-change detection precision (research-009 §1a/§1b, field-validated twice): phrase patterns now anchor at word boundaries — a pattern word embedded in a hyphenated compound or a larger word ("drag-and-drop support", "unremoved") no longer matches — and URLs are stripped before matching, so the `vN.0.0` version-bump heuristic cannot fire on Full Changelog compare links. In the motivating runs, 2 of the 4 reported "breaking" rows were false positives of these two classes (nnn, simdutf). The phrase check is also one grep instead of ~50 per package.
 ### Added
