@@ -482,8 +482,9 @@ run_upgrade_with_preview() {
 
     # Step 2: Prompt for final confirmation
     if ! prompt_upgrade_confirmation "$desc" "${packages[@]}"; then
-        echo ""
-        echo "Upgrade cancelled."
+        # The prompt already printed "Upgrade cancelled." on the terminal
+        # at the point of decline (T3.4.1 O2: a second echo here printed
+        # the line twice after a declined confirmation).
         return 0
     fi
 

@@ -229,6 +229,15 @@ render_dashboard_records() {
         printf '%d outdated · %d attention · %d no-signal · %d unknown\n' \
             "$total" "$att" "$ns" "$unk"
 
+        # T3.4.1 O1: one legend line when both groups are present — the
+        # checked-and-clean vs could-not-check distinction otherwise lives
+        # only in the r-Review detail. Skipped when it cannot fit the
+        # width whole; narrow terminals keep the compact render.
+        if (( ns > 0 && unk > 0 )); then
+            local legend='No risk signal found = checked, nothing matched · Unknown = no usable evidence'
+            (( ${#legend} <= width )) && printf '%s\n' "$legend"
+        fi
+
         # ---- Column budgets (table-wide) --------------------------------
         local name_w=12 vers_nat=0 pkg inst avail
         while IFS=$'\t' read -r pkg inst avail; do

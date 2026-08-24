@@ -1,4 +1,5 @@
 23 outdated · 3 attention · 18 no-signal · 2 unknown
+No risk signal found = checked, nothing matched · Unknown = no usable evidence
 
 Needs attention (3)
   ffmpeg         7.0.2 → 7.1      major-version-transition

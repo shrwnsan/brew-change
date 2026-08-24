@@ -262,6 +262,7 @@ drive "$RECORDS" 0 \
     && [[ "$(upgrade_args)" == "$NS_SET" ]] \
     && [[ ! -s "$REFRESH_LOG" ]] \
     && [[ "$(grep -c 'Needs attention' <<< "$OUT")" -ge 1 ]] \
+    && [[ "$OUT" == *'[r] Review · [s] Select · [u] Upgrade no-signal ('* ]] \
     && pass || fail "DASHBOARD u: no-signal set only, no refresh on unchanged inventory"
 
 # Enter == u when the no-signal set is non-empty
@@ -298,7 +299,7 @@ KEY_QUEUE=(u q)
 UPGRADE_RC=1
 drive "$RECORDS" 0 \
     && [[ ! -s "$REFRESH_LOG" ]] \
-    && [[ "$OUT" == *"[q]uit"* ]] \
+    && [[ "$OUT" == *"[q] Quit"* ]] \
     && pass || fail "UPGRADE failure: returns to dashboard, no refresh"
 UPGRADE_RC=0
 
@@ -333,7 +334,7 @@ drive "$RECORDS" 0 \
     && [[ "$OUT" == *"--- docker (5/5) ---"* ]] \
     && [[ "$OUT" == *"Retrieval status: rate-limited"* ]] \
     && [[ "$OUT" != *"Evidence URL:"* ]] \
-    && [[ "$OUT" == *"Freshness:        retrieved unknown"* ]] \
+    && [[ "$OUT" == *"Freshness:        not recorded"* ]] \
     && pass || fail "REVIEW detail unknown: URL omitted, null freshness"
 
 # Invalid review input -> hint; the review list must NOT be reprinted for

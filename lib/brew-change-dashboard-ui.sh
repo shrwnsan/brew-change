@@ -477,7 +477,13 @@ _dashboard_review_detail() { # records package [position [total]]
     # Truthful provenance (T3.2.1): human phrasing for the retrieval
     # vocabulary plus one actionable hint where a next step exists.
     printf 'Retrieval status: %s\n' "$(_dashboard_status_phrase "$status")"
-    printf 'Freshness:        retrieved %s\n' "$(_dashboard_freshness "$at")"
+    # T3.4.1 O2: rows without a retrieval timestamp read "retrieved
+    # unknown" — state plainly that no timestamp was recorded instead.
+    if [[ -n "$at" && "$at" != "null" ]]; then
+        printf 'Freshness:        retrieved %s\n' "$(_dashboard_freshness "$at")"
+    else
+        printf 'Freshness:        not recorded\n'
+    fi
     local hint
     hint=$(_dashboard_status_hint "$status")
     [[ -n "$hint" ]] && printf 'Next step:        %s\n' "$hint"
@@ -919,10 +925,14 @@ _dashboard_print_prompt() { # records
     local records="$1"
     local ns prompt
     ns=$(jq -sr '[.[] | select(.classification == "no-signal")] | length' "$records" 2>/dev/null)
+    # T3.4.1 O2: same bracketed-key, capitalized-word convention as the
+    # static dashboard footer ("[r] Review details  [s] Select packages…")
+    # — previously the prompt used a lowercase "[r]eview" style and the
+    # two surfaces taught the same keys two ways.
     if [[ "$ns" =~ ^[0-9]+$ ]] && (( ns > 0 )); then
-        prompt=$(printf '[r]eview · [s]elect · [u]pgrade no-signal (%s) · [q]uit (Enter = u): ' "$ns")
+        prompt=$(printf '[r] Review · [s] Select · [u] Upgrade no-signal (%s) · [q] Quit (Enter = u): ' "$ns")
     else
-        prompt='[r]eview · [s]elect · [q]uit: '
+        prompt='[r] Review · [s] Select · [q] Quit: '
     fi
     # Remember the prompt width so the inactivity countdown and the
     # invalid-key message can clear it (no stale prompt tail).
