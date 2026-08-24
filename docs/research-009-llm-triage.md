@@ -251,6 +251,18 @@ opt-in only (`--ai`), never default, no telemetry, no state.
 - Task 2 implementation proceeds only from a PRD inheriting these
   contracts and only with maintainer approval (unchanged gate).
 
+**PARKED 2026-08-24 by the maintainer.** The conditional GO is
+suspended: no stable, subsidizable inference endpoint exists today
+(free slugs rotate daily, §3.1), and the deterministic fixes released
+in v1.18.0 already resolved the field errors that motivated the model
+pass (residue: §1d, which R1 cannot target anyway). Reopen conditions
+recorded in tasks-004 Task 2: a stable subsidizable endpoint, a
+zero-friction BYOK posture, or a BYO-AI-agent-harness provider (the
+user's own local agent CLI, with brew-change supplying evidence and
+enforcing the same upgrade-only output contract). Until one holds: no
+PRD, no implementation. The contracts in this document remain ratified
+for whenever a reopen lands.
+
 ## 9. Open questions the Task 2 PRD must settle
 
 Flag spelling (`--ai` vs `--triage-ai`), the confidence threshold
