@@ -62,3 +62,23 @@ Confidence comparison, honestly:
 **The option that beats both: brew-change as the assessment layer, consumed through its existing export surface.** brew-change already ships a versioned, public JSON export (`~/.brew-change/last-assessment.json`, `brew-change export`, schema_version 1 — tasks-005) designed for exactly this. The highest-leverage move is not Swift contributions and not a competing app: it is (a) proposing to brewui — once their contribution process opens — a "trusted update view" powered by brew-change's export (their stated goal is a natural host for the verdict: attention / no-signal / unknown with reasons and provenance), and (b) optionally proving the integration API with the §6 menu-bar prototype, which doubles as the demand probe. Distribution then comes from brewui's official channel; the differentiation stays in brew-change where it already has tests, users, and a release cadence.
 
 Recommendation update (supersedes the §5 third row): **prefer the export-integration path first**, keep the §6 prototype as the cheap demand probe, and revisit Swift-level contribution to brewui only if the integration lands and pulls. The maintainer's go/no-go still gates everything.
+
+## 9. Prototype decision + estimate provenance (2026-08-24)
+
+**Decision (maintainer, in-session): GO on the read-only menu-bar prototype as the demand probe.** This section records where the estimate comes from and what scope it buys, since the number now gates real work.
+
+**Provenance of "~40h":** it originated as the round-2 adversarial reviewer's order-of-magnitude figure — a gut estimate, not a bottom-up one. Decomposed honestly:
+
+| Work item | Hours |
+|---|---|
+| Xcode project, menu-bar lifecycle, menubar-extra scaffolding | 3–5 |
+| Run `brew-change -b` / read the export; parse schema v1; handle missing/stale/absent states | 5–8 |
+| Menu line ("N updates · M breaking") + refresh-on-open + click-through detail panel | 8–12 |
+| Scheduling/background refresh (poll or manual) + error surfaces | 3–5 |
+| Unsigned DMG packaging + install instructions + distribution to ~50 users | 2–4 |
+| Buffer: menu-bar quirks, SwiftUI learning curve, polish | 9–11 |
+| **Band** | **30–45h** |
+
+So 40h is the midpoint of a defensible band *for prototype scope*, with these fenceposts holding it there: **unsigned DMG (no notarization), read-only (no install capability), export-driven (zero evidence logic in Swift), no auto-updater, no App Store, no localization, no test suite.** Crossing any fencepost — especially notarization or install capability — leaves prototype economics entirely.
+
+**Trim tier (~15–20h):** drop the detail panel and scheduling; the menu shows the one verdict line plus "Open brew-change to review" (launches Terminal). Still measures all three experiment questions — install willingness, click-through, and demand for install capability. Recommended as the starting scope; grow to the 40h tier only if the probe's numbers justify it.
