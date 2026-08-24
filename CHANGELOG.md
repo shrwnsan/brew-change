@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.1] - 2026-08-24
+
+### Added
+- Dashboard legend line (T3.4.1 O1): when both groups are present, one line under the counts — "No risk signal found = checked, nothing matched · Unknown = no usable evidence" — so the checked-and-clean vs could-not-check distinction is on the dashboard itself, not only in the review detail. Skipped when it cannot fit the terminal width whole.
+
+### Fixed
+- Review detail rows without a retrieval timestamp now read "Freshness: not recorded" instead of the odd "retrieved unknown" (T3.4.1 O2).
+- "Upgrade cancelled." prints exactly once after a declined confirmation (the prompt's message was echoed a second time by the caller).
+- The interactive dashboard prompt now uses the static footer's bracketed-key, capitalized-word convention ("[r] Review · [s] Select · [u] Upgrade no-signal (N) · [q] Quit (Enter = u): ") instead of the lowercase "[r]eview" style that taught the same keys two ways (T3.4.1 O2).
+
 ## [1.18.0] - 2026-08-24
 
 ### Fixed
