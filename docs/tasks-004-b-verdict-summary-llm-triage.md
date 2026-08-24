@@ -128,6 +128,28 @@ Release evidence (v1.16.0, 2026-08-21):
 
 ## Task 2: LLM-assisted triage (only if Task 0 says go)
 
+**State:** PARKED 2026-08-24 by the maintainer — no stable, subsidizable
+inference endpoint exists today (free `:free` slugs rotate daily;
+research-009 §3.1's rotation evidence), and the deterministic-fix wave
+released in v1.18.0 already resolved the field errors that motivated
+the model pass. The ratified contracts stay in research-009, not
+deleted.
+
+**Reopen conditions (any one):**
+- A stable, subsidizable (free-tier or cheap-default) inference
+  endpoint whose model does not rotate out from under users;
+- A BYOK posture that fits brew-change's zero-friction promise better
+  than "sign up for an API key" (e.g. reusing a key the user already
+  has for a common provider);
+- A BYO-AI-agent-harness surface: the user's own local agent CLI (a
+  `claude`/`z.ai`-style pipe) as the inference provider, with
+  brew-change supplying the evidence and enforcing the same
+  upgrade-only output contract — the harness question research-009 §3
+  raised but rejected for v1 returns here on the user's machine, where
+  the provider choice (and its cost) is already theirs.
+
+Until one holds: no PRD, no implementation.
+
 - [ ] PRD from research-009's contracts; opt-in only; labeled provenance
 - [ ] Ambiguous-pattern packages only (never re-judge confident pattern
       hits); batched; timeout per call; fallback on any error
