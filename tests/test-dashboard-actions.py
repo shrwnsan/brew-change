@@ -288,9 +288,9 @@ def test_u_reaches_preview_and_decline_returns():
         output, status = run_scenario(
             body,
             write_after_ready=[
-                (b"[q]uit (Enter = u):", b"u\n", 0.3),
+                (b"[q] Quit (Enter = u):", b"u\n", 0.3),
                 (b"dry-run", b"n\n", 0.3),
-                (b"[q]uit (Enter = u):", b"q\n", 0.3),
+                (b"[q] Quit (Enter = u):", b"q\n", 0.3),
             ],
         )
         assert status == 0, (status, output)
@@ -300,7 +300,9 @@ def test_u_reaches_preview_and_decline_returns():
             calls = fh.read()
         assert "upgrade --dry-run bat" in calls, calls
         # Decline: no mutation, refresh not called, dashboard re-rendered.
-        assert b"Upgrade cancelled." in output, output
+        # T3.4.1 O2: the declined confirmation prints "Upgrade cancelled."
+        # exactly once (prompt-side only; the caller echo was removed).
+        assert output.count(b"Upgrade cancelled.") == 1, output
         assert "upgrade --yes" not in calls, calls
         assert b"REFRESH-CALLED" not in output, output
 
@@ -318,11 +320,11 @@ def test_stale_enter_after_r_does_not_corrupt_review():
         output, status = run_scenario(
             body,
             write_after_ready=[
-                (b"[q]uit (Enter = u):", b"r\n", 0.3),
+                (b"[q] Quit (Enter = u):", b"r\n", 0.3),
                 (b"Review packages (3):", b"bat\n", 0.3),
                 (b"Evidence snapshot:", b"\n", 0.3),
                 (b"Review packages (3):", b"b\n", 0.3),
-                (b"[q]uit (Enter = u):", b"q\n", 0.3),
+                (b"[q] Quit (Enter = u):", b"q\n", 0.3),
             ],
         )
         assert status == 0, (status, output)
@@ -369,14 +371,14 @@ def test_invalid_key_reprompts_without_rerender():
     sent in the same burst as the invalid key (see drive_cli_until).
     """
     stdout, _stderr, status = drive_cli_until(
-        ["-u"], b"[q]uit", b"x\n", follow=[(b"Invalid input", b"q\n")]
+        ["-u"], b"[q] Quit", b"x\n", follow=[(b"Invalid input", b"q\n")]
     )
     assert status == 0, (status, stdout)
     lines = overlay_lines(stdout)
     invalid_lines = [line for line in lines if b"Invalid input" in line]
     assert invalid_lines, stdout
     for line in invalid_lines:
-        assert b"]uit" not in line, (
+        assert b"Quit" not in line, (
             f"invalid-input line retains prompt fragments: {line!r}"
         )
     summary_count = sum(line.count(b"outdated \xc2\xb7") for line in lines)
@@ -393,7 +395,7 @@ def test_eof_exits_zero():
         )
         output, status = run_scenario(
             body,
-            write_after_ready=[(b"[q]uit (Enter = u):", b"\x04", 0.3)],
+            write_after_ready=[(b"[q] Quit (Enter = u):", b"\x04", 0.3)],
         )
         assert status == 0, (status, output)
 
@@ -407,7 +409,7 @@ def test_int_exits_130_and_restores_terminal():
         )
         output, status = run_scenario(
             body,
-            write_after_ready=[(b"[q]uit (Enter = u):", b"\x03", 0.3)],
+            write_after_ready=[(b"[q] Quit (Enter = u):", b"\x03", 0.3)],
         )
         assert status == 130, (status, output)
 
@@ -433,7 +435,7 @@ def test_int_at_prompt_boundary_exits_130():
         )
         output, status = run_scenario(
             body,
-            write_after_ready=[(b"[q]uit (Enter = u):", b"\x03", 0.0)],
+            write_after_ready=[(b"[q] Quit (Enter = u):", b"\x03", 0.0)],
         )
         assert status == 130, (status, output)
 
@@ -681,11 +683,11 @@ def test_quit_with_staged_selection_prints_reentry_hint():
         output, status = run_scenario(
             body,
             write_after_ready=[
-                (b"[q]uit (Enter = u):", b"s\n", 0.3),
+                (b"[q] Quit (Enter = u):", b"s\n", 0.3),
                 (b"Select: ", b"node\n", 0.3),
                 (b"staged.", b"\n", 0.3),
                 (b"dry-run", b"n\n", 0.3),
-                (b"[q]uit (Enter = u):", b"q\n", 0.3),
+                (b"[q] Quit (Enter = u):", b"q\n", 0.3),
             ],
         )
         assert status == 0, (status, output)
@@ -706,7 +708,7 @@ def test_quit_with_staged_selection_prints_reentry_hint():
         output, status = run_scenario(
             body,
             write_after_ready=[
-                (b"[q]uit (Enter = u):", b"q\n", 0.3),
+                (b"[q] Quit (Enter = u):", b"q\n", 0.3),
             ],
         )
         assert status == 0, (status, output)
