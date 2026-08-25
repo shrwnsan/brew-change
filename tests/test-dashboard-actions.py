@@ -488,7 +488,7 @@ def test_reader_slices_are_capped():
 NOTICE = b"brew-change: output view changed in v1.14.0"
 # The dashboard legend/prompt line (rendered for any classification mix);
 # the plain prompt flow instead prints "Select upgrade mode:".
-DASH_PROMPT = b"[s] Select packages"
+DASH_PROMPT = b"[s] Select"
 PLAIN_PROMPT = b"Select upgrade mode:"
 
 

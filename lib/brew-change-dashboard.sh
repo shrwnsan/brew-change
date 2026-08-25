@@ -193,7 +193,7 @@ _dashboard_group_header() { # classification
 #   width: terminal column budget for degradation (default 80).
 # Output goes to stdout; the function has no other side effects.
 render_dashboard_records() {
-    local records="${1:-}" width="${2:-80}"
+    local records="${1:-}" width="${2:-80}" footer="${3:-on}"
 
     if [[ -z $records || ! -f $records ]]; then
         printf 'brew-change: render_dashboard_records: no record file\n' >&2
@@ -334,6 +334,12 @@ render_dashboard_records() {
         done
 
         # ---- Footer --------------------------------------------------------
+        # footer=off is the interactive mode: the action prompt printed by
+        # the caller is the single action line — rendering both taught the
+        # same keys twice on screen (the "dupe menu").
+        if [[ "$footer" == "off" ]]; then
+            exit 0
+        fi
         local parts=("[r] Review details" "[s] Select packages")
         (( ns > 0 )) && parts+=("[u] Upgrade no-signal ($ns)")
         parts+=("[q] Quit")
