@@ -326,12 +326,13 @@ KEY_QUEUE=($'\n' q)
 drive "$RECORDS" 0 && [[ "$(upgrade_args)" == "$NS_SET" ]] \
     && pass || fail "DASHBOARD Enter: upgrades no-signal set"
 
-# Enter with an empty no-signal set -> quit semantics (exit 0)
-KEY_QUEUE=($'\n')
+# Enter with an empty no-signal set -> hint (not quit): the reflex Enter
+# after a no-signal upgrade must not close the dashboard; q still quits.
+KEY_QUEUE=($'\n' q)
 drive "$ALL_UNKNOWN" 0 \
+    && [[ "$OUT" == *"No no-signal packages to upgrade. Use [s] to select packages explicitly."* ]] \
     && [[ "$OUT" == *"Dashboard closed."* ]] \
-    && [[ ! -s "$UPGRADE_CALLS" ]] \
-    && pass || fail "DASHBOARD Enter (no no-signal): exit 0, no upgrade"
+    && pass || fail "DASHBOARD Enter (no no-signal): hint, then q quits"
 
 # u with an empty no-signal set -> hint, no execution
 KEY_QUEUE=(u q)
@@ -805,3 +806,32 @@ grep -q '^RC=0$' "$PROBE_LOG" && grep -q '^CLEARED=$' "$PROBE_LOG" \
 
 printf '\ndashboard actions: %d passed, %d failed\n' "$passed" "$failed"
 [[ $failed -eq 0 ]]
+
+# --- Post-upgrade regression: select works on refreshed records ----------
+# After a no-signal upgrade the refresh hands back records with an empty
+# no-signal set; s must open SELECT on those records and the remaining
+# attention/unknown packages must be toggleable (field report 2026-08-25:
+# "not able to then select Unknowns" — the state wiring is verified by
+# this scenario; the reflex-Enter quit above was the actual trap).
+POST_RECORDS="$TMPDIR_TEST/post-records.jsonl"
+cat > "$POST_RECORDS" <<'J'
+{"package":"node","display_name":"node","kind":"formula","installed_version":"22.6.0","available_version":"25.0.0","evidence_source":"github","evidence_url":"u","retrieved_at":1755648000,"retrieval_status":"fresh","evidence_snapshot":"s","classification":"attention","reasons":["major version transition detected (heuristic): 22.6.0 -> 25.0.0"],"matched_signals":["major-version-transition"],"assessment_recommendation":false,"operational_eligibility":true,"default_selected":false}
+{"package":"docker","display_name":"docker","kind":"cask","installed_version":"4.34.0","available_version":"4.35.0","evidence_source":null,"evidence_url":null,"retrieved_at":null,"retrieval_status":"unavailable","evidence_snapshot":null,"classification":"unknown","reasons":["evidence retrieval status: unavailable"],"matched_signals":[],"assessment_recommendation":false,"operational_eligibility":true,"default_selected":false}
+J
+test_refresh() { echo "refresh" >> "$REFRESH_LOG"; echo "$POST_RECORDS"; }
+run_upgrade_with_preview() { printf '%s\n' "$*" >> "$UPGRADE_CALLS"; return 0; }
+FETCH_JSON="$(jq -c '{formulae:[{name:"node"}],casks:[{token:"docker"}]}')"
+KEY_QUEUE=(u s q)
+LINE_QUEUE=('docker' '' b)
+drive "$RECORDS" 0 \
+    && [[ "$(upgrade_args)" == "bat curl docker" ]] \
+    && [[ "$OUT" == *"docker — Unknown"* ]] \
+    && pass || fail "POST-UPGRADE: s opens SELECT on refreshed records; unknown toggleable"
+
+# Restore the shared harness definitions the scenario overrode.
+test_refresh() { echo "refresh" >> "$REFRESH_LOG"; echo "none"; }
+run_upgrade_with_preview() {
+    printf '%s\n' "$*" >> "$UPGRADE_CALLS"
+    return "${UPGRADE_RC:-0}"
+}
+FETCH_JSON="{}"

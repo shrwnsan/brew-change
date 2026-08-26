@@ -147,7 +147,7 @@ teardown_command_harness
 assert_eq "piped -u exit code" "0" "$exit_code"
 assert_contains "piped -u reached Homebrew inventory" $'brew\toutdated\t--json=v2' "$piped_log"
 assert_contains "piped -u stdout contract unchanged" "Non-interactive mode. Upgrade skipped." "$piped_stdout"
-assert_not_contains "piped -u no dashboard prompt" "[s] Select packages" "$piped_stdout"
+assert_not_contains "piped -u no dashboard prompt" "[s] Select" "$piped_stdout"
 assert_not_contains "piped -u hint not on stdout" "$HINT" "$piped_stdout"
 assert_not_contains "piped -u hint not on stderr" "$HINT" "$piped_stderr"
 
@@ -205,7 +205,7 @@ TIMEOUT = 15
 BASH = shutil.which("bash") or "/bin/bash"
 HINT = b"New here?"
 MARKERS = {
-    "dashboard": b"[s] Select packages",
+    "dashboard": b"[s] Select",
     "plain": b"Select upgrade mode:",
 }
 

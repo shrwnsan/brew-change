@@ -1146,7 +1146,9 @@ _dashboard_render() { # records
         w=$(tput cols 2>/dev/null || true)
         [[ -n "$w" && "$w" =~ ^[0-9]+$ ]] && width="$w"
     fi
-    render_dashboard_records "$records" "$width"
+    # footer=off: the prompt below is the single action line (the static
+    # footer plus the prompt read as a duplicated menu on screen).
+    render_dashboard_records "$records" "$width" off
     _dashboard_print_prompt "$records"
     return 0
 }
@@ -1215,19 +1217,20 @@ run_dashboard_mode() {
                 ;;
             $'\n')
                 # Phase 1 default semantics: Enter = u when a no-signal set
-                # exists, otherwise quit.
+                # exists. With an empty set Enter now HINTS instead of
+                # quitting — after a no-signal upgrade the reflex Enter was
+                # closing the whole dashboard (including the ability to
+                # select the remaining attention/unknown packages) with no
+                # on-screen warning that Enter meant quit. q/EOF/timeout
+                # still quit.
                 mapfile -t no_signal < <(_dashboard_default_selected_pkgs "$records")
                 if [[ ${#no_signal[@]} -gt 0 ]]; then
                     _dashboard_say ""
                     _dashboard_upgrade_state records "$refresh_func" \
                         ${no_signal[@]+"${no_signal[@]}"}
                 else
-                    _dashboard_say ""
-                    if (( ${#selected[@]} > 0 )); then
-                        _dashboard_say "Review discarded. Re-run 'brew-change -u' — cached evidence will be reused where available."
-                    fi
-                    _dashboard_say "Dashboard closed."
-                    _dashboard_exit_ok
+                    _dashboard_say "No no-signal packages to upgrade. Use [s] to select packages explicitly."
+                    continue
                 fi
                 ;;
             q|Q)
