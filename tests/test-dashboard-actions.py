@@ -715,6 +715,48 @@ def test_quit_with_staged_selection_prints_reentry_hint():
         assert b"Review discarded" not in output, output
 
 
+def test_select_arrow_navigation_raw_mode():
+    """Arrow keys navigate the SELECT list in raw mode: space stages the
+    cursor row (node, row 1), Down moves to bat (row 2), space unstages
+    it, Enter confirms — the exact-plan preview then names node only."""
+    with tempfile.TemporaryDirectory() as tmp:
+        records = write_records(tmp)
+        outdated = {
+            "formulae": [{"name": "node"}, {"name": "bat"}],
+            "casks": [{"token": "docker"}],
+        }
+        bindir, log, outdated_file = make_fake_brew(tmp, outdated)
+        body = (
+            f'export PATH="{bindir}:$PATH"\n'
+            f'export FAKE_BREW_LOG="{log}"\n'
+            f'export FAKE_BREW_OUTDATED="{outdated_file}"\n'
+            "export BREW_CHANGE_PROMPT_TIMEOUT=60\n"
+            'export DRY_RUN_MODE=""\n'
+            + refresh_none()
+            + f'run_dashboard_mode "{records}" test_refresh\n'
+            'printf "EXIT=%s\\n" "$?" > /dev/tty\n'
+        )
+        output, status = run_scenario(
+            body,
+            write_after_ready=[
+                (b"[q] Quit (Enter = u):", b"s\n", 0.3),
+                # One burst: space (stage node at cursor 1), Down arrow,
+                # space (unstage bat at cursor 2), Enter (confirm).
+                (b"Select: ", b" \x1b[B \n", 0.4),
+                (b"dry-run", b"n\n", 0.3),
+                (b"[q] Quit (Enter = u):", b"q\n", 0.3),
+            ],
+        )
+        assert status == 0, (status, output)
+        # Cursor lives in the prompt line (raw mode, no echo — everything
+        # on screen is app-drawn); movement rewrites only that line.
+        assert b"Select: \xe2\x96\xb8 1/3 node (Needs attention)" in output, output
+        assert b"Select: \xe2\x96\xb8 2/3 bat (No risk signal)" in output, output
+        # The confirmed staged set is exactly node (bat unstaged).
+        assert b"Preview: brew upgrade --dry-run node" in output, output
+        assert b"Dashboard closed." in output, output
+
+
 def main():
     tests = [
         test_u_reaches_preview_and_decline_returns,

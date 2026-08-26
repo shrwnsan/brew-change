@@ -67,6 +67,62 @@ _dashboard_read_line() { # varname
     return 0
 }
 
+# SELECT raw-action translation: scripted line entries replay as their
+# characters (CHR) followed by CONFIRM (Enter resolving the buffer) —
+# exactly what a user typing the entry would produce in raw mode. The
+# tokens UP/DOWN/TOGGLE/BS/CLEAR map to the arrow-navigation actions with
+# no Enter appended. Exhausted queue = EOF, same contract as above.
+SELECT_PENDING=""
+_dashboard_select_read_action() { # varname
+    local __var="$1"
+    if [[ -n "$SELECT_PENDING" ]]; then
+        case "$SELECT_PENDING" in
+            UP|DOWN|TOGGLE|BS|CLEAR)
+                printf -v "$__var" '%s' "$SELECT_PENDING"
+                SELECT_PENDING=""
+                return 0
+                ;;
+        esac
+        if [[ "$SELECT_PENDING" == $'\n' ]]; then
+            SELECT_PENDING=""
+            printf -v "$__var" 'CONFIRM'
+            return 0
+        fi
+        printf -v "$__var" 'CHR:%s' "${SELECT_PENDING:0:1}"
+        SELECT_PENDING="${SELECT_PENDING:1}"
+        return 0
+    fi
+    if (( LINE_I >= ${#LINE_QUEUE[@]} )); then
+        return 1
+    fi
+    local entry="${LINE_QUEUE[$LINE_I]}"
+    LINE_I=$(( LINE_I + 1 ))
+    case "$entry" in
+        UP|DOWN|TOGGLE|BS|CLEAR)
+            printf -v "$__var" '%s' "$entry"
+            return 0
+            ;;
+        "")
+            printf -v "$__var" 'CONFIRM'
+            return 0
+            ;;
+        type1:*)
+            # Partial typing: chars with NO trailing Enter — lets a
+            # scenario interrupt a half-typed buffer mid-word.
+            SELECT_PENDING="${entry#type1:}"
+            printf -v "$__var" 'CHR:%s' "${SELECT_PENDING:0:1}"
+            SELECT_PENDING="${SELECT_PENDING:1}"
+            return 0
+            ;;
+        *)
+            SELECT_PENDING="$entry"$'\n'
+            printf -v "$__var" 'CHR:%s' "${SELECT_PENDING:0:1}"
+            SELECT_PENDING="${SELECT_PENDING:1}"
+            return 0
+            ;;
+    esac
+}
+
 # Route cosmetic /dev/tty messages to stdout so assertions can see them.
 _dashboard_say() { echo "$1"; }
 # shellcheck disable=SC2059 # format passthrough mirrors the module helper
@@ -421,6 +477,55 @@ drive "$RECORDS" 0 \
     && [[ "$OUT" == *"[ ]  1) node — Needs attention"* ]] \
     && [[ "$OUT" == *"[ ]  5) docker — Unknown"* ]] \
     && pass || fail "SELECT render: preselection markers"
+
+# --- SELECT arrow navigation ------------------------------------------------
+# Cursor starts on row 1; DOWN×2 lands on bat (row 3), space unstages it,
+# Enter confirms the remaining default set (curl).
+KEY_QUEUE=(s q)
+LINE_QUEUE=(DOWN DOWN TOGGLE '')
+drive "$RECORDS" 0 \
+    && [[ "$(upgrade_args)" == "curl" ]] \
+    && pass || fail "SELECT arrows: DOWN×2 + space unstages bat; Enter confirms curl"
+
+# UP clamps at row 1; space stages the cursor row (node) on top of defaults.
+KEY_QUEUE=(s q)
+LINE_QUEUE=(UP TOGGLE '')
+drive "$RECORDS" 0 \
+    && [[ "$(upgrade_args)" == "node bat curl" ]] \
+    && pass || fail "SELECT arrows: UP clamps at row 1, space stages node"
+
+# Cursor lives in the prompt line (text-first, no color) and movement
+# must NOT reprint the list — one prompt-line rewrite per keypress.
+KEY_QUEUE=(s q)
+LINE_QUEUE=(DOWN DOWN b)
+drive "$RECORDS" 0 \
+    && [[ "$OUT" == *"Select: ▸ 3/5 bat (No risk signal)"* ]] \
+    && [[ "$(grep -c 'Select packages (no-signal preselected' <<< "$OUT")" -eq 1 ]] \
+    && pass || fail "SELECT arrows: prompt-line cursor; movement redraws nothing"
+
+# Arrow movement clears any half-typed buffer (movement is structural).
+KEY_QUEUE=(s q)
+LINE_QUEUE=('type1:1' DOWN TOGGLE '')
+drive "$RECORDS" 0 \
+    && [[ "$(upgrade_args)" == "postgresql@16 bat curl" ]] \
+    && pass || fail "SELECT arrows: movement clears half-typed buffer"
+
+# A name starting with b/q still types: buffer takes precedence over the
+# back/quit shortcut (which only fires on an empty buffer).
+KEY_QUEUE=(s q)
+LINE_QUEUE=('bat' '')
+drive "$RECORDS" 0 \
+    && [[ "$(upgrade_args)" == "curl" ]] \
+    && pass || fail "SELECT: name entry 'bat' not mistaken for back"
+
+# 'a' + Enter stages everything with the risk composition named; Enter
+# confirms; the exact-plan boundary still receives the full set.
+KEY_QUEUE=(s q)
+LINE_QUEUE=('a' '' b)
+drive "$RECORDS" 0 \
+    && [[ "$(upgrade_args)" == "$ALL_SET" ]] \
+    && [[ "$OUT" == *"Staged all 5 (2 attention · 2 no-signal · 1 unknown)"* ]] \
+    && pass || fail "SELECT a: stages all with composition note"
 
 # --- Full-set sanity: every record token is reachable in SELECT -----------
 FULL="$(_dashboard_all_pkgs "$RECORDS" | tr '\n' ' ' | sed 's/ $//')"
