@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Subtractive post-upgrade refresh: after an upgrade, brew-change no longer re-derives every remaining package. Same-transition records with usable evidence (attention, no-signal, and no-notes unknowns whose re-probe can only return the same nothing) are kept verbatim from the same session; only changed version transitions, newly outdated packages, and retryable rows (rate-limited, stale) re-derive. An entirely session-fresh refresh now skips the worker pass completely (one `brew outdated` plus a reorder) instead of a 3+ minute re-probe; partial refreshes show the true (small) re-derived count in the progress and completion lines. Any planning hiccup falls back to the previous full re-derive.
+
 ## [1.18.1] - 2026-08-24
 
 ### Added
