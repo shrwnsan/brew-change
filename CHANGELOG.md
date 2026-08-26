@@ -7,15 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-08-25
+
+### Added
+- Arrow-key navigation in the SELECT screen (#139): ↑/↓ move a prompt-line cursor (`Select: ▸ 8/24 opencode (Unknown)`) without redrawing the list; space toggles the cursor row; typed number/name entries still resolve on Enter; `a` + Enter stages everything with its risk composition named (`Staged all 24 (6 attention · 0 no-signal · 18 unknown)`) before the unchanged exact-plan confirmation.
+
 ### Changed
 - Subtractive post-upgrade refresh: after an upgrade, brew-change no longer re-derives every remaining package. Same-transition records with usable evidence (attention, no-signal, and no-notes unknowns whose re-probe can only return the same nothing) are kept verbatim from the same session; only changed version transitions, newly outdated packages, and retryable rows (rate-limited, stale) re-derive. An entirely session-fresh refresh now skips the worker pass completely (one `brew outdated` plus a reorder) instead of a 3+ minute re-probe; partial refreshes show the true (small) re-derived count in the progress and completion lines. Any planning hiccup falls back to the previous full re-derive.
 
+
+### Fixed
+- The interactive dashboard no longer draws its action footer twice (static footer plus prompt); the prompt line is the single action line (#140).
+- Enter with an empty no-signal set now hints ("Use [s] to select packages explicitly") instead of silently quitting the dashboard — the reflex Enter after a no-signal upgrade closed the session (#140; amends the research-007 T2.5.1 "Enter = else q" contract).
 ## [1.18.1] - 2026-08-24
 
 ### Added
 - Dashboard legend line (T3.4.1 O1): when both groups are present, one line under the counts — "No risk signal found = checked, nothing matched · Unknown = no usable evidence" — so the checked-and-clean vs could-not-check distinction is on the dashboard itself, not only in the review detail. Skipped when it cannot fit the terminal width whole.
 
 ### Fixed
+- The interactive dashboard no longer draws its action footer twice (static footer plus prompt); the prompt line is the single action line (#140).
+- Enter with an empty no-signal set now hints ("Use [s] to select packages explicitly") instead of silently quitting the dashboard — the reflex Enter after a no-signal upgrade closed the session (#140; amends the research-007 T2.5.1 "Enter = else q" contract).
 - Review detail rows without a retrieval timestamp now read "Freshness: not recorded" instead of the odd "retrieved unknown" (T3.4.1 O2).
 - "Upgrade cancelled." prints exactly once after a declined confirmation (the prompt's message was echoed a second time by the caller).
 - The interactive dashboard prompt now uses the static footer's bracketed-key, capitalized-word convention ("[r] Review · [s] Select · [u] Upgrade no-signal (N) · [q] Quit (Enter = u): ") instead of the lowercase "[r]eview" style that taught the same keys two ways (T3.4.1 O2).
