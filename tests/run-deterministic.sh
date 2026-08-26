@@ -50,6 +50,7 @@ run_suite "accessibility modes" bash "$SCRIPT_DIR/test-accessibility-modes.sh"
 run_suite "b verdict summary" bash "$SCRIPT_DIR/test-b-verdict-summary.sh"
 run_suite "npm-github fallback" bash "$SCRIPT_DIR/test-npm-github-fallback.sh"
 run_suite "assessment export" bash "$SCRIPT_DIR/test-assessment-export.sh"
+run_suite "subtractive refresh" bash "$SCRIPT_DIR/test-refresh-subtractive.sh"
 
 printf '\nDeterministic suites: %d passed, %d failed\n' "$passed" "$failed"
 [[ $failed -eq 0 ]]
