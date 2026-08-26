@@ -719,8 +719,16 @@ _dashboard_select_read_action() {
 
 _dashboard_select_state() { # records
     local records="$1"
-    local -a pkgs=()
+    local -a pkgs=() cls_by_idx=()
     mapfile -t pkgs < <(_dashboard_all_pkgs "$records")
+
+    # Classification per row, parsed once (the prompt line renders the
+    # cursor's label on every movement without re-reading the records).
+    local _p _c
+    while IFS=$'\t' read -r _p _c; do
+        [[ -z "$_p" ]] && continue
+        cls_by_idx+=("$_c")
+    done < <(jq -r '[.package, .classification] | @tsv' "$records" 2>/dev/null)
 
     # Staged selection keyed by canonical token; defaults mirror Phase 1.
     local -A staged=()
@@ -730,7 +738,7 @@ _dashboard_select_state() { # records
     done < <(_dashboard_default_selected_pkgs "$records")
 
     local input rc pkg sel_line count
-    local cursor=1 buffer="" redraw=true
+    local cursor=1 buffer="" redraw=true last_prompt_width=0
     local total=$(( ${#pkgs[@]} ))
 
     # Raw mode scoped to this prompt (see the state header comment).
@@ -748,7 +756,7 @@ _dashboard_select_state() { # records
 
         if [[ "$redraw" == "true" ]]; then
             printf '\nSelect packages (no-signal preselected; attention/unknown need an explicit toggle):\n'
-            local idx=0 cls row cur_marker
+            local idx=0 cls
             while IFS=$'\t' read -r p cls; do
                 [[ -z "$p" ]] && continue
                 idx=$(( idx + 1 ))
@@ -757,21 +765,32 @@ _dashboard_select_state() { # records
                 else
                     sel_line="[ ]"
                 fi
-                # Text-first cursor marker; color never carries meaning.
-                if (( idx == cursor )); then
-                    cur_marker=">"
-                else
-                    cur_marker=" "
-                fi
-                printf '%s %s %2d) %s — %s\n' "$cur_marker" "$sel_line" "$idx" "$p" "$(_dashboard_label "$cls")"
+                printf '  %s %2d) %s — %s\n' "$sel_line" "$idx" "$p" "$(_dashboard_label "$cls")"
             done < <(jq -r '[.package, .classification] | @tsv' "$records" 2>/dev/null)
-            printf '\n%d staged. ↑/↓ move · space toggles · number/name + Enter jumps · [b]ack discards · Enter confirms · [q]uit\n' "$count"
+            printf '\n%d staged. ↑/↓ move · space toggles · [a]ll stages everything · number/name + Enter jumps · [b]ack discards · Enter confirms · [q]uit\n' "$count"
         fi
-        # Buffer typing only rewrites the prompt line in place (raw mode
-        # has no echo); structural changes reprint the list above.
-        local prompt_width=$(( ${#buffer} + 8 ))
+        # Movement updates ONLY this line (carriage-return rewrite, no
+        # scrolling): the cursor lives here — ▸ position/total, package,
+        # classification — while typing replaces it with the buffer.
+        # Structural changes (toggle, resolve, stage-all) reprint the
+        # list above; the clear width covers the previous line so no
+        # stale tail survives either display mode.
+        local prompt_text cur_cls cur_label
+        if [[ -n "$buffer" ]]; then
+            prompt_text="Select: $buffer"
+        elif (( total > 0 )); then
+            cur_cls="${cls_by_idx[$(( cursor - 1 ))]:-unknown}"
+            cur_label=$(_dashboard_label "$cur_cls")
+            prompt_text=$(printf 'Select: ▸ %d/%d %s (%s)' \
+                "$cursor" "$total" "${pkgs[$(( cursor - 1 ))]}" "$cur_label")
+        else
+            prompt_text="Select: "
+        fi
+        local prompt_width=$(( ${#prompt_text} + 2 ))
+        (( prompt_width < last_prompt_width )) && prompt_width=$last_prompt_width
         (( prompt_width < 40 )) && prompt_width=40
-        printf '\r%*s\rSelect: %s' "$prompt_width" "" "$buffer"
+        printf '\r%*s\r%s' "$prompt_width" "" "$prompt_text"
+        last_prompt_width=$(( ${#prompt_text} + 2 ))
         redraw=false
 
         rc=0; _dashboard_select_read_action action || rc=$?
@@ -782,11 +801,11 @@ _dashboard_select_state() { # records
         case "$action" in
             UP)
                 (( cursor > 1 )) && cursor=$(( cursor - 1 ))
-                buffer=""; redraw=true
+                buffer=""
                 ;;
             DOWN)
                 (( cursor < total )) && cursor=$(( cursor + 1 ))
-                buffer=""; redraw=true
+                buffer=""
                 ;;
             TOGGLE)
                 p="${pkgs[$(( cursor - 1 ))]:-}"
@@ -841,7 +860,9 @@ _dashboard_select_state() { # records
             if [[ -z "$pkg" ]]; then
                 # Name matching had its chance; the single-letter
                 # shortcuts resolve here (b + Enter = back, q + Enter =
-                # quit), everything else is the invalid-input hint.
+                # quit, a + Enter = stage everything with its risk
+                # composition named), everything else is the
+                # invalid-input hint.
                 case "$input" in
                     b|B)
                         _dashboard_select_restore_tty
@@ -851,6 +872,25 @@ _dashboard_select_state() { # records
                         _dashboard_select_restore_tty
                         _dashboard_say "Dashboard closed."
                         _dashboard_exit_ok
+                        ;;
+                    a|A)
+                        local att_ct=0 ns_ct=0 unk_ct=0
+                        for p in ${pkgs[@]+"${pkgs[@]}"}; do
+                            staged["$p"]=1
+                        done
+                        local _i=0
+                        for _c in ${cls_by_idx[@]+"${cls_by_idx[@]}"}; do
+                            case "$_c" in
+                                attention) att_ct=$(( att_ct + 1 )) ;;
+                                no-signal) ns_ct=$(( ns_ct + 1 )) ;;
+                                *) unk_ct=$(( unk_ct + 1 )) ;;
+                            esac
+                            _i=$(( _i + 1 ))
+                        done
+                        _dashboard_note '\nStaged all %d (%d attention · %d no-signal · %d unknown) — Enter confirms, then the exact plan previews before anything runs.\n' \
+                            "$total" "$att_ct" "$ns_ct" "$unk_ct"
+                        redraw=true
+                        continue
                         ;;
                 esac
                 _dashboard_note "\nInvalid input '%s'. Type a package number/name, b, Enter, or q.\n" "$input"

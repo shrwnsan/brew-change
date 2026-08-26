@@ -748,10 +748,10 @@ def test_select_arrow_navigation_raw_mode():
             ],
         )
         assert status == 0, (status, output)
-        # Text cursor marker rendered on the visited rows (raw mode, no
-        # echo — everything on screen is app-drawn).
-        assert b"> [ ]  1) node" in output, output
-        assert b"> [x]  2) bat" in output, output
+        # Cursor lives in the prompt line (raw mode, no echo — everything
+        # on screen is app-drawn); movement rewrites only that line.
+        assert b"Select: \xe2\x96\xb8 1/3 node (Needs attention)" in output, output
+        assert b"Select: \xe2\x96\xb8 2/3 bat (No risk signal)" in output, output
         # The confirmed staged set is exactly node (bat unstaged).
         assert b"Preview: brew upgrade --dry-run node" in output, output
         assert b"Dashboard closed." in output, output

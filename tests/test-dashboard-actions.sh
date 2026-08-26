@@ -493,12 +493,14 @@ drive "$RECORDS" 0 \
     && [[ "$(upgrade_args)" == "node bat curl" ]] \
     && pass || fail "SELECT arrows: UP clamps at row 1, space stages node"
 
-# The text cursor marker renders on the cursor row (text-first, no color).
+# Cursor lives in the prompt line (text-first, no color) and movement
+# must NOT reprint the list — one prompt-line rewrite per keypress.
 KEY_QUEUE=(s q)
-LINE_QUEUE=(DOWN b)
+LINE_QUEUE=(DOWN DOWN b)
 drive "$RECORDS" 0 \
-    && [[ "$OUT" == *"> [ ]  2) postgresql@16 — Needs attention"* ]] \
-    && pass || fail "SELECT arrows: cursor marker on row 2"
+    && [[ "$OUT" == *"Select: ▸ 3/5 bat (No risk signal)"* ]] \
+    && [[ "$(grep -c 'Select packages (no-signal preselected' <<< "$OUT")" -eq 1 ]] \
+    && pass || fail "SELECT arrows: prompt-line cursor; movement redraws nothing"
 
 # Arrow movement clears any half-typed buffer (movement is structural).
 KEY_QUEUE=(s q)
@@ -514,6 +516,15 @@ LINE_QUEUE=('bat' '')
 drive "$RECORDS" 0 \
     && [[ "$(upgrade_args)" == "curl" ]] \
     && pass || fail "SELECT: name entry 'bat' not mistaken for back"
+
+# 'a' + Enter stages everything with the risk composition named; Enter
+# confirms; the exact-plan boundary still receives the full set.
+KEY_QUEUE=(s q)
+LINE_QUEUE=('a' '' b)
+drive "$RECORDS" 0 \
+    && [[ "$(upgrade_args)" == "$ALL_SET" ]] \
+    && [[ "$OUT" == *"Staged all 5 (2 attention · 2 no-signal · 1 unknown)"* ]] \
+    && pass || fail "SELECT a: stages all with composition note"
 
 # --- Full-set sanity: every record token is reachable in SELECT -----------
 FULL="$(_dashboard_all_pkgs "$RECORDS" | tr '\n' ' ' | sed 's/ $//')"
