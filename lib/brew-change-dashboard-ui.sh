@@ -955,6 +955,76 @@ _dashboard_flush_pending_summary() {
 # the post-upgrade inventory, so the per-run progress state is reset first
 # (fresh progress.jsonl, stop sentinel removed, assessment.jsonl re-inited)
 # and the live renderer animates this pass exactly like the initial one.
+# Plan a subtractive refresh: given the current classified records and
+# the post-upgrade inventory, decide which packages need no re-derivation
+# because the session's evidence is still the truth for the same version
+# transition. Keep rules (a CHANGED transition always re-derives):
+#   - attention / no-signal — evidence was usable;
+#   - unknown with retrieval_status "unavailable" — a re-probe can only
+#     return the same nothing, and these are exactly the slow vendor
+#     scrapes worth skipping.
+# Re-derive (retry): rate-limited rows and every other unknown status,
+# plus any inventory package without a record.
+# Records for packages no longer in the inventory (the just-upgraded
+# set) drop out entirely.
+# Args: $1 classified records file, $2 outdated JSON, $3 output file for
+#   the kept record lines
+# Stdout: one token per line — the packages to re-derive
+# Returns: 0 plan usable; 1 fall back to a full re-derive
+_dashboard_subtractive_plan() {
+    local records="$1" outdated="$2" kept_out="$3"
+    [[ -s "$records" ]] || return 1
+    : > "$kept_out"
+
+    # Inventory versions per canonical token (same token fallback as
+    # assessment_record_init).
+    local -A inv_inst=() inv_avail=() seen=()
+    local pkg inst avail
+    while IFS=$'\t' read -r pkg inst avail; do
+        [[ -n "$pkg" && "$pkg" != "null" ]] || continue
+        inv_inst["$pkg"]="$inst"
+        inv_avail["$pkg"]="$avail"
+    done < <(jq -r '
+        (.formulae[]? | [.name, (.installed_versions[0] // ""), .current_version] | @tsv),
+        (.casks[]? |
+          ((.token // (if (.name | type) == "array" then .name[0] else .name end)) as $tok |
+           select($tok != null and $tok != "") |
+           [$tok, (.installed_versions[0] // ""), .current_version] | @tsv))
+    ' <<< "$outdated" 2>/dev/null)
+
+    local line cls st rinst ravail keep
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        pkg=$(printf '%s' "$line" | jq -r '.package // empty' 2>/dev/null) || continue
+        [[ -n "$pkg" ]] || continue
+        seen["$pkg"]=1
+        # Upgraded packages are simply gone from the inventory.
+        [[ -n "${inv_inst[$pkg]+x}" ]] || continue
+        rinst=$(printf '%s' "$line" | jq -r '.installed_version // ""' 2>/dev/null)
+        ravail=$(printf '%s' "$line" | jq -r '.available_version // ""' 2>/dev/null)
+        cls=$(printf '%s' "$line" | jq -r '.classification // ""' 2>/dev/null)
+        st=$(printf '%s' "$line" | jq -r '.retrieval_status // ""' 2>/dev/null)
+        keep=false
+        if [[ "$rinst" == "${inv_inst[$pkg]}" && "$ravail" == "${inv_avail[$pkg]}" ]]; then
+            case "$cls:$st" in
+                attention:*|no-signal:*)   keep=true ;;
+                unknown:unavailable)       keep=true ;;
+            esac
+        fi
+        if [[ "$keep" == "true" ]]; then
+            printf '%s\n' "$line" >> "$kept_out"
+        else
+            printf '%s\n' "$pkg"
+        fi
+    done < "$records"
+
+    # New packages (inventory, no record) re-derive too.
+    for pkg in "${!inv_inst[@]}"; do
+        [[ -n "${seen[$pkg]+x}" ]] || printf '%s\n' "$pkg"
+    done
+    return 0
+}
+
 dashboard_refresh_records() {
     local outdated
     outdated=$(_dashboard_fetch_outdated_json)
@@ -972,13 +1042,89 @@ dashboard_refresh_records() {
 
     local run_dir="${UPGRADE_STATUS_DIR:?UPGRADE_STATUS_DIR set}"
 
+    # --- Subtractive refresh (field feedback 2026-08-25) ------------------
+    # The initial pass classified these packages minutes ago; same-
+    # transition records with usable evidence are session-fresh knowledge
+    # and are kept verbatim. Only changed transitions, new packages, and
+    # retryable rows re-derive. Any planning failure falls back to the
+    # full re-derive below.
+    local -a tokens=() rederive=()
+    local -A keep_line=() in_rederive=()
+    local pkg line
+    if declare -F extract_outdated_package_tokens >/dev/null 2>&1; then
+        while IFS=$'\t' read -r pkg _ptype; do
+            if [[ -n "$pkg" && "$pkg" != "null" ]]; then
+                tokens+=("$pkg")
+            fi
+        done < <(extract_outdated_package_tokens "$outdated" 2>/dev/null)
+    else
+        while IFS= read -r pkg; do
+            if [[ -n "$pkg" && "$pkg" != "null" ]]; then
+                tokens+=("$pkg")
+            fi
+        done < <(jq -r '(.formulae[]?.name // empty), (.casks[]?.token // empty)' <<< "$outdated")
+    fi
+
+    local kept_file="$run_dir/.refresh-kept.$$"
+    local plan_file="$run_dir/.refresh-plan.$$"
+    if _dashboard_subtractive_plan "$run_dir/assessment.jsonl" "$outdated" "$kept_file" \
+        > "$plan_file"; then
+        mapfile -t rederive < "$plan_file"
+        for pkg in ${rederive[@]+"${rederive[@]}"}; do
+            in_rederive["$pkg"]=1
+        done
+        while IFS= read -r line; do
+            pkg=$(printf '%s' "$line" | jq -r '.package // empty' 2>/dev/null)
+            [[ -n "$pkg" ]] && keep_line["$pkg"]="$line"
+        done < "$kept_file"
+    else
+        # Fallback: today's behavior — re-derive everything.
+        rederive=("${tokens[@]}")
+    fi
+    rm -f "$plan_file" "$kept_file"
+
+    if (( ${#rederive[@]} == 0 )); then
+        # Entirely session-fresh: reorder the kept records to the new
+        # inventory and hand them back — no worker pass, no renderer,
+        # no re-probing.
+        local out_all="$run_dir/.refresh-assembly.$$"
+        for pkg in ${tokens[@]+"${tokens[@]}"}; do
+            printf '%s\n' "${keep_line[$pkg]}" >> "$out_all"
+        done
+        mv "$out_all" "$run_dir/assessment.jsonl"
+        printf '%s' "$run_dir/assessment.jsonl"
+        return 0
+    fi
+
+    # Filter the inventory to the re-derive subset so the worker pass,
+    # the renderer, and classification all touch only those packages.
+    local tokjson
+    tokjson=$(printf '%s\n' "${rederive[@]}" | jq -R . | jq -s -c .)
+    local rederive_json
+    rederive_json=$(jq -c --argjson t "$tokjson" '
+        def tok: if .token != null and .token != "" then .token
+                 elif (.name | type) == "array" then .name[0]
+                 else .name end;
+        .formulae = [.formulae[]? | select(.name as $n | $t | index($n))]
+        | .casks = [.casks[]? | (tok) as $k
+                    | select($k != null and $k != "" and ($t | index($k)))]' \
+        <<< "$outdated" 2>/dev/null)
+    if [[ -z "$rederive_json" || "$rederive_json" == "null" ]]; then
+        rederive_json="$outdated"
+        rederive=("${tokens[@]}")
+        in_rederive=()
+        for pkg in ${tokens[@]+"${tokens[@]}"}; do
+            in_rederive["$pkg"]=1
+        done
+    fi
+
     # Reset the progress state left behind by the completed initial pass: a
     # stale .progress_done sentinel would end a fresh renderer loop at once,
     # and progress.jsonl/assessment.jsonl must describe only this pass.
     : > "$run_dir/progress.jsonl"
     rm -f "$run_dir/.progress_done"
     if declare -F assessment_record_init >/dev/null 2>&1; then
-        assessment_record_init "$run_dir" "$outdated"
+        assessment_record_init "$run_dir" "$rederive_json"
     fi
 
     local defer_prev="${BREW_CHANGE_DEFER_SUMMARY:-0}"
@@ -1006,10 +1152,10 @@ dashboard_refresh_records() {
     # terminal when one exists, discard them otherwise.
     local parallel_rc=0
     if [[ "$tty_ok" == "true" ]]; then
-        process_packages_parallel "$outdated" "${PARALLEL_JOBS:-4}" \
+        process_packages_parallel "$rederive_json" "${PARALLEL_JOBS:-4}" \
             > /dev/tty || parallel_rc=$?
     else
-        process_packages_parallel "$outdated" "${PARALLEL_JOBS:-4}" \
+        process_packages_parallel "$rederive_json" "${PARALLEL_JOBS:-4}" \
             > /dev/null || parallel_rc=$?
     fi
     if (( parallel_rc != 0 )); then
@@ -1020,31 +1166,34 @@ dashboard_refresh_records() {
         return 0
     fi
 
-    local -a tokens=()
-    local pkg
-    if declare -F extract_outdated_package_tokens >/dev/null 2>&1; then
-        while IFS=$'\t' read -r pkg _ptype; do
-            if [[ -n "$pkg" && "$pkg" != "null" ]]; then
-                tokens+=("$pkg")
-            fi
-        done < <(extract_outdated_package_tokens "$outdated" 2>/dev/null)
-    else
-        while IFS= read -r pkg; do
-            if [[ -n "$pkg" && "$pkg" != "null" ]]; then
-                tokens+=("$pkg")
-            fi
-        done < <(jq -r '(.formulae[]?.name // empty), (.casks[]?.token // empty)' <<< "$outdated")
-    fi
-
     local classify_rc=0
     classify_upgrade_evidence "$run_dir" \
-        ${tokens[@]+"${tokens[@]}"} || classify_rc=$?
+        ${rederive[@]+"${rederive[@]}"} || classify_rc=$?
     progress_renderer_stop
     BREW_CHANGE_DEFER_SUMMARY="$defer_prev"
     _dashboard_flush_pending_summary
     if (( classify_rc != 0 )); then
         printf 'none'
         return 0
+    fi
+
+    # Merge: session-fresh kept records + freshly re-derived rows, in
+    # inventory order, committed atomically.
+    local out_merge="$run_dir/.refresh-merge.$$"
+    local rederived_line
+    for pkg in ${tokens[@]+"${tokens[@]}"}; do
+        if [[ -n "${in_rederive[$pkg]:-}" ]]; then
+            rederived_line=$(grep -F "\"package\":\"$pkg\"" \
+                "$run_dir/assessment.jsonl" 2>/dev/null | head -1)
+            [[ -n "$rederived_line" ]] && printf '%s\n' "$rederived_line" >> "$out_merge"
+        else
+            printf '%s\n' "${keep_line[$pkg]}" >> "$out_merge"
+        fi
+    done
+    if [[ -s "$out_merge" ]]; then
+        mv "$out_merge" "$run_dir/assessment.jsonl"
+    else
+        rm -f "$out_merge"
     fi
     printf '%s' "$run_dir/assessment.jsonl"
     return 0
