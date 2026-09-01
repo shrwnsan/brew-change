@@ -8,7 +8,7 @@
 
 **Tech Stack:** Bash 4+, jq, curl, Homebrew CLI, ShellCheck, GitHub Actions, Python 3 standard-library PTY tests.
 
-**Source of scope:** [Phase 1 task graph](../../tasks-003-trusted-update-workflow.md#5-phase-1--trust-foundation) and [approved PRD](../../prd-003-trusted-update-workflow.md).
+**Source of scope:** [Phase 1 task graph](../dev/tasks-003-trusted-update-workflow.md#5-phase-1--trust-foundation) and [approved PRD](../dev/prd-003-trusted-update-workflow.md).
 
 ---
 
