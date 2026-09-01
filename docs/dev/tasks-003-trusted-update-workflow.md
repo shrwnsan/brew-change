@@ -894,7 +894,7 @@ Acceptance:
 
 **Writes:** utils/config, evidence producers/display, launcher flag, dashboard quit path, tests/docs
 
-Acceptance (per ratified docs/research-008-evidence-cache-resume.md):
+Acceptance (per ratified docs/dev/research-008-evidence-cache-resume.md):
 
 - One `$CACHE_DIR/http/` raw-response cache boundary covers validated JSON, non-empty text, and GitHub requests; analysis always re-runs over cached bodies.
 - Endpoint-class TTLs distinguish low-volatility exact GitHub resources (24h) from mutable collections, npm, and scraped/branch-based content (≤1h).
@@ -924,7 +924,7 @@ Acceptance:
 **Complexity:** M  
 **Owner:** Maintainer/product review
 
-Session record (kit: docs/novice-checks-t3.4.1.md, Environment B — deterministic demo: node 22→25 attention, bat no-signal, wrk rate-limited unknown; driven under a PTY against the Wave 1+2 build; all five scenarios exited 0, read-only):
+Session record (kit: docs/dev/novice-checks-t3.4.1.md, Environment B — deterministic demo: node 22→25 attention, bat no-signal, wrk rate-limited unknown; driven under a PTY against the Wave 1+2 build; all five scenarios exited 0, read-only):
 
 - S1 orientation: dashboard answers "what am I looking at" (counts, three labeled groups, action line); the stderr first-run hint states the confirm-before-anything boundary verbatim; quit → "Dashboard closed." with no mutation. **Check passes on-screen.**
 - S2 no-signal vs unknown: group labels "No risk signal found" vs "Unknown" are distinct and cannot be confused; the per-package semantics (checked-and-clean vs could-not-check, with reason + Next step) live in the r-Review detail, not on the dashboard itself. **Check passes; wording observation O1 (P2).**

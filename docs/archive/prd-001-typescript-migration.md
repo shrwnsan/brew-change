@@ -727,7 +727,7 @@ Error: Node.js required. Install: brew install node
 
 **Related Documents:**
 - [eval-001-typescript-refactor-assessment.md](./eval-001-typescript-refactor-assessment.md) - Initial evaluation
-- [architecture.md](./architecture.md) - Current architecture
+- [architecture.md](../architecture.md) - Current architecture
 - [tasks-001-typescript-migration.md](./tasks-001-typescript-migration.md) - Detailed task breakdown
 
 ---

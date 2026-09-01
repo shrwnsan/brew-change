@@ -54,6 +54,21 @@ export BREW_CHANGE_DEBUG=1
 export BREW_CHANGE_DOCS_REPO=1
 ```
 
+### Accessibility and Output Modes
+
+Output meaning never depends on color or emoji — text labels always carry
+the full classification. These variables only change presentation:
+
+```bash
+export NO_COLOR=1                      # no-color convention: also suppresses decorative emoji
+export BREW_CHANGE_NO_EMOJI=1          # explicit no-emoji opt-out (labels unchanged)
+export BREW_CHANGE_STATIC_PROGRESS=1   # plain "stage n/N" progress line, no spinner animation
+export BREW_CHANGE_PLAIN=1             # -u: previous prompt flow instead of the dashboard
+```
+
+See [trusted-update.md](trusted-update.md) for how these interact with the
+dashboard and the `-b` verdict.
+
 ### Internal Variables
 
 The following variables are used internally by brew-change and are not intended for direct user configuration:
