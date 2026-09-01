@@ -110,7 +110,7 @@ Every evidence fetch (GitHub API, npm registry, scraped release pages) goes thro
 brew-change -u --fresh   # re-probe all evidence this run (clears only the HTTP cache)
 ```
 
-`--fresh` removes and recreates only the HTTP response cache; the GitHub breaking-change patterns, the brew-info cache, and everything else are preserved. The HTTP cache is bounded (at most 512 entries / 100 MiB, oldest entries pruned first), never stores authentication tokens (cache keys use a SHA-256-derived token fingerprint instead), and authenticated responses are partitioned away from anonymous ones.
+`--fresh` removes and recreates only the HTTP response cache; the GitHub breaking-change patterns, the brew-info cache, and everything else are preserved. The HTTP cache is bounded (at most 512 entries / 100 MiB, oldest entries pruned first), never stores authentication tokens (cache keys use a SHA-256-derived token fingerprint instead), and authenticated responses are partitioned away from anonymous ones. Failed probes are never cached (a "no notes" result must not freeze); instead, a package whose release-notes probe chain concluded nothing is remembered for 10 minutes so immediate re-runs skip that chain — a successful chain clears the memo instantly.
 
 ### Accessibility
 

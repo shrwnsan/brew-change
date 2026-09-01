@@ -93,6 +93,15 @@ if [[ -z "${HTTP_CACHE_TTL_DEFAULT_SECONDS:-}" ]]; then
     readonly HTTP_CACHE_TTL_DEFAULT_SECONDS=3600
 fi
 
+# Negative probe cache (field feedback 2026-08-25): when the non-GitHub
+# notes chain concludes "nothing" for a package@version, that outcome is
+# remembered for this long so an immediate re-run skips the full probe
+# chain (up to ~14 URLs x retries). Short by design — a release published
+# mid-window is picked up on the next run after expiry.
+if [[ -z "${HTTP_CACHE_NEGATIVE_TTL_SECONDS:-}" ]]; then
+    readonly HTTP_CACHE_NEGATIVE_TTL_SECONDS=600
+fi
+
 if [[ -z "${MAX_RETRIES:-}" ]]; then
     readonly MAX_RETRIES=${BREW_CHANGE_MAX_RETRIES:-3}           # max network retry attempts
 fi

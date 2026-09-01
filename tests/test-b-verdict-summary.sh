@@ -237,10 +237,13 @@ run_brew_change_piped() {
     teardown_command_harness
 }
 
-# Normalize the wall-clock duration so full-output byte comparisons are
-# stable across runs.
+# Normalize wall-clock-dependent bytes so full-output byte comparisons are
+# stable across runs: the duration line, and the parallel job count — the
+# load-based auto-adjust can halve the pinned jobs on a busy runner
+# between the two compared invocations.
 normalize_run_output() {
-    sed -e 's/^Completed processing \([0-9]\{1,\}\) packages in [0-9]\{1,\}s$/Completed processing \1 packages in Ns/'
+    sed -e 's/^Completed processing \([0-9]\{1,\}\) packages in [0-9]\{1,\}s$/Completed processing \1 packages in Ns/' \
+        -e 's/Processing \([0-9]\{1,\}\) packages in parallel (max [0-9]\{1,\} jobs)/Processing \1 packages in parallel (max N jobs)/'
 }
 
 echo "Test 1: piped -b ends with the verdict block"

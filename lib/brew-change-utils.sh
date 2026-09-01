@@ -620,6 +620,64 @@ _http_cache_store() { # body url token kind
     chmod 600 "$path" 2>/dev/null || true
 }
 
+# ---------------------------------------------------------------------------
+# Negative probe cache. A performance memo, not evidence: records "the
+# probe chain for this key concluded NOTHING at <time>" so an immediate
+# re-run skips the (up to ~14-URL, retried) chain. Short TTL — a release
+# published mid-window is picked up after expiry. Lives in the same HTTP
+# namespace (same hashing, same prune budgets, --fresh clears it); entries
+# are metadata-only (kind "negative", no body). Never carries tokens.
+# Keys are arbitrary strings ("probe <package> <version>"); URLs succeed
+# through the normal cache, and a successful probe CLEARS the negative
+# entry so regained notes are seen immediately.
+# ---------------------------------------------------------------------------
+
+_http_cache_negative_path() { # key
+    _http_cache_path "negative://$1" ""
+}
+
+# Returns 0 when a fresh negative entry exists for the key.
+http_cache_negative_get() { # key
+    local path header retrieved ttl now
+    path=$(_http_cache_negative_path "$1")
+    [[ -f "$path" ]] || return 1
+    header=$(head -n 1 "$path" 2>/dev/null) || return 1
+    # Corrupt entries fail closed (deleted, treated as miss).
+    if ! printf '%s' "$header" | jq -e 'type=="object" and .kind=="negative" and (.retrieved_at|type=="number") and (.ttl|type=="number")' >/dev/null 2>&1; then
+        rm -f "$path" 2>/dev/null || true
+        return 1
+    fi
+    retrieved=$(printf '%s' "$header" | jq -r '.retrieved_at')
+    ttl=$(printf '%s' "$header" | jq -r '.ttl')
+    now=$(_http_cache_now)
+    (( now - retrieved < ttl )) && return 0
+    return 1
+}
+
+http_cache_negative_put() { # key
+    local key="$1" dir path tmp
+    dir=$(_http_cache_dir)
+    mkdir -p "$dir" 2>/dev/null || return 1
+    chmod 700 "$dir" 2>/dev/null || true
+    path=$(_http_cache_negative_path "$key")
+    tmp="$(dirname "$path")/.$(basename "$path").tmp.${BASHPID:-$$}"
+    if ! ( umask 077
+           jq -cn --argjson retrieved "$(_http_cache_now)" \
+                   --argjson ttl "$HTTP_CACHE_NEGATIVE_TTL_SECONDS" \
+                   '{retrieved_at:$retrieved, ttl:$ttl, kind:"negative"}' > "$tmp" ); then
+        rm -f "$tmp" 2>/dev/null || true
+        return 1
+    fi
+    chmod 600 "$tmp" 2>/dev/null || true
+    mv "$tmp" "$path" 2>/dev/null || { rm -f "$tmp" 2>/dev/null || true; return 1; }
+    chmod 600 "$path" 2>/dev/null || true
+}
+
+http_cache_negative_clear() { # key
+    rm -f "$(_http_cache_negative_path "$1")" 2>/dev/null || true
+    return 0
+}
+
 # Request-scoped provenance written atomically to a caller-supplied path:
 # {"provenance":"network-fresh|cached-fresh|cached-stale",
 #  "retrieved_at":<epoch>,"age_seconds":<n>}. File side effects survive

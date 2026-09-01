@@ -316,7 +316,34 @@ construct_project_page_url() {
 # Optional fifth arg: request-scoped provenance metadata path (T3.2.1).
 # Every per-domain fetcher returns immediately after its winning fetch, so
 # the last successful fetch whose meta was written is the content source.
+#
+# Negative probe cache (performance memo, never evidence): the chain tries
+# up to ~14 URLs with retries before concluding "nothing", so an immediate
+# re-run consults a short-TTL negative entry first (skip the whole chain)
+# and records one when the chain concludes nothing. A successful chain
+# clears the entry, so regained notes are seen on the very next run.
+# Same lifecycle as the HTTP cache: --fresh clears it, pruning budgets
+# apply, and it changes no classification — these rows stay unknown.
 fetch_non_github_release_notes() {
+    local package_name="$1"
+    local version="$2"
+    local negative_key="probe ${package_name:-} ${version:-}"
+
+    if http_cache_negative_get "$negative_key"; then
+        return 1
+    fi
+
+    local rc=0
+    _fetch_non_github_release_notes_chain "$@" || rc=$?
+    if (( rc == 0 )); then
+        http_cache_negative_clear "$negative_key"
+    else
+        http_cache_negative_put "$negative_key"
+    fi
+    return "$rc"
+}
+
+_fetch_non_github_release_notes_chain() {
     local package_name="$1"
     local version="$2"
     local source_url="$3"
