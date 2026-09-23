@@ -128,10 +128,17 @@ _dashboard_say() { echo "$1"; }
 # shellcheck disable=SC2059 # format passthrough mirrors the module helper
 _dashboard_note() { printf "$@"; }
 
-# Execution-boundary recorder.
+# Execution-boundary recorder. Mirrors the production outcome contract:
+# rc 0 is ambiguous (completed or declined — UPGRADE_STUB_OUTCOME picks),
+# rc != 0 is failed. _dashboard_upgrade_state refreshes only on completed.
 UPGRADE_CALLS="$TMPDIR_TEST/upgrade-calls"
 run_upgrade_with_preview() {
     printf '%s\n' "$*" >> "$UPGRADE_CALLS"
+    if [[ "${UPGRADE_RC:-0}" == "0" ]]; then
+        UPGRADE_OUTCOME="${UPGRADE_STUB_OUTCOME:-completed}"
+    else
+        UPGRADE_OUTCOME="failed"
+    fi
     return "${UPGRADE_RC:-0}"
 }
 
@@ -310,9 +317,10 @@ drive "$RECORDS" 0 \
     && [[ "$(grep -c 'No next package.' <<< "$OUT")" -eq 1 ]] \
     && pass || fail "REVIEW browse: n/p clamp at both ends"
 
-# u -> UPGRADE with the exact no-signal set; inventory unchanged -> decline
-# path: no refresh, records kept, dashboard re-rendered; then q
+# u -> UPGRADE with the exact no-signal set; declined (rc 0, outcome
+# declined) -> no refresh, records kept, dashboard re-rendered; then q
 KEY_QUEUE=(u q)
+UPGRADE_STUB_OUTCOME=declined
 FETCH_JSON='{"formulae":[{"name":"bat"},{"name":"curl"},{"name":"node"},{"name":"postgresql@16"},{"name":"docker"}],"casks":[]}'
 drive "$RECORDS" 0 \
     && [[ "$(upgrade_args)" == "$NS_SET" ]] \
@@ -320,6 +328,7 @@ drive "$RECORDS" 0 \
     && [[ "$(grep -c 'Needs attention' <<< "$OUT")" -ge 1 ]] \
     && [[ "$OUT" == *'[r] Review · [s] Select · [u] Upgrade no-signal ('* ]] \
     && pass || fail "DASHBOARD u: no-signal set only, no refresh on unchanged inventory"
+UPGRADE_STUB_OUTCOME=
 
 # Enter == u when the no-signal set is non-empty
 KEY_QUEUE=($'\n' q)
@@ -359,6 +368,30 @@ drive "$RECORDS" 0 \
     && [[ "$OUT" == *"[q] Quit"* ]] \
     && pass || fail "UPGRADE failure: returns to dashboard, no refresh"
 UPGRADE_RC=0
+
+# UPGRADE completed but a row is ALREADY outdated again: a newer release
+# shipped while the upgrade ran (field report 2026-09: codex/vercel were
+# re-outdated minutes after upgrading, the stale-inventory gate skipped the
+# refresh wholesale, and the dashboard re-listed every just-upgraded package
+# as stale pre-upgrade records). A completed upgrade must always refresh —
+# the subtractive refresh drops gone records and re-derives re-outdated ones.
+KEY_QUEUE=(u)
+FETCH_JSON='{"formulae":[{"name":"bat","installed_versions":["0.25"],"current_version":"0.26"}],"casks":[]}'
+drive "$RECORDS" 0 \
+    && [[ -s "$REFRESH_LOG" ]] \
+    && pass || fail "UPGRADE completed + re-outdated row: refresh still runs"
+
+# Declined upgrade (rc 0, outcome declined): plan discarded, records kept —
+# no refresh even though the inventory moved on underneath.
+KEY_QUEUE=(u q)
+UPGRADE_STUB_OUTCOME=declined
+FETCH_JSON='{"formulae":[],"casks":[]}'
+drive "$RECORDS" 0 \
+    && [[ ! -s "$REFRESH_LOG" ]] \
+    && [[ "$OUT" == *"[r] Review"* ]] \
+    && pass || fail "UPGRADE declined: no refresh despite moved-on inventory"
+UPGRADE_STUB_OUTCOME=
+FETCH_JSON='{"formulae":[],"casks":[]}'
 
 # --- REVIEW -----------------------------------------------------------------
 
@@ -819,7 +852,11 @@ cat > "$POST_RECORDS" <<'J'
 {"package":"docker","display_name":"docker","kind":"cask","installed_version":"4.34.0","available_version":"4.35.0","evidence_source":null,"evidence_url":null,"retrieved_at":null,"retrieval_status":"unavailable","evidence_snapshot":null,"classification":"unknown","reasons":["evidence retrieval status: unavailable"],"matched_signals":[],"assessment_recommendation":false,"operational_eligibility":true,"default_selected":false}
 J
 test_refresh() { echo "refresh" >> "$REFRESH_LOG"; echo "$POST_RECORDS"; }
-run_upgrade_with_preview() { printf '%s\n' "$*" >> "$UPGRADE_CALLS"; return 0; }
+run_upgrade_with_preview() {
+    printf '%s\n' "$*" >> "$UPGRADE_CALLS"
+    UPGRADE_OUTCOME="completed"
+    return 0
+}
 FETCH_JSON="$(jq -c '{formulae:[{name:"node"}],casks:[{token:"docker"}]}')"
 KEY_QUEUE=(u s q)
 LINE_QUEUE=('docker' '' b)

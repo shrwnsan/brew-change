@@ -461,12 +461,21 @@ preview_upgrade_packages() {
 # Returns:
 #   0 on successful upgrade (or declined confirmation)
 #   1 on preview failure or upgrade execution failure
+# Outcome (UPGRADE_OUTCOME): reported because rc is ambiguous — decline and
+#   success both return 0.
+#   completed: brew exited 0 (may include packages already outdated again)
+#   declined:  no mutation attempted (empty set or declined confirmation)
+#   failed:    preview or upgrade execution failed
 # ---------------------------------------------------------------------------
 run_upgrade_with_preview() {
     local -a packages=("$@")
 
+    # Pessimistic default; refined at each exit below.
+    UPGRADE_OUTCOME="failed"
+
     if [[ ${#packages[@]} -eq 0 ]]; then
         echo "No packages selected for upgrade."
+        UPGRADE_OUTCOME="declined"
         return 0
     fi
 
@@ -485,9 +494,13 @@ run_upgrade_with_preview() {
         # The prompt already printed "Upgrade cancelled." on the terminal
         # at the point of decline (T3.4.1 O2: a second echo here printed
         # the line twice after a declined confirmation).
+        UPGRADE_OUTCOME="declined"
         return 0
     fi
 
     # Step 3: Execute mutation through single entry point, same package argv
     execute_upgrade "${packages[@]}"
+    local rc=$?
+    (( rc == 0 )) && UPGRADE_OUTCOME="completed"
+    return $rc
 }
