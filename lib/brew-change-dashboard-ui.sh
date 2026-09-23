@@ -917,22 +917,6 @@ _dashboard_fetch_outdated_json() {
     brew outdated --json=v2 2>/dev/null | grep -v '✔︎ JSON API' || true
 }
 
-# True when any of the named packages still appears in the outdated
-# inventory (declined/failed upgrade -> keep the existing records).
-_dashboard_any_still_outdated() {
-    local json
-    json=$(_dashboard_fetch_outdated_json)
-    [[ -z "$json" ]] && return 1
-    local token pkg
-    while IFS=$'\t' read -r token _type; do
-        [[ -z "$token" || "$token" == "null" ]] && continue
-        for pkg in "$@"; do
-            [[ "$token" == "$pkg" ]] && return 0
-        done
-    done < <(jq -r '(.formulae[]?.name // empty), (.casks[]?.token // .casks[]?.name // empty)' <<< "$json" 2>/dev/null)
-    return 1
-}
-
 # Print the deferred completion summary (if any) to the terminal and clear
 # it — mirrors the launcher's post-stop flush so the line never shares a
 # rendered line with a spinner frame and never lands on captured stdout.
@@ -1210,7 +1194,16 @@ _dashboard_upgrade_state() { # records_var refresh_func pkgs...
     run_upgrade_with_preview ${pkgs[@]+"${pkgs[@]}"}
     local rc=$?
 
-    if (( rc == 0 )) && ! _dashboard_any_still_outdated ${pkgs[@]+"${pkgs[@]}"}; then
+    # Completed upgrades always refresh. rc alone cannot distinguish
+    # decline (rc 0) from success (rc 0), so the reported outcome decides.
+    # An inventory gate here would be wrong for completions: a newer
+    # release can ship while the upgrade runs, leaving an upgraded package
+    # outdated again — field report 2026-09 (codex/vercel re-outdated
+    # minutes after upgrading) — and gating on that skipped the refresh
+    # wholesale, re-rendering every just-upgraded package as a stale
+    # pre-upgrade record. The subtractive refresh already produces the
+    # right answer: re-outdated rows re-derive, gone records drop.
+    if (( rc == 0 )) && [[ "${UPGRADE_OUTCOME:-}" == "completed" ]]; then
         # Completed: re-derive from the post-upgrade inventory.
         local new_records
         new_records="$("$refresh_func")"
@@ -1221,8 +1214,8 @@ _dashboard_upgrade_state() { # records_var refresh_func pkgs...
         fi
         printf -v "$records_var" '%s' "$new_records"
     fi
-    # Declined, failed, or partially upgraded: back to DASHBOARD with the
-    # plan discarded and the existing records unchanged.
+    # Declined or failed: back to DASHBOARD with the plan discarded and
+    # the existing records unchanged.
     return 0
 }
 
