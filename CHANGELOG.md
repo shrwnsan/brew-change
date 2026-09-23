@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.20.1] - 2026-09-23
+
 ### Fixed
 - The post-upgrade dashboard refresh now runs even when an upgraded package is already outdated again (a newer release shipped while the upgrade ran — e.g. a cask re-outdated minutes after upgrading). The old stale-inventory gate skipped the refresh wholesale in that case and re-listed every just-upgraded package as stale pre-upgrade records. `run_upgrade_with_preview` now reports its outcome (completed/declined/failed) and only declined/failed upgrades keep the existing records unchanged; a completed upgrade always re-derives, so re-outdated rows show their true new transition and gone records drop.
 
