@@ -88,6 +88,11 @@ _PRE_PARSE_HAS_UPGRADE="false"
 _PRE_PARSE_HAS_EVIDENCE_MODE="false"
 _PRE_PARSE_HAS_INVALID="false"
 _PRE_PARSE_INVALID_OPT=""
+_PRE_PARSE_HAS_BADGE="false"
+_PRE_PARSE_BADGE_TRIGGER=""
+_PRE_PARSE_HAS_INIT="false"
+_PRE_PARSE_INIT_SHELL=""
+_PRE_PARSE_HAS_REFRESH="false"
 
 for _arg in "${ORIGINAL_ARGS[@]}"; do
     case "$_arg" in
@@ -119,9 +124,34 @@ for _arg in "${ORIGINAL_ARGS[@]}"; do
             _PRE_PARSE_HAS_INVALID="true"
             _PRE_PARSE_INVALID_OPT="$_arg"
             ;;
+        badge)
+            _PRE_PARSE_HAS_BADGE="true"
+            ;;
+        after-update|after-upgrade)
+            # Trigger positionally following `badge`; validated below.
+            _PRE_PARSE_BADGE_TRIGGER="$_arg"
+            ;;
+        init)
+            _PRE_PARSE_HAS_INIT="true"
+            ;;
+        refresh)
+            _PRE_PARSE_HAS_REFRESH="true"
+            ;;
         *)
-            # A package argument gathers changelog evidence too.
-            _PRE_PARSE_HAS_EVIDENCE_MODE="true"
+            if [[ "$_PRE_PARSE_HAS_INIT" == "true" ]]; then
+                if [[ -z "$_PRE_PARSE_INIT_SHELL" ]]; then
+                    _PRE_PARSE_INIT_SHELL="$_arg"
+                else
+                    echo "Error: init takes exactly one shell argument (zsh or bash)" >&2
+                    exit 1
+                fi
+            elif [[ "$_PRE_PARSE_HAS_BADGE" == "true" && -n "$_PRE_PARSE_BADGE_TRIGGER" ]]; then
+                echo "Error: badge takes exactly one trigger (after-update or after-upgrade)" >&2
+                exit 1
+            else
+                # A package argument gathers changelog evidence too.
+                _PRE_PARSE_HAS_EVIDENCE_MODE="true"
+            fi
             ;;
     esac
 done
@@ -152,6 +182,53 @@ for _arg in "${ORIGINAL_ARGS[@]}"; do
         exit 1
     fi
 done
+
+# prd-004 subcommand validation
+if [[ "$_PRE_PARSE_HAS_BADGE" == "true" && -z "$_PRE_PARSE_BADGE_TRIGGER" ]]; then
+    echo "Error: badge requires a trigger: after-update or after-upgrade" >&2
+    echo "Example: brew-change badge after-update" >&2
+    exit 1
+fi
+if [[ "$_PRE_PARSE_HAS_REFRESH" == "true" ]]; then
+    for _arg in "${ORIGINAL_ARGS[@]}"; do
+        if [[ "$_arg" != "refresh" ]]; then
+            echo "Error: refresh takes no arguments" >&2
+            exit 1
+        fi
+    done
+fi
+
+# prd-004: `init` emits the shell wrapper and exits before any library
+# sourcing — it stays dependency-free and instant. It never writes rc files;
+# the user opts in with: eval "$(brew-change init zsh)"
+if [[ "$_PRE_PARSE_HAS_INIT" == "true" ]]; then
+    case "${_PRE_PARSE_INIT_SHELL:-}" in
+        zsh|bash) ;;
+        "")
+            echo "Error: init requires a shell: zsh or bash" >&2
+            exit 1
+            ;;
+        *)
+            echo "Error: unsupported shell: $_PRE_PARSE_INIT_SHELL (use zsh or bash)" >&2
+            exit 1
+            ;;
+    esac
+    cat << 'EOF'
+# brew-change badge integration (opt-in; see docs/badge-integration.md)
+# Define this after any other brew function/alias — it takes precedence.
+brew() {
+    local __bc_ec=0
+    command brew "$@" || __bc_ec=$?
+    case "${1:-}" in
+        update)  command brew-change badge after-update  >/dev/tty 2>&1 || true ;;
+        upgrade) command brew-change badge after-upgrade >/dev/tty 2>&1 || true ;;
+    esac
+    return $__bc_ec
+}
+EOF
+    exit 0
+fi
+
 unset _arg
 
 # Unknown option
