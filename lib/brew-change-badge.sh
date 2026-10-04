@@ -137,6 +137,8 @@ badge_generated_epoch() {
 # the caller so plain acquire-and-hold tests are meaningful.
 # ---------------------------------------------------------------------------
 refresh_lock_acquire() {
+    # The state dir may not exist yet (fresh install, badge-first workflow).
+    mkdir -p "$(dirname "$REFRESH_LOCK_DIR")" 2>/dev/null || true
     if mkdir "$REFRESH_LOCK_DIR" 2>/dev/null; then
         printf '%s\n' "$$" > "${REFRESH_LOCK_DIR}/pid"
         _badge_now > "${REFRESH_LOCK_DIR}/started"
@@ -272,4 +274,22 @@ badge_main() {
         badge_spawn_refresh "$script_path"
     fi
     return 0
+}
+
+# ---------------------------------------------------------------------------
+# finish_refresh_empty_export
+#
+# prd-004: a refresh that finds zero outdated packages still writes a fresh,
+# empty export (so the badge can say "0 updates" with a new timestamp). The
+# EXIT trap installed by the refresh handler owns lock release and the
+# refresh.log entry for every exit path, including this one. No-op for every
+# non-refresh invocation.
+# ---------------------------------------------------------------------------
+finish_refresh_empty_export() {
+    [[ "${REFRESH_MODE:-}" == "true" ]] || return 0
+    local empty_records
+    empty_records="$(mktemp -t brew-change-empty.XXXXXX)" || exit 0
+    write_assessment_export "$empty_records" || true
+    rm -f "$empty_records"
+    exit 0
 }
