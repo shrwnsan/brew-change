@@ -28,13 +28,17 @@ _badge_now() { printf '%s\n' "${BREW_CHANGE_TEST_NOW:-$(date +%s)}"; }
 # ---------------------------------------------------------------------------
 # badge_counts <export_file>
 #
-# Prints verdict counts as one TAB-separated line:
-#   updates <TAB> breaking <TAB> breaking_names_csv <TAB> nosignal <TAB> unknown
+# Prints verdict counts as one "|"-separated line:
+#   updates | breaking | breaking_names_csv | nosignal | unknown
 #
 # updates = all packages (every export row was outdated at assessment time).
 # breaking = rows whose matched_signals include "breaking-change-pattern"
 # (signal names: lib/brew-change-assessment.sh; the other current signal is
 # "major-version-transition").
+#
+# The separator is deliberately NOT a TAB: tab is IFS whitespace, and bash
+# `read -a` collapses whitespace runs, so empty fields (e.g. no breaking
+# names) would be lost. "|" never occurs in Homebrew package names.
 #
 # Prints nothing and returns 1 when the file is unreadable or not valid JSON.
 # ---------------------------------------------------------------------------
@@ -44,13 +48,13 @@ badge_counts() {
     jq -r '
         (.packages // []) as $pkgs
         | ([ $pkgs[] | select((.matched_signals // []) | index("breaking-change-pattern")) ]) as $brk
-        | [ ($pkgs | length),
-            ($brk | length),
+        | [ ($pkgs | length | tostring),
+            ($brk | length | tostring),
             ([ $brk[].name ] | join(",")),
-            ([ $pkgs[] | select(.classification == "no-signal") ] | length),
-            ([ $pkgs[] | select(.classification == "unknown") ] | length)
+            ([ $pkgs[] | select(.classification == "no-signal") ] | length | tostring),
+            ([ $pkgs[] | select(.classification == "unknown") ] | length | tostring)
           ]
-        | @tsv' "$file" 2>/dev/null || return 1
+        | join("|")' "$file" 2>/dev/null || return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -204,5 +208,68 @@ badge_spawn_refresh() {
     local child=$!
     printf '%s\n' "$child" > "${REFRESH_LOCK_DIR}/pid"
     disown "$child" 2>/dev/null || true
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# badge_main <after-update|after-upgrade> <script_path>
+#
+# Entry from the main script's badge subcommand. Output contract (prd-004):
+# - always exits 0; every error path is silent
+# - silent when stdout is not a TTY (BREW_CHANGE_BADGE_FORCE=1 overrides —
+#   test seam) or when BREW_CHANGE_BADGE_DISABLE=1
+# - missing export: one-line setup hint
+# - unparsable JSON, unsupported schema_version, or unparsable generated_at:
+#   silence (non-event, per the export consumer contract in
+#   docs/assessment-export.md)
+# - fresh (age < BREW_CHANGE_BADGE_MAX_AGE, default BADGE_DEFAULT_MAX_AGE):
+#   the rendered line only
+# - stale after-update: line + " · refreshing…" + spawn refresh
+# - after-upgrade: line + " · assessment updating…" + always spawn refresh
+#   (the outdated set provably changed)
+# ---------------------------------------------------------------------------
+badge_main() {
+    local trigger="$1" script_path="$2"
+    if [[ "${BREW_CHANGE_BADGE_DISABLE:-0}" == "1" ]]; then return 0; fi
+    if [[ ! -t 1 && "${BREW_CHANGE_BADGE_FORCE:-0}" != "1" ]]; then return 0; fi
+
+    if [[ ! -r "${ASSESSMENT_EXPORT_FILE:-}" ]]; then
+        printf '%s\n' "brew-change: no assessment yet — run brew-change -b"
+        return 0
+    fi
+    jq -e 'type == "object" and (.schema_version == 1)' "${ASSESSMENT_EXPORT_FILE}" >/dev/null 2>&1 \
+        || return 0
+
+    local counts gen_epoch now age line suffix="" spawn=0
+    counts="$(badge_counts "${ASSESSMENT_EXPORT_FILE}")" || return 0
+    gen_epoch="$(badge_generated_epoch \
+        "$(jq -r '.generated_at // empty' "${ASSESSMENT_EXPORT_FILE}")")" || return 0
+    now="$(_badge_now)"
+    age="$(badge_age_human "$gen_epoch" "$now")"
+    # "|" (non-whitespace) preserves empty fields through read -a; see
+    # badge_counts for why TAB cannot be used here.
+    local -a counts_fields=()
+    IFS='|' read -r -a counts_fields <<< "$counts"
+    line="$(badge_render_line "${counts_fields[0]}" "${counts_fields[1]}" \
+        "${counts_fields[2]}" "${counts_fields[3]}" "${counts_fields[4]}" "$age")"
+
+    if [[ "$trigger" == "after-upgrade" ]]; then
+        suffix=" · assessment updating…"
+        spawn=1
+    else
+        local max_age="${BREW_CHANGE_BADGE_MAX_AGE:-$BADGE_DEFAULT_MAX_AGE}"
+        # Non-numeric garbage must fall back to the default, never reach the
+        # arithmetic below (set -u turns unset arithmetic names into errors).
+        [[ "$max_age" =~ ^[0-9]+$ ]] || max_age=$BADGE_DEFAULT_MAX_AGE
+        if (( now >= gen_epoch + max_age )); then
+            suffix=" · refreshing…"
+            spawn=1
+        fi
+    fi
+
+    printf '%s%s\n' "$line" "$suffix"
+    if (( spawn == 1 )); then
+        badge_spawn_refresh "$script_path"
+    fi
     return 0
 }
