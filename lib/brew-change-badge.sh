@@ -117,3 +117,92 @@ badge_generated_epoch() {
     [[ -n "$epoch" ]] || return 1
     printf '%s' "$epoch"
 }
+
+# ---------------------------------------------------------------------------
+# refresh_lock_acquire
+#
+# Atomically claims the refresh lock. Returns 0 when acquired (fresh or taken
+# over from an abandoned lock), 1 when a live refresh plausibly holds it.
+#
+# Takeover cases: readable PID that is dead, or a lock older than
+# REFRESH_LOCK_MAX_AGE. A missing/unreadable pid file does NOT take over —
+# the creator may be between mkdir and its pid write (conservative skip).
+#
+# The pid file normally records the spawned refresh child (badge writes it
+# after spawn, see badge_spawn_refresh); refresh_lock_acquire itself records
+# the caller so plain acquire-and-hold tests are meaningful.
+# ---------------------------------------------------------------------------
+refresh_lock_acquire() {
+    if mkdir "$REFRESH_LOCK_DIR" 2>/dev/null; then
+        printf '%s\n' "$$" > "${REFRESH_LOCK_DIR}/pid"
+        _badge_now > "${REFRESH_LOCK_DIR}/started"
+        return 0
+    fi
+    local lpid lstart age=0
+    lpid="$(cat "${REFRESH_LOCK_DIR}/pid" 2>/dev/null || true)"
+    lstart="$(cat "${REFRESH_LOCK_DIR}/started" 2>/dev/null || true)"
+    [[ "$lstart" =~ ^[0-9]+$ ]] && age=$(( $(_badge_now) - lstart ))
+    if [[ -z "$lpid" ]]; then
+        return 1
+    fi
+    if (( age >= REFRESH_LOCK_MAX_AGE )); then
+        refresh_lock_release
+    elif kill -0 "$lpid" 2>/dev/null; then
+        return 1
+    else
+        refresh_lock_release
+    fi
+    mkdir "$REFRESH_LOCK_DIR" 2>/dev/null || return 1
+    printf '%s\n' "$$" > "${REFRESH_LOCK_DIR}/pid"
+    _badge_now > "${REFRESH_LOCK_DIR}/started"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# refresh_lock_release — idempotent.
+# ---------------------------------------------------------------------------
+refresh_lock_release() {
+    rm -rf "$REFRESH_LOCK_DIR" 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# badge_self_path <raw_path>
+#
+# Resolves the main script to an absolute executable path for re-invoking
+# refresh. Returns 1 when the path is not a usable executable.
+# ---------------------------------------------------------------------------
+badge_self_path() {
+    local raw="$1"
+    [[ -n "$raw" ]] || return 1
+    local dir base abs
+    dir="$(cd "$(dirname "$raw")" 2>/dev/null && pwd)" || return 1
+    base="$(basename "$raw")"
+    abs="${dir}/${base}"
+    [[ -x "$abs" ]] || return 1
+    printf '%s' "$abs"
+}
+
+# ---------------------------------------------------------------------------
+# badge_spawn_refresh <script_path>
+#
+# Claims the lock, spawns `brew-change refresh` detached, records the child's
+# PID in the lock, and leaves the lock in place — the refresh run releases it
+# when it exits. Held lock → skip silently (a refresh is already pending).
+#
+# BREW_CHANGE_BADGE_NO_SPAWN=1 exercises the lock decision without executing
+# the child (test seam; the lock is released immediately in that case).
+# ---------------------------------------------------------------------------
+badge_spawn_refresh() {
+    refresh_lock_acquire || return 0
+    if [[ "${BREW_CHANGE_BADGE_NO_SPAWN:-0}" == "1" ]]; then
+        refresh_lock_release
+        return 0
+    fi
+    local self
+    self="$(badge_self_path "$1")" || { refresh_lock_release; return 0; }
+    nohup "$self" refresh >/dev/null 2>&1 </dev/null &
+    local child=$!
+    printf '%s\n' "$child" > "${REFRESH_LOCK_DIR}/pid"
+    disown "$child" 2>/dev/null || true
+    return 0
+}
