@@ -1,6 +1,6 @@
 # PRD-004: Badge Integration — brew-change highlights after `brew update`/`brew upgrade`
 
-**Status:** Design approved in session, 2026-10-05; spec awaiting maintainer review
+**Status:** Implemented via tasks-006, 2026-10-05
 **Complements:** research-010 (native app due diligence) — this is the CLI-native form of the same thesis: brew-change as the trust/assessment layer, consumed through the export surface. The badge is brew-change's own first-party consumer of `last-assessment.json`.
 **Grounding fact:** Homebrew has no hook/plugin mechanism for augmenting core commands. Verified 2026-10-05 against installed source (`/opt/homebrew/Library/Homebrew/brew.rb`, `commands.rb`): external commands (`brew-<cmd>` on `PATH` or tap `cmd/`) are strictly additive — internal commands resolve first (`commands.rb` `Commands.path`) — and no hook or callback exists in `cmd/update.rb`/`upgrade.rb`. Inline highlights are therefore only achievable via a user-shell wrapper.
 
@@ -44,7 +44,7 @@ Three new subcommands dispatched in the main script (same pattern as `export)`, 
 ### `brew-change refresh`
 
 - Headless, non-interactive assessment run: the existing `-b` pipeline with prompts auto-resolved (decision points record `unknown` instead of asking), no dashboard, no interactive upgrade, progress suppressed.
-- Quiet by default (`-q` semantics); writes the export and evidence caches on success; leaves the previous export untouched on failure.
+- Quiet by default (no `-q` flag — quiet is inherent; deviation recorded in tasks-006); writes the export and evidence caches on success; leaves the previous export untouched on failure.
 - Exit 0 on success, non-zero on hard failure; appends a one-line status to `~/.brew-change/refresh.log` (truncated tail, size-capped).
 - Public entry point: a future LaunchAgent/launchd unit (macOS) or cron (Linux) calls the identical command unchanged.
 

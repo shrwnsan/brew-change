@@ -34,6 +34,9 @@ brew-change --version
 
 # Show help
 brew-change --help
+
+# Opt in: one-line verdict badge after `brew update` / `brew upgrade`
+eval "$(brew-change init zsh)"   # or: init bash
 ```
 
 ## 🎯 Who This Is For
@@ -59,6 +62,7 @@ brew-change --help
 A few pointers into the docs — the README stays lean on purpose:
 
 - **The trusted update workflow** — upgrade behavior, the `-b` verdict, first-run behavior, dashboard defaults, evidence caching & re-entry, accessibility modes: [docs/trusted-update.md](docs/trusted-update.md)
+- **The update badge** — opt-in shell-wrapper integration, badge line legend, background refresh: [docs/badge-integration.md](docs/badge-integration.md)
 - **Assessment export** — the versioned JSON feed for external tools (brew-usage): [docs/assessment-export.md](docs/assessment-export.md)
 - **Configuration** — every environment variable in one reference: [docs/configuration.md](docs/configuration.md)
 

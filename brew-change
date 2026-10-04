@@ -53,6 +53,10 @@ Options:
 
 Commands:
   export               Print the last assessment export to stdout
+  badge                Print a one-line verdict from the last assessment
+                        (called by the shell wrapper; see `init`)
+  refresh              Headless re-run that refreshes the assessment export
+  init                 Emit the shell wrapper: init zsh | init bash
 
 If no PACKAGE is specified and no flags, shows simple list like 'brew outdated'.
 
@@ -62,6 +66,7 @@ Trusted update workflow (-u; no account or setup needed):
   Upgrade  nothing upgrades until you confirm the exact plan; quit any time
 
 Examples:
+  eval "$(brew-change init zsh)"  # opt in: badge after brew update/upgrade
   brew-change -u                # Trusted update workflow: interactive dashboard
   brew-change -u --plain        # Trusted update workflow with the previous prompt flow
   brew-change -u --dry-run      # Preview the no-signal plan (no execution)
@@ -328,37 +333,6 @@ fi
 init_github_auth
 export GITHUB_AUTH_TOKEN
 
-# Handle refresh command (prd-004): a headless -b-equivalent run that
-# refreshes the export with no interactive surface. Badge spawns it detached
-# under the refresh lock; the lock is held for the whole run. Piped-contract
-# rules already keep the pipeline plain and non-prompting; REFRESH_MODE
-# additionally suppresses every stdout surface. One EXIT trap owns the two
-# always-required finish steps — lock release and the refresh.log entry —
-# for every exit path (success, empty-outdated, hard failure).
-if [[ "$_PRE_PARSE_HAS_REFRESH" == "true" ]]; then
-    REFRESH_MODE="true"
-    IDENTIFY_BREAKING="true"
-    SHOW_ALL="true"
-    export BREW_CHANGE_CHANGELOG_OUTPUT=0
-    BREW_CHANGE_DEFER_SUMMARY=1
-    if ! refresh_lock_acquire; then
-        # Another refresh is pending/running: nothing to do, no trap yet.
-        exit 0
-    fi
-    __bc_refresh_log="${BREW_CHANGE_REFRESH_LOG:-${HOME}/.brew-change/refresh.log}"
-    __bc_refresh_finish() {
-        local __rc=$?
-        printf 'refresh rc=%s %s\n' "$__rc" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-            >> "$__bc_refresh_log" 2>/dev/null || true
-        # Size-capped log: keep the most recent 100 lines.
-        tail -n 100 "$__bc_refresh_log" 2>/dev/null > "${__bc_refresh_log}.tmp" \
-            && mv "${__bc_refresh_log}.tmp" "$__bc_refresh_log" 2>/dev/null || true
-        refresh_lock_release
-        trap - EXIT
-    }
-    trap __bc_refresh_finish EXIT
-fi
-
 # ---------------------------------------------------------------------------
 # Full argument parsing (after module sourcing for execution paths)
 # ---------------------------------------------------------------------------
@@ -370,6 +344,7 @@ DRY_RUN_MODE="false"
 DASHBOARD_MODE="false"
 PLAIN_MODE="false"
 FRESH_MODE="false"
+REFRESH_MODE="false"
 PACKAGES=()
 
 # Re-parse original arguments for full flag resolution
@@ -448,6 +423,39 @@ if [[ "$PLAIN_MODE" == "true" || "${BREW_CHANGE_PLAIN:-}" == "1" ]]; then
 elif [[ -t 1 ]]; then
     VIEW_USE_DASHBOARD="true"
 fi
+# Handle refresh command (prd-004): a headless -b-equivalent run that
+# refreshes the export with no interactive surface. Badge spawns it detached
+# under the refresh lock; the lock is held for the whole run. Piped-contract
+# rules already keep the pipeline plain and non-prompting; REFRESH_MODE
+# additionally suppresses every stdout surface. One EXIT trap owns the two
+# always-required finish steps — lock release and the refresh.log entry —
+# for every exit path (success, empty-outdated, hard failure).
+# Positioned AFTER full argument parsing so REFRESH_MODE (initialized with
+# the other mode flags there) lands as "true", not the parse default.
+if [[ "$_PRE_PARSE_HAS_REFRESH" == "true" ]]; then
+    REFRESH_MODE="true"
+    IDENTIFY_BREAKING="true"
+    SHOW_ALL="true"
+    export BREW_CHANGE_CHANGELOG_OUTPUT=0
+    BREW_CHANGE_DEFER_SUMMARY=1
+    if ! refresh_lock_acquire; then
+        # Another refresh is pending/running: nothing to do, no trap yet.
+        exit 0
+    fi
+    __bc_refresh_log="${BREW_CHANGE_REFRESH_LOG:-${HOME}/.brew-change/refresh.log}"
+    __bc_refresh_finish() {
+        local __rc=$?
+        printf 'refresh rc=%s %s\n' "$__rc" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+            >> "$__bc_refresh_log" 2>/dev/null || true
+        # Size-capped log: keep the most recent 100 lines.
+        tail -n 100 "$__bc_refresh_log" 2>/dev/null > "${__bc_refresh_log}.tmp" \
+            && mv "${__bc_refresh_log}.tmp" "$__bc_refresh_log" 2>/dev/null || true
+        refresh_lock_release
+        trap - EXIT
+    }
+    trap __bc_refresh_finish EXIT
+fi
+
 if [ ${#PACKAGES[@]} -gt 0 ]; then
     # Show changelog for specific package(s)
     export IDENTIFY_BREAKING  # Make breaking flag available to subprocesses

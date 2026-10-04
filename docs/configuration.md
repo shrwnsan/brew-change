@@ -69,6 +69,22 @@ export BREW_CHANGE_PLAIN=1             # -u: previous prompt flow instead of the
 See [trusted-update.md](trusted-update.md) for how these interact with the
 dashboard and the `-b` verdict.
 
+### Badge Configuration
+
+For the opt-in shell-wrapper badge ([badge-integration.md](badge-integration.md)):
+
+```bash
+# Seconds after generated_at before the assessment counts as stale
+# (the badge then says "refreshing…" and spawns a background refresh)
+# Default: 86400 (24 hours)
+export BREW_CHANGE_BADGE_MAX_AGE=86400
+```
+
+```bash
+# Make the update badge a silent no-op without editing your shell rc
+export BREW_CHANGE_BADGE_DISABLE=1
+```
+
 ### Internal Variables
 
 The following variables are used internally by brew-change and are not intended for direct user configuration:
