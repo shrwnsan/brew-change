@@ -277,8 +277,21 @@ elif command -v brew &>/dev/null; then
 fi
 readonly LIB_DIR
 
+	# Stage 1 (prd-004): minimal libs for the badge subcommand, which must
+	# stay fast — it runs after every wrapped brew update/upgrade.
 	source "$LIB_DIR/brew-change-config.sh"
 	source "$LIB_DIR/brew-change-utils.sh"
+	source "$LIB_DIR/brew-change-export.sh"
+	source "$LIB_DIR/brew-change-badge.sh"
+
+	# Handle badge command (prd-004). Always exits 0; see badge_main. Exits
+	# before verify_dependencies: the badge needs only jq, and every jq
+	# failure inside badge_main is already a silent non-event.
+	if [[ "$_PRE_PARSE_HAS_BADGE" == "true" ]]; then
+	    badge_main "$_PRE_PARSE_BADGE_TRIGGER" "$0"
+	    exit $?
+	fi
+
 	source "$LIB_DIR/brew-change-interactive.sh"
 	source "$LIB_DIR/brew-change-breaking.sh"
 	source "$LIB_DIR/brew-change-assessment.sh"
@@ -292,7 +305,6 @@ readonly LIB_DIR
 	source "$LIB_DIR/brew-change-progress.sh"
 	source "$LIB_DIR/brew-change-upgrade.sh"
 	source "$LIB_DIR/brew-change-dashboard-ui.sh"
-	source "$LIB_DIR/brew-change-export.sh"
 
 # Verify dependencies
 if ! verify_dependencies; then

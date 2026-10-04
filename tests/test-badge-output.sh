@@ -211,5 +211,32 @@ assert_eq "badge_main: piped stdout is silent" "$(badge_main after-update x)" ""
 export BREW_CHANGE_BADGE_FORCE=1
 unset BREW_CHANGE_BADGE_NO_SPAWN BREW_CHANGE_TEST_NOW
 
+# --- badge subcommand via the CLI ---------------------------------------------
+CLI_HOME="$FIXTURES/cli-home"
+rm -rf "$CLI_HOME"
+mkdir -p "$CLI_HOME/.brew-change"
+make_export "$CLI_HOME/.brew-change/last-assessment.json" "2026-10-05T12:00:00Z" \
+    '[{"name":"node","classification":"attention","matched_signals":["breaking-change-pattern"]}]'
+
+CLI_RUN="$(cd "$REPO_ROOT" && pwd)/brew-change"
+ts_cli="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+cli_out="$(HOME="$CLI_HOME" BREW_CHANGE_BADGE_FORCE=1 BREW_CHANGE_BADGE_NO_SPAWN=1 \
+    BREW_CHANGE_TEST_NOW="$(badge_generated_epoch "$ts_cli")" \
+    bash "$CLI_RUN" badge after-update 2>/dev/null)"
+assert_eq "CLI badge: fresh line" "$cli_out" "brew-change: 1 updates · 1 breaking (node) · 1m ago"
+
+cli_out="$(HOME="$CLI_HOME" BREW_CHANGE_BADGE_FORCE=0 bash "$CLI_RUN" badge after-update 2>/dev/null)"
+assert_eq "CLI badge: piped stdout silent" "$cli_out" ""
+
+cli_err="$(HOME="$CLI_HOME" bash "$CLI_RUN" badge 2>&1 >/dev/null)"
+cli_rc=0; HOME="$CLI_HOME" bash "$CLI_RUN" badge >/dev/null 2>&1 || cli_rc=$?
+assert_eq "CLI badge: missing trigger exits 1" "$cli_rc" "1"
+assert_contains "CLI badge: missing trigger message" "$cli_err" "badge requires a trigger"
+
+# badge must not regress the export subcommand
+exp_out="$(HOME="$CLI_HOME" bash "$CLI_RUN" export 2>/dev/null | jq -r '.schema_version')"
+assert_eq "CLI badge: export subcommand still works" "$exp_out" "1"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]
