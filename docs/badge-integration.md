@@ -45,11 +45,16 @@ Uninstall: delete the `eval` line from your rc.
         local __bc_ec=0
         command brew "$@" || __bc_ec=$?      # real brew runs unchanged
         case "${1:-}" in
-            update)  command brew-change badge after-update  >/dev/tty 2>&1 || true ;;
-            upgrade) command brew-change badge after-upgrade >/dev/tty 2>&1 || true ;;
+            update)  { command brew-change badge after-update  >/dev/tty; } 2>/dev/null || true ;;
+            upgrade) { command brew-change badge after-upgrade >/dev/tty; } 2>/dev/null || true ;;
         esac
         return $__bc_ec                       # brew's status passes through
     }
+
+The `{ …; } 2>/dev/null` brace group matters: when no controlling terminal
+exists (detached tmux pane, some IDE shells), the failed `>/dev/tty` open
+would otherwise print shell noise after every `brew update`. The group's own
+`2>/dev/null` is set up first and swallows exactly that message.
 
 Only explicit `brew update` / `brew upgrade` invocations trigger the badge —
 Homebrew's internal auto-update before install/upgrade is untouched.

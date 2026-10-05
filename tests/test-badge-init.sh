@@ -100,13 +100,22 @@ TEST_SCRIPT_SE="$FIXTURES/wrapper-test-se.sh"
     echo 'printf "reached-after-set-e\n"'
 } > "$TEST_SCRIPT_SE"
 
-# Run under a pty so the wrapper's >/dev/tty redirect succeeds (macOS script;
-# skip invocation assertions where script/pty is unavailable).
+# Run under a pty so the wrapper's >/dev/tty redirect succeeds. script(1)
+# syntax differs: BSD (macOS) takes the command positionally, util-linux
+# (most Linux) needs -c. Skip invocation assertions where script is absent.
 WRAPPER_OUT=""
 WRAPPER_SE_OUT=""
 if command -v script >/dev/null 2>&1; then
-    WRAPPER_OUT="$(script -q /dev/null bash "$TEST_SCRIPT" 2>/dev/null | tr -d '\r')"
-    WRAPPER_SE_OUT="$(script -q /dev/null bash "$TEST_SCRIPT_SE" 2>/dev/null | tr -d '\r')"
+    case "$(uname -s)" in
+        Darwin)
+            WRAPPER_OUT="$(script -q /dev/null bash "$TEST_SCRIPT" 2>/dev/null | tr -d '\r')"
+            WRAPPER_SE_OUT="$(script -q /dev/null bash "$TEST_SCRIPT_SE" 2>/dev/null | tr -d '\r')"
+            ;;
+        *)
+            WRAPPER_OUT="$(script -q -c "bash '$TEST_SCRIPT'" /dev/null 2>/dev/null | tr -d '\r')"
+            WRAPPER_SE_OUT="$(script -q -c "bash '$TEST_SCRIPT_SE'" /dev/null 2>/dev/null | tr -d '\r')"
+            ;;
+    esac
 else
     WRAPPER_OUT="$(bash "$TEST_SCRIPT" 2>/dev/null)"
     WRAPPER_SE_OUT="$(bash "$TEST_SCRIPT_SE" 2>/dev/null)"
