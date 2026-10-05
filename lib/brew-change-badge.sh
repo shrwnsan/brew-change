@@ -18,6 +18,9 @@ REFRESH_LOCK_DIR="${HOME}/.brew-change/.refresh.lock"
 # A lock older than this (seconds) is abandoned even if its PID looks alive
 # (recycled-PID guard).
 REFRESH_LOCK_MAX_AGE=1800
+# After a failed refresh, the badge skips spawning for this many seconds so a
+# broken network does not start a doomed refresh on every brew update.
+REFRESH_BACKOFF_FILE="${HOME}/.brew-change/.refresh-backoff"
 
 # ---------------------------------------------------------------------------
 # _badge_now — epoch seconds; BREW_CHANGE_TEST_NOW overrides (test seam,
@@ -189,16 +192,48 @@ badge_self_path() {
 }
 
 # ---------------------------------------------------------------------------
+# refresh_backoff_active / _record / _clear
+#
+# prd-004: a failed refresh starts a backoff window (default 30 min,
+# BREW_CHANGE_REFRESH_BACKOFF) during which the badge does not spawn new
+# refreshes — a broken network must not start a doomed run on every trigger.
+# The record is an epoch file; expired records self-delete on read.
+# ---------------------------------------------------------------------------
+refresh_backoff_active() {
+    [[ -r "$REFRESH_BACKOFF_FILE" ]] || return 1
+    local ts
+    ts="$(cat "$REFRESH_BACKOFF_FILE" 2>/dev/null || true)"
+    [[ "$ts" =~ ^[0-9]+$ ]] || { refresh_backoff_clear; return 1; }
+    if (( $(_badge_now) < ts + ${BREW_CHANGE_REFRESH_BACKOFF:-1800} )); then
+        return 0
+    fi
+    refresh_backoff_clear
+    return 1
+}
+
+refresh_backoff_record() {
+    mkdir -p "$(dirname "$REFRESH_BACKOFF_FILE")" 2>/dev/null || true
+    _badge_now > "$REFRESH_BACKOFF_FILE" 2>/dev/null || true
+}
+
+refresh_backoff_clear() {
+    rm -f "$REFRESH_BACKOFF_FILE" 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
 # badge_spawn_refresh <script_path>
 #
 # Claims the lock, spawns `brew-change refresh` detached, records the child's
 # PID in the lock, and leaves the lock in place — the refresh run releases it
-# when it exits. Held lock → skip silently (a refresh is already pending).
+# when it exits. Held lock or active backoff → skip silently.
 #
 # BREW_CHANGE_BADGE_NO_SPAWN=1 exercises the lock decision without executing
 # the child (test seam; the lock is released immediately in that case).
 # ---------------------------------------------------------------------------
 badge_spawn_refresh() {
+    if refresh_backoff_active; then
+        return 0
+    fi
     refresh_lock_acquire || return 0
     if [[ "${BREW_CHANGE_BADGE_NO_SPAWN:-0}" == "1" ]]; then
         refresh_lock_release
@@ -236,7 +271,7 @@ badge_main() {
     if [[ ! -t 1 && "${BREW_CHANGE_BADGE_FORCE:-0}" != "1" ]]; then return 0; fi
 
     if [[ ! -r "${ASSESSMENT_EXPORT_FILE:-}" ]]; then
-        printf '%s\n' "brew-change: no assessment yet — run brew-change -b"
+        printf '%s\n' "brew-change: no assessment yet — run brew-change -u"
         return 0
     fi
     jq -e 'type == "object" and (.schema_version == 1)' "${ASSESSMENT_EXPORT_FILE}" >/dev/null 2>&1 \
@@ -255,24 +290,31 @@ badge_main() {
     line="$(badge_render_line "${counts_fields[0]}" "${counts_fields[1]}" \
         "${counts_fields[2]}" "${counts_fields[3]}" "${counts_fields[4]}" "$age")"
 
+    local max_age="${BREW_CHANGE_BADGE_MAX_AGE:-$BADGE_DEFAULT_MAX_AGE}"
+    # Non-numeric garbage must fall back to the default, never reach the
+    # arithmetic below (set -u turns unset arithmetic names into errors).
+    [[ "$max_age" =~ ^[0-9]+$ ]] || max_age=$BADGE_DEFAULT_MAX_AGE
     if [[ "$trigger" == "after-upgrade" ]]; then
-        suffix=" · assessment updating…"
         spawn=1
-    else
-        local max_age="${BREW_CHANGE_BADGE_MAX_AGE:-$BADGE_DEFAULT_MAX_AGE}"
-        # Non-numeric garbage must fall back to the default, never reach the
-        # arithmetic below (set -u turns unset arithmetic names into errors).
-        [[ "$max_age" =~ ^[0-9]+$ ]] || max_age=$BADGE_DEFAULT_MAX_AGE
-        if (( now >= gen_epoch + max_age )); then
+    elif (( now >= gen_epoch + max_age )); then
+        spawn=1
+    fi
+    # A recent refresh failure backs off: no spawn, and no suffix — the
+    # suffix promises a refresh that is not happening, while the age marker
+    # already tells the staleness story (prd-004 honesty contract).
+    if (( spawn == 1 )) && refresh_backoff_active; then
+        spawn=0
+    fi
+    if (( spawn == 1 )); then
+        if [[ "$trigger" == "after-upgrade" ]]; then
+            suffix=" · assessment updating…"
+        else
             suffix=" · refreshing…"
-            spawn=1
         fi
+        badge_spawn_refresh "$script_path"
     fi
 
     printf '%s%s\n' "$line" "$suffix"
-    if (( spawn == 1 )); then
-        badge_spawn_refresh "$script_path"
-    fi
     return 0
 }
 
@@ -292,4 +334,40 @@ finish_refresh_empty_export() {
     write_assessment_export "$empty_records" || true
     rm -f "$empty_records"
     exit 0
+}
+
+# ---------------------------------------------------------------------------
+# refresh_export_degraded <assessment_jsonl>
+#
+# prd-004: true when the file holds at least one record and none has a
+# healthy retrieval_status (fresh | cached-fresh) — the signature of a
+# network-dead refresh whose records are all unknown-by-force. The
+# vocabulary is research-005 §: fresh|cached-fresh|stale|unavailable|failed|
+# malformed|contradictory|rate-limited|unsupported; classification requires
+# fresh|cached-fresh evidence (lib/brew-change-assessment.sh).
+#
+# Empty or unreadable input is NOT degraded — the caller proceeds with
+# today's behavior (fail-open), and the zero-outdated path never reaches
+# this check.
+# ---------------------------------------------------------------------------
+refresh_export_degraded() {
+    local records="$1"
+    [[ -s "$records" ]] || return 1
+    local healthy total
+    healthy="$(jq -sr '[ .[] | select(.retrieval_status == "fresh" or .retrieval_status == "cached-fresh") ] | length' "$records" 2>/dev/null)" || return 1
+    total="$(jq -sr 'length' "$records" 2>/dev/null)" || return 1
+    (( total > 0 && healthy == 0 ))
+}
+
+# ---------------------------------------------------------------------------
+# badge_export_has_verdicts <export_file>
+#
+# True when the export exists and holds at least one non-unknown
+# classification — i.e. an assessment worth protecting from a degraded
+# overwrite. Missing, empty, or malformed exports are not protected.
+# ---------------------------------------------------------------------------
+badge_export_has_verdicts() {
+    local export_file="$1"
+    [[ -s "$export_file" ]] || return 1
+    jq -e 'any(.packages[]?; .classification != "unknown")' "$export_file" >/dev/null 2>&1
 }

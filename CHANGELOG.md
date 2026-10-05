@@ -14,7 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   while passing brew's exit status through untouched. Stale assessments refresh
   in the background via the new headless `brew-change refresh` command
   (lock-protected, one-shot; also the future entry point for a LaunchAgent).
-  See docs/badge-integration.md.
+  Failed refreshes back off for 30 minutes
+  (`BREW_CHANGE_REFRESH_BACKOFF`), and a network-dead refresh never
+  overwrites a healthy export with forced-unknown records. See
+  docs/badge-integration.md.
 
 ## [1.20.1] - 2026-09-23
 

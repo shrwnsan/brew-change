@@ -445,6 +445,13 @@ if [[ "$_PRE_PARSE_HAS_REFRESH" == "true" ]]; then
     __bc_refresh_log="${BREW_CHANGE_REFRESH_LOG:-${HOME}/.brew-change/refresh.log}"
     __bc_refresh_finish() {
         local __rc=$?
+        # prd-004: failure (including degraded-kept, rc=2) starts the badge
+        # backoff window; success clears any previous one.
+        if (( __rc == 0 )); then
+            refresh_backoff_clear
+        else
+            refresh_backoff_record
+        fi
         printf 'refresh rc=%s %s\n' "$__rc" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
             >> "$__bc_refresh_log" 2>/dev/null || true
         # Size-capped log: keep the most recent 100 lines.
@@ -822,6 +829,16 @@ else
                 done < <(extract_outdated_package_tokens "$outdated_packages" 2>/dev/null)
 
                 if classify_upgrade_evidence "$UPGRADE_STATUS_DIR" "${inventory_tokens[@]+"${inventory_tokens[@]}"}"; then
+                    # prd-004: a network-dead refresh must not clobber a
+                    # healthy export with forced-unknown records. Keep the
+                    # previous export and exit 2 — the trap logs rc=2 and
+                    # starts the refresh backoff window.
+                    if [[ "$REFRESH_MODE" == "true" ]] \
+                        && refresh_export_degraded "$UPGRADE_STATUS_DIR/assessment.jsonl" \
+                        && badge_export_has_verdicts "${ASSESSMENT_EXPORT_FILE:-}"; then
+                        exit 2
+                    fi
+
                     # Write assessment export for external consumers (tasks-005)
                     write_assessment_export "$UPGRADE_STATUS_DIR/assessment.jsonl" || true
 

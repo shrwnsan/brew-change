@@ -180,11 +180,11 @@ assert_eq "badge_main: garbage max age falls back to default" \
     "$(BREW_CHANGE_BADGE_MAX_AGE=notanumber badge_main after-update "$REPO_ROOT/brew-change")" \
     "brew-change: 0 updates · 36h ago · refreshing…"
 
-# missing export: setup hint
+# missing export: setup hint (points at the flagship workflow)
 export ASSESSMENT_EXPORT_FILE="$FIXTURES/does-not-exist.json"
 assert_eq "badge_main: missing → hint" \
     "$(badge_main after-update "$REPO_ROOT/brew-change")" \
-    "brew-change: no assessment yet — run brew-change -b"
+    "brew-change: no assessment yet — run brew-change -u"
 
 # malformed export: silence (non-event contract)
 printf 'not json' > "$FIXTURE_EXPORT"
@@ -237,6 +237,86 @@ assert_contains "CLI badge: missing trigger message" "$cli_err" "badge requires 
 # badge must not regress the export subcommand
 exp_out="$(HOME="$CLI_HOME" bash "$CLI_RUN" export 2>/dev/null | jq -r '.schema_version')"
 assert_eq "CLI badge: export subcommand still works" "$exp_out" "1"
+
+# --- refresh degradation helpers (prd-004) -------------------------------------
+DEGRADED_JSONL="$FIXTURES/degraded.jsonl"
+printf '%s\n' \
+    '{"package":"a","classification":"unknown","retrieval_status":"failed"}' \
+    '{"package":"b","classification":"unknown","retrieval_status":"unavailable"}' > "$DEGRADED_JSONL"
+if refresh_export_degraded "$DEGRADED_JSONL"; then
+    ok "degraded: all-failed records are degraded"
+else
+    no "degraded: all-failed records are degraded" "not detected"
+fi
+
+HEALTHY_JSONL="$FIXTURES/healthy.jsonl"
+printf '%s\n' \
+    '{"package":"a","classification":"attention","retrieval_status":"cached-fresh"}' \
+    '{"package":"b","classification":"no-signal","retrieval_status":"fresh"}' > "$HEALTHY_JSONL"
+if refresh_export_degraded "$HEALTHY_JSONL" 2>/dev/null; then
+    no "degraded: healthy records are not degraded" "false positive"
+else
+    ok "degraded: healthy records are not degraded"
+fi
+
+MIXED_JSONL="$FIXTURES/mixed.jsonl"
+printf '%s\n' \
+    '{"package":"a","classification":"unknown","retrieval_status":"failed"}' \
+    '{"package":"b","classification":"attention","retrieval_status":"fresh"}' > "$MIXED_JSONL"
+if refresh_export_degraded "$MIXED_JSONL" 2>/dev/null; then
+    no "degraded: one healthy record saves the run" "false positive"
+else
+    ok "degraded: one healthy record saves the run"
+fi
+
+: > "$FIXTURES/empty.jsonl"
+if refresh_export_degraded "$FIXTURES/empty.jsonl" 2>/dev/null; then
+    no "degraded: empty record file is not degraded" "false positive"
+else
+    ok "degraded: empty record file is not degraded"
+fi
+
+# --- badge_export_has_verdicts ---------------------------------------------------
+make_export "$FIXTURE_EXPORT" "$ts_now" \
+    '[{"name":"node","classification":"attention","matched_signals":[]}]'
+if badge_export_has_verdicts "$FIXTURE_EXPORT"; then
+    ok "verdicts: attention export is worth protecting"
+else
+    no "verdicts: attention export is worth protecting" "not detected"
+fi
+
+make_export "$FIXTURE_EXPORT" "$ts_now" \
+    '[{"name":"node","classification":"unknown","matched_signals":[]}]'
+if badge_export_has_verdicts "$FIXTURE_EXPORT" 2>/dev/null; then
+    no "verdicts: all-unknown export is not protected" "protected anyway"
+else
+    ok "verdicts: all-unknown export is not protected"
+fi
+
+if badge_export_has_verdicts "$FIXTURES/missing.json" 2>/dev/null; then
+    no "verdicts: missing export is not protected" "protected anyway"
+else
+    ok "verdicts: missing export is not protected"
+fi
+
+# --- hint wording suggests the flagship workflow ----------------------------------
+export ASSESSMENT_EXPORT_FILE="$FIXTURES/does-not-exist.json"
+assert_contains "badge_main: hint suggests -u" \
+    "$(badge_main after-update "$REPO_ROOT/brew-change")" "run brew-change -u"
+
+# --- backoff gating: stale badge stays honest when refresh is backing off ---------
+export ASSESSMENT_EXPORT_FILE="$FIXTURE_EXPORT"
+REFRESH_BACKOFF_FILE="$FIXTURES/badge-backoff"
+export BREW_CHANGE_BADGE_NO_SPAWN=1
+export BREW_CHANGE_TEST_NOW="$(badge_generated_epoch "2026-10-05T12:00:00Z")"
+make_export "$FIXTURE_EXPORT" "2026-10-04T00:00:00Z" '[]'
+_badge_now > "$REFRESH_BACKOFF_FILE"
+assert_not_contains "badge_main: backoff drops the refreshing suffix" \
+    "$(badge_main after-update "$REPO_ROOT/brew-change")" "refreshing"
+assert_contains "badge_main: backoff keeps the age marker" \
+    "$(badge_main after-update "$REPO_ROOT/brew-change")" "36h ago"
+refresh_backoff_clear
+unset BREW_CHANGE_BADGE_NO_SPAWN BREW_CHANGE_TEST_NOW
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

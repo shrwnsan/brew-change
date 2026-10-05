@@ -123,5 +123,54 @@ assert_eq "spawn: held lock untouched" "$(cat "${REFRESH_LOCK_DIR}/pid")" "$$"
 refresh_lock_release
 unset BREW_CHANGE_BADGE_NO_SPAWN
 
+# --- refresh backoff (prd-004) ------------------------------------------------
+REFRESH_BACKOFF_FILE="$FIXTURES/test-backoff"
+rm -f "$REFRESH_BACKOFF_FILE"
+
+if refresh_backoff_active 2>/dev/null; then
+    no "backoff: inactive when no record" "active with no file"
+else
+    ok "backoff: inactive when no record"
+fi
+
+_badge_now > "$REFRESH_BACKOFF_FILE"
+if refresh_backoff_active; then
+    ok "backoff: active within window"
+else
+    no "backoff: active within window" "returned inactive"
+fi
+
+BREW_CHANGE_REFRESH_BACKOFF=0
+if refresh_backoff_active 2>/dev/null; then
+    no "backoff: zero window expires immediately" "still active"
+else
+    ok "backoff: zero window expires immediately"
+fi
+unset BREW_CHANGE_REFRESH_BACKOFF
+
+refresh_backoff_clear
+if [[ -e "$REFRESH_BACKOFF_FILE" ]]; then
+    no "backoff: clear removes record" "file still present"
+else
+    ok "backoff: clear removes record"
+fi
+
+# --- spawn gate under backoff ---------------------------------------------------
+export BREW_CHANGE_BADGE_NO_SPAWN=1
+_badge_now > "$REFRESH_BACKOFF_FILE"
+rm -rf "$REFRESH_LOCK_DIR"
+if badge_spawn_refresh "$REPO_ROOT/brew-change"; then
+    ok "spawn: backoff skips silently"
+else
+    no "spawn: backoff skips silently" "returned failure"
+fi
+if [[ -d "$REFRESH_LOCK_DIR" ]]; then
+    no "spawn: backoff never claims lock" "lock dir created"
+else
+    ok "spawn: backoff never claims lock"
+fi
+refresh_backoff_clear
+unset BREW_CHANGE_BADGE_NO_SPAWN
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

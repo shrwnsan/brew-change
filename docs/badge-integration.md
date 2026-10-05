@@ -35,7 +35,16 @@ Uninstall: delete the `eval` line from your rc.
   parallel brew sessions never stack refreshes).
 - After `brew upgrade`: `· assessment updating…` — always refreshed, because
   the outdated set provably changed.
-- No assessment yet: `brew-change: no assessment yet — run brew-change -b`.
+- The `· refreshing…` / `· assessment updating…` suffix only appears when a
+  refresh actually started. After a failed refresh, the badge backs off for
+  30 minutes (`BREW_CHANGE_REFRESH_BACKOFF`): no suffix, just the plain line
+  with its age marker — the line never promises a refresh that is not
+  happening.
+- A refresh whose evidence pass came back entirely unhealthy (no `fresh` or
+  `cached-fresh` retrievals — the network-dead signature) does not overwrite
+  a healthy export with forced-unknown records. The previous export is kept
+  and the run logs `rc=2` in `refresh.log`.
+- No assessment yet: `brew-change: no assessment yet — run brew-change -u`.
 - The badge never prints in pipes or scripts (its own stdout-TTY check), and
   never changes brew's exit status.
 
