@@ -12,6 +12,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BREW_CHANGE="$REPO_ROOT/brew-change"
+source "$SCRIPT_DIR/lib/test-utils.sh"
 
 FIXTURES="$SCRIPT_DIR/fixtures/badge"
 mkdir -p "$FIXTURES"
@@ -110,6 +111,52 @@ assert_eq "refresh: held lock exits 0" "$rc" "0"
 assert_eq "refresh: held lock silent" "$out" ""
 assert_eq "refresh: held lock untouched" "$(cat "$R_HOME/.brew-change/.refresh.lock/pid")" "$$"
 rm -rf "$R_HOME/.brew-change/.refresh.lock"
+
+# --- degraded refresh keeps a healthy export (prd-004) -------------------------
+# Full integration: one outdated package, every curl probe fails instantly.
+# MAX_RETRIES=1 removes retry sleeps and a single package means a single
+# batch, so no rate-limit sleep fires — the whole doomed evidence pass runs
+# in well under a second. The records come back failed/unavailable only
+# (the degraded signature), so the guard must keep the healthy export,
+# exit 2, and start the backoff.
+DEG_HOME="$FIXTURES/degraded-home"
+rm -rf "$DEG_HOME"
+mkdir -p "$DEG_HOME/.brew-change"
+jq -n '{schema_version:1,generated_at:"2026-10-04T00:00:00Z",packages:[{name:"node",display_name:"node",kind:"formula",installed_version:"22.6.0",available_version:"22.8.0",classification:"attention",matched_signals:["major-version-transition"],retrieval_status:"fresh"}]}' \
+    > "$DEG_HOME/.brew-change/last-assessment.json"
+cp "$DEG_HOME/.brew-change/last-assessment.json" "$FIXTURES/degraded-export-was.json"
+
+setup_command_harness
+configure_fake_command brew "$FIXTURES/outdated-one.json" "" 0
+configure_fake_command curl "" "" 1
+export BREW_CHANGE_MAX_RETRIES=1
+export API_RATE_LIMIT_DELAY=0
+rc=0
+HOME="$DEG_HOME" bash "$BREW_CHANGE" refresh >/dev/null 2>"$FIXTURES/degraded-err.txt" || rc=$?
+unset BREW_CHANGE_MAX_RETRIES API_RATE_LIMIT_DELAY
+teardown_command_harness
+
+assert_eq "degraded: exits 2 (kept old export)" "$rc" "2"
+if cmp -s "$FIXTURES/degraded-export-was.json" "$DEG_HOME/.brew-change/last-assessment.json"; then
+    ok "degraded: healthy export untouched"
+else
+    no "degraded: healthy export untouched" "export was overwritten"
+fi
+if grep -q "refresh rc=2" "$DEG_HOME/.brew-change/refresh.log" 2>/dev/null; then
+    ok "degraded: completion logged with rc=2"
+else
+    no "degraded: completion logged with rc=2" "missing from refresh.log"
+fi
+if [[ -e "$DEG_HOME/.brew-change/.refresh-backoff" ]]; then
+    ok "degraded: backoff started"
+else
+    no "degraded: backoff started" "no backoff record"
+fi
+if [[ -d "$DEG_HOME/.brew-change/.refresh.lock" ]]; then
+    no "degraded: lock released" "lock dir still present"
+else
+    ok "degraded: lock released"
+fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]
