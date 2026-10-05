@@ -212,14 +212,16 @@ export BREW_CHANGE_BADGE_FORCE=1
 unset BREW_CHANGE_BADGE_NO_SPAWN BREW_CHANGE_TEST_NOW
 
 # --- badge subcommand via the CLI ---------------------------------------------
+# The fixture timestamp and BREW_CHANGE_TEST_NOW are derived from the same
+# capture so the fresh-line assertion is clock-independent (a hardcoded
+# generated_at here made this test pass only within ~1h of that instant).
 CLI_HOME="$FIXTURES/cli-home"
 rm -rf "$CLI_HOME"
 mkdir -p "$CLI_HOME/.brew-change"
-make_export "$CLI_HOME/.brew-change/last-assessment.json" "2026-10-05T12:00:00Z" \
-    '[{"name":"node","classification":"attention","matched_signals":["breaking-change-pattern"]}]'
-
 CLI_RUN="$(cd "$REPO_ROOT" && pwd)/brew-change"
 ts_cli="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+make_export "$CLI_HOME/.brew-change/last-assessment.json" "$ts_cli" \
+    '[{"name":"node","classification":"attention","matched_signals":["breaking-change-pattern"]}]'
 
 cli_out="$(HOME="$CLI_HOME" BREW_CHANGE_BADGE_FORCE=1 BREW_CHANGE_BADGE_NO_SPAWN=1 \
     BREW_CHANGE_TEST_NOW="$(badge_generated_epoch "$ts_cli")" \
