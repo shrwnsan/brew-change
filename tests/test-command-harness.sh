@@ -18,12 +18,20 @@ assert_equal() {
 }
 
 original_path="$PATH"
+original_home="$HOME"
 export BREW_CHANGE_TEST_NOW="preexisting-value"
 setup_command_harness
 trap teardown_command_harness EXIT
 
 [[ "$(command -v brew)" == "$COMMAND_HARNESS_BIN/brew" ]] || fail "brew did not resolve to the harness"
 [[ "$(command -v curl)" == "$COMMAND_HARNESS_BIN/curl" ]] || fail "curl did not resolve to the harness"
+
+# HOME isolation: harness runs write real state (the assessment export,
+# caches) and must never touch the user's ~/.brew-change. Regression: piped
+# -u suites overwrote the user's last-assessment.json with fixture data
+# (found live 2026-10-06 — the badge then read the polluted export).
+[[ "$HOME" == "$COMMAND_HARNESS_ROOT/home" ]] || fail "harness HOME is not isolated from user state"
+[[ "$HOME" != "$original_home" ]] || fail "harness HOME did not change"
 
 configure_fake_command brew "$SCRIPT_DIR/fixtures/homebrew/outdated-mixed.json" "" 0
 brew_output=$(brew outdated --json=v2 --greedy) || fail "configured brew should succeed"
@@ -62,6 +70,7 @@ harness_root="$COMMAND_HARNESS_ROOT"
 teardown_command_harness
 trap - EXIT
 assert_equal "$original_path" "$PATH" "PATH restoration"
+assert_equal "$original_home" "$HOME" "HOME restoration"
 assert_equal "preexisting-value" "$BREW_CHANGE_TEST_NOW" "BREW_CHANGE_TEST_NOW restoration"
 [[ ! -e "$harness_root" ]] || fail "temporary harness state was not removed"
 
