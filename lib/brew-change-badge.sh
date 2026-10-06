@@ -128,16 +128,18 @@ badge_generated_epoch() {
 # ---------------------------------------------------------------------------
 # refresh_lock_acquire
 #
-# Atomically claims the refresh lock. Returns 0 when acquired (fresh or taken
-# over from an abandoned lock), 1 when a live refresh plausibly holds it.
+# Atomically claims the refresh lock. Returns 0 when acquired (fresh, taken
+# over from an abandoned lock, or adopted), 1 when a live FOREIGN refresh
+# holds it.
+#
+# Adoption: the badge pre-acquires the lock and writes the spawned child's
+# pid into it (badge_spawn_refresh), so the child's own pid is already in the
+# file when it calls this — refusing there made every spawned refresh exit
+# instantly (found live, 2026-10-06). A lock whose pid equals $$ is adopted.
 #
 # Takeover cases: readable PID that is dead, or a lock older than
 # REFRESH_LOCK_MAX_AGE. A missing/unreadable pid file does NOT take over —
 # the creator may be between mkdir and its pid write (conservative skip).
-#
-# The pid file normally records the spawned refresh child (badge writes it
-# after spawn, see badge_spawn_refresh); refresh_lock_acquire itself records
-# the caller so plain acquire-and-hold tests are meaningful.
 # ---------------------------------------------------------------------------
 refresh_lock_acquire() {
     # The state dir may not exist yet (fresh install, badge-first workflow).
@@ -153,6 +155,11 @@ refresh_lock_acquire() {
     [[ "$lstart" =~ ^[0-9]+$ ]] && age=$(( $(_badge_now) - lstart ))
     if [[ -z "$lpid" ]]; then
         return 1
+    fi
+    if [[ "$lpid" == "$$" ]] && kill -0 "$lpid" 2>/dev/null; then
+        # Own lock: the badge wrote our pid before we exec'd. Adopt it.
+        _badge_now > "${REFRESH_LOCK_DIR}/started"
+        return 0
     fi
     if (( age >= REFRESH_LOCK_MAX_AGE )); then
         refresh_lock_release

@@ -51,18 +51,45 @@ else
 fi
 assert_eq "acquire: pid file records caller" "$(cat "${REFRESH_LOCK_DIR}/pid")" "$$"
 
-# --- held by live PID blocks ------------------------------------------------
+# --- held by a live FOREIGN PID blocks ----------------------------------------
+# The blocker must be a live pid that is not ours: a lock whose pid file
+# records OUR OWN pid is the badge→refresh handoff (parent pre-acquires on
+# behalf of the spawned child) and must be ADOPTED, not refused.
+sleep 30 >/dev/null 2>&1 &
+BLOCKER=$!
+mkdir -p "$REFRESH_LOCK_DIR"
+printf '%s\n' "$BLOCKER" > "${REFRESH_LOCK_DIR}/pid"
+_badge_now > "${REFRESH_LOCK_DIR}/started"
 if refresh_lock_acquire 2>/dev/null; then
-    no "acquire: live PID blocks" "took over a live lock"
+    no "acquire: live foreign PID blocks" "took over a live lock"
 else
-    ok "acquire: live PID blocks"
+    ok "acquire: live foreign PID blocks"
 fi
+kill -9 "$BLOCKER" 2>/dev/null
+wait "$BLOCKER" 2>/dev/null
 refresh_lock_release
 if [[ -d "$REFRESH_LOCK_DIR" ]]; then
     no "release: removes lock dir" "dir still present"
 else
     ok "release: removes lock dir"
 fi
+
+# --- own-PID lock is adopted (badge→refresh handoff) ---------------------------
+# prd-004 regression: the badge acquires the lock and writes the spawned
+# child's pid into it. When the child calls refresh_lock_acquire, the pid in
+# the file is its own — refusing here made every spawned refresh exit
+# instantly, so refresh never ran (found live, 2026-10-06).
+mkdir -p "$REFRESH_LOCK_DIR"
+printf '%s\n' "$$" > "${REFRESH_LOCK_DIR}/pid"
+_badge_now > "${REFRESH_LOCK_DIR}/started"
+if refresh_lock_acquire; then
+    ok "adopt: own-PID lock is claimed by the refresh child"
+else
+    no "adopt: own-PID lock is claimed by the refresh child" "child would exit without running"
+fi
+assert_eq "adopt: started window refreshed" \
+    "$(cat "${REFRESH_LOCK_DIR}/pid")" "$$"
+refresh_lock_release
 
 # --- dead PID takeover -------------------------------------------------------
 DP="$(dead_pid)"
@@ -111,16 +138,37 @@ else
 fi
 
 # --- badge_spawn_refresh: held lock skips ---------------------------------------
+# Foreign live holder (a sleep child, not $$ — own-pid locks are adopted).
+sleep 30 >/dev/null 2>&1 &
+BLOCKER2=$!
 mkdir -p "$REFRESH_LOCK_DIR"
-printf '%s\n' "$$" > "${REFRESH_LOCK_DIR}/pid"
+printf '%s\n' "$BLOCKER2" > "${REFRESH_LOCK_DIR}/pid"
 _badge_now > "${REFRESH_LOCK_DIR}/started"
 if badge_spawn_refresh "$REPO_ROOT/brew-change"; then
     ok "spawn: held lock skips silently"
 else
     no "spawn: held lock skips silently" "returned failure"
 fi
-assert_eq "spawn: held lock untouched" "$(cat "${REFRESH_LOCK_DIR}/pid")" "$$"
+assert_eq "spawn: held lock untouched" "$(cat "${REFRESH_LOCK_DIR}/pid")" "$BLOCKER2"
 refresh_lock_release
+kill -9 "$BLOCKER2" 2>/dev/null
+wait "$BLOCKER2" 2>/dev/null
+
+# --- badge_spawn_refresh: own-PID lock is adopted for the child ------------------
+export BREW_CHANGE_BADGE_NO_SPAWN=1
+mkdir -p "$REFRESH_LOCK_DIR"
+printf '%s\n' "$$" > "${REFRESH_LOCK_DIR}/pid"
+_badge_now > "${REFRESH_LOCK_DIR}/started"
+if badge_spawn_refresh "$REPO_ROOT/brew-change"; then
+    ok "spawn: own-PID lock adopted (NO_SPAWN releases it)"
+else
+    no "spawn: own-PID lock adopted (NO_SPAWN releases it)" "returned failure"
+fi
+if [[ -d "$REFRESH_LOCK_DIR" ]]; then
+    no "spawn: adopted lock released under NO_SPAWN" "dir still present"
+else
+    ok "spawn: adopted lock released under NO_SPAWN"
+fi
 unset BREW_CHANGE_BADGE_NO_SPAWN
 
 # --- refresh backoff (prd-004) ------------------------------------------------
