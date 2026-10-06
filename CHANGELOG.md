@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-10-07
+
 ### Added
 - Badge integration (opt-in): `eval "$(brew-change init zsh)"` defines a `brew`
   wrapper that prints a one-line verdict from the cached assessment after every
