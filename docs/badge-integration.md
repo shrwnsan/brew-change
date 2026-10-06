@@ -63,6 +63,9 @@ Uninstall: delete the `eval` line from your rc.
     __bc_bin=/path/to/brew-change          # pinned by `init`
 
     brew() {
+        case "${1:-}" in
+            upgrade) { command "$__bc_bin" badge before-upgrade >/dev/tty; } 2>/dev/null || true ;;
+        esac
         local __bc_ec=0
         command brew "$@" || __bc_ec=$?      # real brew runs unchanged
         case "${1:-}" in
@@ -72,8 +75,11 @@ Uninstall: delete the `eval` line from your rc.
         return $__bc_ec                       # brew's status passes through
     }
 
-Two details carry weight:
+Details that carry weight:
 
+- **`before-upgrade` is decision support.** A read-only verdict prints above
+  brew's plan, where the `y/n` actually happens. It never refreshes — the
+  post-upgrade badge owns the settle state.
 - **`__bc_bin` pins the emitting binary.** A PATH lookup could resolve an
   older brew-change that predates the subcommands and misfire; the pin
   cannot drift.

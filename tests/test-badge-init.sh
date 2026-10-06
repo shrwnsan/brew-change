@@ -47,6 +47,7 @@ assert_contains "wrapper: passes brew through" "$(cat "$FIXTURES/init-bash.sh")"
 assert_contains "wrapper: returns brew status" "$(cat "$FIXTURES/init-bash.sh")" 'return $__bc_ec'
 assert_contains "wrapper: update trigger" "$(cat "$FIXTURES/init-bash.sh")" 'badge after-update'
 assert_contains "wrapper: upgrade trigger" "$(cat "$FIXTURES/init-bash.sh")" 'badge after-upgrade'
+assert_contains "wrapper: pre-upgrade verdict" "$(cat "$FIXTURES/init-bash.sh")" 'badge before-upgrade'
 
 # Binary pin: the emitted code must reference the emitting binary by absolute
 # path — a PATH lookup can resolve an older brew-change that predates the
@@ -145,6 +146,22 @@ if command -v script >/dev/null 2>&1 && [[ -e /dev/tty ]]; then
 else
     ok "wrapper: badge invocation skipped (no pty available)"
 fi
+
+# Order: the pre-upgrade verdict must be logged BEFORE brew runs.
+: > "$BC_LOG"
+ORDER_SCRIPT="$FIXTURES/wrapper-order.sh"
+{
+    cat "$FIXTURES/init-bash.sh"
+    printf '__bc_bin="%s"\n' "$BIN/brew-change"
+    echo 'brew upgrade'
+} > "$ORDER_SCRIPT"
+if command -v script >/dev/null 2>&1; then
+    script -q /dev/null bash "$ORDER_SCRIPT" >/dev/null 2>&1
+else
+    bash "$ORDER_SCRIPT" >/dev/null 2>&1
+fi
+assert_contains "order: pre-upgrade verdict precedes brew" \
+    "$(head -1 "$BC_LOG" 2>/dev/null)" "BADGE badge before-upgrade"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

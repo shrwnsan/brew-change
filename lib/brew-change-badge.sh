@@ -303,7 +303,10 @@ badge_main() {
     [[ "$max_age" =~ ^[0-9]+$ ]] || max_age=$BADGE_DEFAULT_MAX_AGE
     if [[ "$trigger" == "after-upgrade" ]]; then
         spawn=1
-    elif (( now >= gen_epoch + max_age )); then
+    elif [[ "$trigger" != "before-upgrade" ]] && (( now >= gen_epoch + max_age )); then
+        # before-upgrade is read-only decision support: the verdict must sit
+        # above brew's plan; spawning here would refresh around the decision
+        # and duplicate the post-upgrade trigger's job.
         spawn=1
     fi
     # A recent refresh failure backs off: no spawn, and no suffix — the

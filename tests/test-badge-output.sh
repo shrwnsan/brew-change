@@ -320,5 +320,24 @@ assert_contains "badge_main: backoff keeps the age marker" \
 refresh_backoff_clear
 unset BREW_CHANGE_BADGE_NO_SPAWN BREW_CHANGE_TEST_NOW
 
+# --- before-upgrade trigger: read-only decision support -------------------------
+# Never spawns, never suffixes — the post-upgrade badge owns the settle state.
+make_export "$FIXTURE_EXPORT" "2026-10-04T00:00:00Z" \
+    '[{"name":"node","classification":"attention","matched_signals":["breaking-change-pattern"]}]'
+export ASSESSMENT_EXPORT_FILE="$FIXTURE_EXPORT"
+export BREW_CHANGE_BADGE_FORCE=1
+export BREW_CHANGE_BADGE_NO_SPAWN=1
+export BREW_CHANGE_TEST_NOW="$(badge_generated_epoch "2026-10-05T12:00:00Z")"
+out="$(badge_main before-upgrade "$REPO_ROOT/brew-change")"
+assert_contains "before-upgrade: verdict above the plan" "$out" "1 breaking (node)"
+assert_not_contains "before-upgrade: never a refresh suffix" "$out" "refreshing"
+assert_not_contains "before-upgrade: never an updating suffix" "$out" "updating"
+assert_not_contains "before-upgrade: fresh line still carries age" "$(badge_main before-upgrade x)" "no assessment"
+make_export "$FIXTURE_EXPORT" "$ts_now" '[]'
+assert_eq "before-upgrade: fresh line, no suffix" \
+    "$(badge_main before-upgrade x)" \
+    "brew-change: 0 updates · 1m ago"
+unset BREW_CHANGE_BADGE_NO_SPAWN BREW_CHANGE_TEST_NOW
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

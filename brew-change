@@ -234,6 +234,9 @@ if [[ "$_PRE_PARSE_HAS_INIT" == "true" ]]; then
 # brew-change badge integration (opt-in; see docs/badge-integration.md)
 # Define this after any other brew function/alias — it takes precedence.
 brew() {
+    case "${1:-}" in
+        upgrade) { command "$__bc_bin" badge before-upgrade >/dev/tty; } 2>/dev/null || true ;;
+    esac
     local __bc_ec=0
     command brew "$@" || __bc_ec=$?
     case "${1:-}" in
