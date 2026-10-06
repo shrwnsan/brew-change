@@ -8,6 +8,16 @@ wrapper pattern instead: a `brew()` shell function that runs the real brew,
 prints the badge from cached assessment data, and returns brew's exact exit
 status.
 
+## Requirements
+
+The binary that runs `init` must support the badge subcommands (the release
+that first ships them; v1.20.1 and earlier do not — those versions treat
+unknown words as package names, so `brew-change init zsh` would start
+changelog lookups for packages "init" and "zsh" inside your shell startup).
+`init` pins the emitting binary's absolute path into the emitted code, so a
+repo checkout works before any release, and a tap install keeps working
+across `brew upgrade` (the Cellar symlink path is stable).
+
 ## Install (opt-in)
 
 ```zsh
@@ -50,20 +60,27 @@ Uninstall: delete the `eval` line from your rc.
 
 ## Wrapper semantics
 
+    __bc_bin=/path/to/brew-change          # pinned by `init`
+
     brew() {
         local __bc_ec=0
         command brew "$@" || __bc_ec=$?      # real brew runs unchanged
         case "${1:-}" in
-            update)  { command brew-change badge after-update  >/dev/tty; } 2>/dev/null || true ;;
-            upgrade) { command brew-change badge after-upgrade >/dev/tty; } 2>/dev/null || true ;;
+            update)  { command "$__bc_bin" badge after-update  >/dev/tty; } 2>/dev/null || true ;;
+            upgrade) { command "$__bc_bin" badge after-upgrade >/dev/tty; } 2>/dev/null || true ;;
         esac
         return $__bc_ec                       # brew's status passes through
     }
 
-The `{ …; } 2>/dev/null` brace group matters: when no controlling terminal
-exists (detached tmux pane, some IDE shells), the failed `>/dev/tty` open
-would otherwise print shell noise after every `brew update`. The group's own
-`2>/dev/null` is set up first and swallows exactly that message.
+Two details carry weight:
+
+- **`__bc_bin` pins the emitting binary.** A PATH lookup could resolve an
+  older brew-change that predates the subcommands and misfire; the pin
+  cannot drift.
+- **The `{ …; } 2>/dev/null` brace group**: when no controlling terminal
+  exists (detached tmux pane, some IDE shells), the failed `>/dev/tty` open
+  would otherwise print shell noise after every `brew update`. The group's
+  own `2>/dev/null` is set up first and swallows exactly that message.
 
 Only explicit `brew update` / `brew upgrade` invocations trigger the badge —
 Homebrew's internal auto-update before install/upgrade is untouched.

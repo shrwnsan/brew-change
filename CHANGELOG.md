@@ -16,7 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (lock-protected, one-shot; also the future entry point for a LaunchAgent).
   Failed refreshes back off for 30 minutes
   (`BREW_CHANGE_REFRESH_BACKOFF`), and a network-dead refresh never
-  overwrites a healthy export with forced-unknown records. See
+  overwrites a healthy export with forced-unknown records. `init` pins the
+  emitting binary's absolute path into the wrapper so a PATH lookup cannot
+  resolve an older brew-change that predates the subcommands. See
   docs/badge-integration.md.
 
 ## [1.20.1] - 2026-09-23

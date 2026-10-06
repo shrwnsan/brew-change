@@ -48,6 +48,13 @@ assert_contains "wrapper: returns brew status" "$(cat "$FIXTURES/init-bash.sh")"
 assert_contains "wrapper: update trigger" "$(cat "$FIXTURES/init-bash.sh")" 'badge after-update'
 assert_contains "wrapper: upgrade trigger" "$(cat "$FIXTURES/init-bash.sh")" 'badge after-upgrade'
 
+# Binary pin: the emitted code must reference the emitting binary by absolute
+# path — a PATH lookup can resolve an older brew-change that predates the
+# subcommands and misfires (v1.20.x treated unknown words as package names).
+WANT_BIN="$(cd "$REPO_ROOT" && pwd)/brew-change"
+assert_contains "wrapper: pins the emitting binary" "$(cat "$FIXTURES/init-bash.sh")" "__bc_bin=$WANT_BIN"
+assert_contains "wrapper: badge calls go through the pin" "$(cat "$FIXTURES/init-bash.sh")" 'command "$__bc_bin" badge'
+
 # --- argument validation -------------------------------------------------------
 out="$(bash "$BREW_CHANGE" init 2>&1 >/dev/null)"
 rc=$?
@@ -85,6 +92,8 @@ export BC_LOG="$FIXTURES/wrapper.log"
 TEST_SCRIPT="$FIXTURES/wrapper-test.sh"
 {
     cat "$FIXTURES/init-bash.sh"
+    # Repoint the pin at the stub so the harness observes badge calls.
+    printf '__bc_bin="%s"\n' "$BIN/brew-change"
     echo 'brew update'
     echo 'printf "ec=%s\n" "$?"'
     echo 'printf "after\n"'
@@ -96,6 +105,7 @@ TEST_SCRIPT_SE="$FIXTURES/wrapper-test-se.sh"
 {
     echo 'set -e'
     cat "$FIXTURES/init-bash.sh"
+    printf '__bc_bin="%s"\n' "$BIN/brew-change"
     echo 'brew update'
     echo 'printf "reached-after-set-e\n"'
 } > "$TEST_SCRIPT_SE"
