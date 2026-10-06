@@ -291,7 +291,11 @@ badge_export_stamp() {
     local file="${ASSESSMENT_EXPORT_FILE:-}"
     [[ -n "$file" && -e "$file" ]] || { printf 'none'; return 0; }
     local stamp
-    stamp="$(stat -f '%m:%z' "$file" 2>/dev/null || stat -c '%Y:%s' "$file" 2>/dev/null)" || stamp="none"
+    # GNU stat first: `stat -f` is the BSD format flag but a GNU *filesystem*
+    # query that succeeds with multi-line output (whose inode counts drift
+    # between calls) — the stamp would never match. On macOS -c errors into
+    # the -f fallback.
+    stamp="$(stat -c '%Y:%s' "$file" 2>/dev/null || stat -f '%m:%z' "$file" 2>/dev/null)" || stamp="none"
     printf '%s' "$stamp"
 }
 

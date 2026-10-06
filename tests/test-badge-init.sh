@@ -156,7 +156,10 @@ ORDER_SCRIPT="$FIXTURES/wrapper-order.sh"
     echo 'brew upgrade'
 } > "$ORDER_SCRIPT"
 if command -v script >/dev/null 2>&1; then
-    script -q /dev/null bash "$ORDER_SCRIPT" >/dev/null 2>&1
+    case "$(uname -s)" in
+        Darwin) script -q /dev/null bash "$ORDER_SCRIPT" >/dev/null 2>&1 ;;
+        *)      script -q -c "bash '$ORDER_SCRIPT'" /dev/null >/dev/null 2>&1 ;;
+    esac
 else
     bash "$ORDER_SCRIPT" >/dev/null 2>&1
 fi

@@ -218,6 +218,14 @@ unset BREW_CHANGE_BADGE_NO_SPAWN BREW_CHANGE_TEST_NOW
 CLI_HOME="$FIXTURES/cli-home"
 rm -rf "$CLI_HOME"
 mkdir -p "$CLI_HOME/.brew-change"
+# The export subcommand path runs verify_dependencies (brew + curl must exist
+# on PATH); CI ubuntu runners have no Homebrew. A minimal brew shim keeps the
+# test about the export surface, not the environment.
+CLI_SHIM="$FIXTURES/cli-shim"
+rm -rf "$CLI_SHIM"
+mkdir -p "$CLI_SHIM"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$CLI_SHIM/brew"
+chmod +x "$CLI_SHIM/brew"
 CLI_RUN="$(cd "$REPO_ROOT" && pwd)/brew-change"
 ts_cli="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 make_export "$CLI_HOME/.brew-change/last-assessment.json" "$ts_cli" \
@@ -237,7 +245,7 @@ assert_eq "CLI badge: missing trigger exits 1" "$cli_rc" "1"
 assert_contains "CLI badge: missing trigger message" "$cli_err" "badge requires a trigger"
 
 # badge must not regress the export subcommand
-exp_out="$(HOME="$CLI_HOME" bash "$CLI_RUN" export 2>/dev/null | jq -r '.schema_version')"
+exp_out="$(HOME="$CLI_HOME" PATH="$CLI_SHIM:$PATH" bash "$CLI_RUN" export 2>/dev/null | jq -r '.schema_version')"
 assert_eq "CLI badge: export subcommand still works" "$exp_out" "1"
 
 # --- refresh degradation helpers (prd-004) -------------------------------------
