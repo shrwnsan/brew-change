@@ -21,12 +21,33 @@ REFRESH_LOCK_MAX_AGE=1800
 # After a failed refresh, the badge skips spawning for this many seconds so a
 # broken network does not start a doomed refresh on every brew update.
 REFRESH_BACKOFF_FILE="${HOME}/.brew-change/.refresh-backoff"
+# Duplicate suppression: when a verdict identical to the last printed one is
+# about to repeat (same export, within this window), the after-* badge prints
+# only its honest tail or nothing. before-upgrade is always printed.
+BADGE_STATE_FILE="${HOME}/.brew-change/.badge-last"
+BADGE_DUPE_WINDOW=600
 
 # ---------------------------------------------------------------------------
 # _badge_now — epoch seconds; BREW_CHANGE_TEST_NOW overrides (test seam,
 # same convention as _http_cache_now in brew-change-utils.sh).
 # ---------------------------------------------------------------------------
 _badge_now() { printf '%s\n' "${BREW_CHANGE_TEST_NOW:-$(date +%s)}"; }
+
+# ---------------------------------------------------------------------------
+# badge_paint <ansi-code> <text>
+#
+# Wraps text in the given SGR code unless NO_COLOR is set or the caller has
+# not enabled color via BADGE_USE_COLOR=1 (badge_main sets it for real TTYs
+# only — BREW_CHANGE_BADGE_FORCE runs stay plain so tests stay deterministic).
+# ---------------------------------------------------------------------------
+badge_paint() {
+    local code="$1" text="$2"
+    if [[ "${BADGE_USE_COLOR:-0}" == "1" && -z "${NO_COLOR:-}" ]]; then
+        printf '\033[%sm%s\033[0m' "$code" "$text"
+    else
+        printf '%s' "$text"
+    fi
+}
 
 # ---------------------------------------------------------------------------
 # badge_counts <export_file>
@@ -68,7 +89,14 @@ badge_counts() {
 # ---------------------------------------------------------------------------
 badge_render_line() {
     local updates="$1" breaking="$2" names_csv="$3" nosignal="$4" unknown="$5" age="$6"
-    local line="brew-change: ${updates} updates"
+    # Color is presentation only: the words carry the full classification
+    # (accessibility doctrine, docs/configuration.md). Off unless the caller
+    # set BADGE_USE_COLOR (badge_main sets it for real TTYs) and NO_COLOR unset.
+    local dim="" red="" grn="" ylw="" rst=""
+    if [[ "${BADGE_USE_COLOR:-0}" == "1" && -z "${NO_COLOR:-}" ]]; then
+        dim=$'\033[2m'; red=$'\033[31m'; grn=$'\033[32m'; ylw=$'\033[33m'; rst=$'\033[0m'
+    fi
+    local line="${dim}brew-change:${rst} ${updates} updates"
     if (( breaking > 0 )); then
         local -a names=() shown=()
         IFS=',' read -r -a names <<< "$names_csv"
@@ -82,11 +110,11 @@ badge_render_line() {
         if (( ${#names[@]} > BADGE_NAME_CAP )); then
             label="${label} +$(( ${#names[@]} - BADGE_NAME_CAP ))"
         fi
-        line+=" · ${breaking} breaking (${label})"
+        line+=" · ${red}${breaking} breaking (${label})${rst}"
     fi
-    if (( nosignal > 0 )); then line+=" · ${nosignal} no-signal"; fi
-    if (( unknown > 0 )); then line+=" · ${unknown} unknown"; fi
-    if [[ -n "$age" ]]; then line+=" · ${age} ago"; fi
+    if (( nosignal > 0 )); then line+=" · ${grn}${nosignal} no-signal${rst}"; fi
+    if (( unknown > 0 )); then line+=" · ${ylw}${unknown} unknown${rst}"; fi
+    if [[ -n "$age" ]]; then line+=" · ${dim}${age} ago${rst}"; fi
     printf '%s' "$line"
 }
 
@@ -256,7 +284,45 @@ badge_spawn_refresh() {
 }
 
 # ---------------------------------------------------------------------------
-# badge_main <after-update|after-upgrade> <script_path>
+# badge_export_stamp — cheap change fingerprint of the export (mtime:size).
+# "none" when unreadable; dedupe then only matches identical "none" stamps.
+# ---------------------------------------------------------------------------
+badge_export_stamp() {
+    local file="${ASSESSMENT_EXPORT_FILE:-}"
+    [[ -n "$file" && -e "$file" ]] || { printf 'none'; return 0; }
+    local stamp
+    stamp="$(stat -f '%m:%z' "$file" 2>/dev/null || stat -c '%Y:%s' "$file" 2>/dev/null)" || stamp="none"
+    printf '%s' "$stamp"
+}
+
+# ---------------------------------------------------------------------------
+# badge_is_duplicate <rendered_line>
+#
+# True when this exact line was already printed recently (BADGE_DUPE_WINDOW)
+# against the same export state — the after-* badge then de-duplicates:
+# the verdict is already on screen (prd-004 pointer: verdict → decline →
+# post-badge repeated the same counts three times).
+# TTY-gated via the caller; BREW_CHANGE_BADGE_DUPE_TEST=1 is the test seam.
+# ---------------------------------------------------------------------------
+badge_is_duplicate() {
+    [[ -r "$BADGE_STATE_FILE" ]] || return 1
+    local rec ts pline pstamp
+    rec="$(cat "$BADGE_STATE_FILE" 2>/dev/null)" || return 1
+    IFS='|' read -r ts pline pstamp <<< "$rec"
+    [[ "$ts" =~ ^[0-9]+$ ]] || return 1
+    [[ "$pstamp" == "$(badge_export_stamp)" ]] || return 1
+    [[ "$pline" == "$1" ]] || return 1
+    (( $(_badge_now) < ts + BADGE_DUPE_WINDOW ))
+}
+
+badge_remember_print() {
+    mkdir -p "$(dirname "$BADGE_STATE_FILE")" 2>/dev/null || true
+    printf '%s|%s|%s\n' "$(_badge_now)" "$1" "$(badge_export_stamp)" \
+        > "$BADGE_STATE_FILE" 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# badge_main <after-update|after-upgrade|before-upgrade> <script_path>
 #
 # Entry from the main script's badge subcommand. Output contract (prd-004):
 # - always exits 0; every error path is silent
@@ -271,14 +337,31 @@ badge_spawn_refresh() {
 # - stale after-update: line + " · refreshing…" + spawn refresh
 # - after-upgrade: line + " · assessment updating…" + always spawn refresh
 #   (the outdated set provably changed)
+# - before-upgrade: read-only decision support — never spawns, never suffixes
+# - on a real TTY, color by risk (breaking red / no-signal green / unknown
+#   yellow, prefix+age dim); NO_COLOR disables; FORCE stays plain
+# - duplicate suppression on TTYs: an after-* verdict identical to the last
+#   printed one (same export, < BADGE_DUPE_WINDOW) prints only its honest
+#   tail when a refresh spawns, or nothing; before-upgrade always prints
 # ---------------------------------------------------------------------------
 badge_main() {
     local trigger="$1" script_path="$2"
     if [[ "${BREW_CHANGE_BADGE_DISABLE:-0}" == "1" ]]; then return 0; fi
     if [[ ! -t 1 && "${BREW_CHANGE_BADGE_FORCE:-0}" != "1" ]]; then return 0; fi
+    local on_tty=0
+    if [[ -t 1 ]]; then on_tty=1; fi
+    if (( on_tty == 1 )); then
+        BADGE_USE_COLOR=1
+    else
+        BADGE_USE_COLOR=0
+    fi
 
     if [[ ! -r "${ASSESSMENT_EXPORT_FILE:-}" ]]; then
-        printf '%s\n' "brew-change: no assessment yet — run brew-change -u"
+        if (( on_tty == 1 )); then
+            printf '%s\n' "$(badge_paint 33 "brew-change: no assessment yet — run brew-change -u")"
+        else
+            printf '%s\n' "brew-change: no assessment yet — run brew-change -u"
+        fi
         return 0
     fi
     jq -e 'type == "object" and (.schema_version == 1)' "${ASSESSMENT_EXPORT_FILE}" >/dev/null 2>&1 \
@@ -321,10 +404,37 @@ badge_main() {
         else
             suffix=" · refreshing…"
         fi
-        badge_spawn_refresh "$script_path"
     fi
 
-    printf '%s%s\n' "$line" "$suffix"
+    # Duplicate suppression: a verdict already on screen (same export, recent
+    # window) repeats nothing. A spawning suppressed badge still says so —
+    # the tail is literally true even when the counts above are unchanged.
+    local duplicated=0
+    if [[ "$trigger" != "before-upgrade" ]] \
+        && { (( on_tty == 1 )) || [[ "${BREW_CHANGE_BADGE_DUPE_TEST:-0}" == "1" ]]; } \
+        && badge_is_duplicate "$line"; then
+        duplicated=1
+    fi
+
+    # The "==> " marker mirrors Homebrew's own header style (bold green when
+    # coloring; plain text under NO_COLOR) so the verdict reads as part of
+    # brew's output stream.
+    local marker
+    marker="$(badge_paint "1;32" '==> ')"
+    if (( duplicated == 1 )); then
+        badge_remember_print "$line"
+        if (( spawn == 1 )); then
+            printf '%s%s\n' "$marker" "$(badge_paint 36 "brew-change: ${suffix# · }")"
+            badge_spawn_refresh "$script_path"
+        fi
+        return 0
+    fi
+
+    badge_remember_print "$line"
+    printf '%s%s%s\n' "$marker" "$line" "$(badge_paint 36 "$suffix")"
+    if (( spawn == 1 )); then
+        badge_spawn_refresh "$script_path"
+    fi
     return 0
 }
 

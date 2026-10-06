@@ -146,13 +146,13 @@ make_export "$FIXTURE_EXPORT" "$ts_now" \
     '[{"name":"node","classification":"attention","matched_signals":["breaking-change-pattern"]}]'
 assert_eq "badge_main: fresh line" \
     "$(badge_main after-update "$REPO_ROOT/brew-change")" \
-    "brew-change: 1 updates · 1 breaking (node) · 1m ago"
+    "==> brew-change: 1 updates · 1 breaking (node) · 1m ago"
 
 # zero packages: still a valid fresh line
 make_export "$FIXTURE_EXPORT" "$ts_now" '[]'
 assert_eq "badge_main: zero updates" \
     "$(badge_main after-update "$REPO_ROOT/brew-change")" \
-    "brew-change: 0 updates · 1m ago"
+    "==> brew-change: 0 updates · 1m ago"
 
 # stale export (36h old > 24h default): refreshing suffix
 make_export "$FIXTURE_EXPORT" "2026-10-04T00:00:00Z" \
@@ -178,7 +178,7 @@ assert_not_contains "badge_main: BREW_CHANGE_BADGE_MAX_AGE extends freshness" \
 # garbage max age: falls back to default (24h → 36h-old export is stale), never crashes
 assert_eq "badge_main: garbage max age falls back to default" \
     "$(BREW_CHANGE_BADGE_MAX_AGE=notanumber badge_main after-update "$REPO_ROOT/brew-change")" \
-    "brew-change: 0 updates · 36h ago · refreshing…"
+    "==> brew-change: 0 updates · 36h ago · refreshing…"
 
 # missing export: setup hint (points at the flagship workflow)
 export ASSESSMENT_EXPORT_FILE="$FIXTURES/does-not-exist.json"
@@ -226,7 +226,7 @@ make_export "$CLI_HOME/.brew-change/last-assessment.json" "$ts_cli" \
 cli_out="$(HOME="$CLI_HOME" BREW_CHANGE_BADGE_FORCE=1 BREW_CHANGE_BADGE_NO_SPAWN=1 \
     BREW_CHANGE_TEST_NOW="$(badge_generated_epoch "$ts_cli")" \
     bash "$CLI_RUN" badge after-update 2>/dev/null)"
-assert_eq "CLI badge: fresh line" "$cli_out" "brew-change: 1 updates · 1 breaking (node) · 1m ago"
+assert_eq "CLI badge: fresh line" "$cli_out" "==> brew-change: 1 updates · 1 breaking (node) · 1m ago"
 
 cli_out="$(HOME="$CLI_HOME" BREW_CHANGE_BADGE_FORCE=0 bash "$CLI_RUN" badge after-update 2>/dev/null)"
 assert_eq "CLI badge: piped stdout silent" "$cli_out" ""
@@ -336,8 +336,50 @@ assert_not_contains "before-upgrade: fresh line still carries age" "$(badge_main
 make_export "$FIXTURE_EXPORT" "$ts_now" '[]'
 assert_eq "before-upgrade: fresh line, no suffix" \
     "$(badge_main before-upgrade x)" \
-    "brew-change: 0 updates · 1m ago"
+    "==> brew-change: 0 updates · 1m ago"
 unset BREW_CHANGE_BADGE_NO_SPAWN BREW_CHANGE_TEST_NOW
+
+# --- risk coloring (presentation only; text always carries meaning) -------------
+assert_contains "color: breaking segment red" \
+    "$(BADGE_USE_COLOR=1 badge_render_line 4 2 "node,python" 1 1 "2h")" \
+    $'\e[31m2 breaking (node, python)\e[0m'
+assert_contains "color: no-signal green" \
+    "$(BADGE_USE_COLOR=1 badge_render_line 4 2 "node,python" 1 1 "2h")" \
+    $'\e[32m1 no-signal\e[0m'
+assert_contains "color: unknown yellow" \
+    "$(BADGE_USE_COLOR=1 badge_render_line 4 2 "node,python" 1 1 "2h")" \
+    $'\e[33m1 unknown\e[0m'
+assert_not_contains "color: default render is plain" \
+    "$(badge_render_line 4 2 "node,python" 1 1 "2h")" \
+    $'\e['
+
+# --- duplicate suppression (TTY-gated; test seam BREW_CHANGE_BADGE_DUPE_TEST) ----
+BADGE_STATE_FILE="$FIXTURES/badge-state"
+rm -f "$BADGE_STATE_FILE"
+export ASSESSMENT_EXPORT_FILE="$FIXTURE_EXPORT"
+export BREW_CHANGE_BADGE_FORCE=1
+export BREW_CHANGE_BADGE_NO_SPAWN=1
+export BREW_CHANGE_TEST_NOW="$(badge_generated_epoch "$ts_now")"
+export BREW_CHANGE_BADGE_DUPE_TEST=1
+make_export "$FIXTURE_EXPORT" "$ts_now" '[]'
+assert_eq "dupe: first verdict prints" \
+    "$(badge_main after-update x)" \
+    "==> brew-change: 0 updates · 1m ago"
+assert_eq "dupe: immediate repeat suppressed" \
+    "$(badge_main after-update x)" \
+    ""
+assert_eq "dupe: upgrade repeat is tail-only" \
+    "$(badge_main after-upgrade x)" \
+    "==> brew-change: assessment updating…"
+assert_eq "dupe: before-upgrade always prints" \
+    "$(badge_main before-upgrade x)" \
+    "==> brew-change: 0 updates · 1m ago"
+make_export "$FIXTURE_EXPORT" "$ts_now" \
+    '[{"name":"node","classification":"attention","matched_signals":["breaking-change-pattern"]}]'
+assert_eq "dupe: changed export prints fresh" \
+    "$(badge_main after-update x)" \
+    "==> brew-change: 1 updates · 1 breaking (node) · 1m ago"
+unset BREW_CHANGE_BADGE_DUPE_TEST BREW_CHANGE_BADGE_NO_SPAWN BREW_CHANGE_TEST_NOW
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

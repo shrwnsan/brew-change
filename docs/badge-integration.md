@@ -36,7 +36,11 @@ Uninstall: delete the `eval` line from your rc.
 
 ## What you see
 
-    brew-change: 5 updates · 2 breaking (node, python) · 1 no-signal · 2h ago
+    ==> brew-change: 5 updates · 2 breaking (node, python) · 1 no-signal · 2h ago
+
+The `==> ` marker mirrors Homebrew's own header style (bold green on a
+terminal; plain text under `NO_COLOR`), so the verdict reads as part of
+brew's output stream.
 
 - Counts come from the last assessment export (`~/.brew-change/last-assessment.json`)
   — the badge is instant and never touches the network.
@@ -55,6 +59,18 @@ Uninstall: delete the `eval` line from your rc.
   a healthy export with forced-unknown records. The previous export is kept
   and the run logs `rc=2` in `refresh.log`.
 - No assessment yet: `brew-change: no assessment yet — run brew-change -u`.
+
+## Color and repetition
+
+On a terminal the line is tinted by risk: **breaking** red, **no-signal**
+green, **unknown** yellow, the prefix and age dimmed. Color is presentation
+only — the words carry the full classification — and `NO_COLOR` turns it
+off, per the accessibility doctrine in `docs/configuration.md`.
+
+A verdict identical to the last one printed (same export, within 10 minutes)
+does not repeat: the after-* badge prints only its spawn tail
+(`assessment updating…`) or nothing. `before-upgrade` always prints —
+decision support is never suppressed.
 - The badge never prints in pipes or scripts (its own stdout-TTY check), and
   never changes brew's exit status.
 
