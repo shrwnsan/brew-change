@@ -53,6 +53,10 @@ Options:
 
 Commands:
   export               Print the last assessment export to stdout
+  badge                Print a one-line verdict from the last assessment
+                        (called by the shell wrapper; see `init`)
+  refresh              Headless re-run that refreshes the assessment export
+  init                 Emit the shell wrapper: init zsh | init bash
 
 If no PACKAGE is specified and no flags, shows simple list like 'brew outdated'.
 
@@ -62,6 +66,7 @@ Trusted update workflow (-u; no account or setup needed):
   Upgrade  nothing upgrades until you confirm the exact plan; quit any time
 
 Examples:
+  eval "$(brew-change init zsh)"  # opt in: badge after brew update/upgrade
   brew-change -u                # Trusted update workflow: interactive dashboard
   brew-change -u --plain        # Trusted update workflow with the previous prompt flow
   brew-change -u --dry-run      # Preview the no-signal plan (no execution)
@@ -88,6 +93,11 @@ _PRE_PARSE_HAS_UPGRADE="false"
 _PRE_PARSE_HAS_EVIDENCE_MODE="false"
 _PRE_PARSE_HAS_INVALID="false"
 _PRE_PARSE_INVALID_OPT=""
+_PRE_PARSE_HAS_BADGE="false"
+_PRE_PARSE_BADGE_TRIGGER=""
+_PRE_PARSE_HAS_INIT="false"
+_PRE_PARSE_INIT_SHELL=""
+_PRE_PARSE_HAS_REFRESH="false"
 
 for _arg in "${ORIGINAL_ARGS[@]}"; do
     case "$_arg" in
@@ -119,9 +129,34 @@ for _arg in "${ORIGINAL_ARGS[@]}"; do
             _PRE_PARSE_HAS_INVALID="true"
             _PRE_PARSE_INVALID_OPT="$_arg"
             ;;
+        badge)
+            _PRE_PARSE_HAS_BADGE="true"
+            ;;
+        after-update|after-upgrade)
+            # Trigger positionally following `badge`; validated below.
+            _PRE_PARSE_BADGE_TRIGGER="$_arg"
+            ;;
+        init)
+            _PRE_PARSE_HAS_INIT="true"
+            ;;
+        refresh)
+            _PRE_PARSE_HAS_REFRESH="true"
+            ;;
         *)
-            # A package argument gathers changelog evidence too.
-            _PRE_PARSE_HAS_EVIDENCE_MODE="true"
+            if [[ "$_PRE_PARSE_HAS_INIT" == "true" ]]; then
+                if [[ -z "$_PRE_PARSE_INIT_SHELL" ]]; then
+                    _PRE_PARSE_INIT_SHELL="$_arg"
+                else
+                    echo "Error: init takes exactly one shell argument (zsh or bash)" >&2
+                    exit 1
+                fi
+            elif [[ "$_PRE_PARSE_HAS_BADGE" == "true" && -n "$_PRE_PARSE_BADGE_TRIGGER" ]]; then
+                echo "Error: badge takes exactly one trigger (after-update or after-upgrade)" >&2
+                exit 1
+            else
+                # A package argument gathers changelog evidence too.
+                _PRE_PARSE_HAS_EVIDENCE_MODE="true"
+            fi
             ;;
     esac
 done
@@ -152,6 +187,68 @@ for _arg in "${ORIGINAL_ARGS[@]}"; do
         exit 1
     fi
 done
+
+# prd-004 subcommand validation
+if [[ "$_PRE_PARSE_HAS_BADGE" == "true" && -z "$_PRE_PARSE_BADGE_TRIGGER" ]]; then
+    echo "Error: badge requires a trigger: after-update or after-upgrade" >&2
+    echo "Example: brew-change badge after-update" >&2
+    exit 1
+fi
+if [[ "$_PRE_PARSE_HAS_REFRESH" == "true" ]]; then
+    for _arg in "${ORIGINAL_ARGS[@]}"; do
+        if [[ "$_arg" != "refresh" ]]; then
+            echo "Error: refresh takes no arguments" >&2
+            exit 1
+        fi
+    done
+fi
+
+# prd-004: `init` emits the shell wrapper and exits before any library
+# sourcing — it stays dependency-free and instant. It never writes rc files;
+# the user opts in with: eval "$(brew-change init zsh)"
+if [[ "$_PRE_PARSE_HAS_INIT" == "true" ]]; then
+    case "${_PRE_PARSE_INIT_SHELL:-}" in
+        zsh|bash) ;;
+        "")
+            echo "Error: init requires a shell: zsh or bash" >&2
+            exit 1
+            ;;
+        *)
+            echo "Error: unsupported shell: $_PRE_PARSE_INIT_SHELL (use zsh or bash)" >&2
+            exit 1
+            ;;
+    esac
+    # Pin the emitting binary into the emitted code: a PATH lookup could
+    # resolve an older brew-change that predates the subcommands and misfires
+    # (v1.20.x treated unknown words as package names). Tap installs keep the
+    # same Cellar-path symlink across upgrades, so the pin survives updates;
+    # checkout users get the checkout binary, which works before any release.
+    __bc_self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" \
+        && __bc_self="${__bc_self_dir}/$(basename "${BASH_SOURCE[0]}")" \
+        || __bc_self="brew-change"
+    if [[ ! -x "$__bc_self" ]]; then
+        __bc_self="brew-change"
+    fi
+    printf '__bc_bin=%q\n' "$__bc_self"
+    cat << 'EOF'
+# brew-change badge integration (opt-in; see docs/badge-integration.md)
+# Define this after any other brew function/alias — it takes precedence.
+brew() {
+    case "${1:-}" in
+        upgrade) { command "$__bc_bin" badge before-upgrade >/dev/tty; } 2>/dev/null || true ;;
+    esac
+    local __bc_ec=0
+    command brew "$@" || __bc_ec=$?
+    case "${1:-}" in
+        update)  { command "$__bc_bin" badge after-update  >/dev/tty; } 2>/dev/null || true ;;
+        upgrade) { command "$__bc_bin" badge after-upgrade >/dev/tty; } 2>/dev/null || true ;;
+    esac
+    return $__bc_ec
+}
+EOF
+    exit 0
+fi
+
 unset _arg
 
 # Unknown option
@@ -200,8 +297,21 @@ elif command -v brew &>/dev/null; then
 fi
 readonly LIB_DIR
 
+	# Stage 1 (prd-004): minimal libs for the badge subcommand, which must
+	# stay fast — it runs after every wrapped brew update/upgrade.
 	source "$LIB_DIR/brew-change-config.sh"
 	source "$LIB_DIR/brew-change-utils.sh"
+	source "$LIB_DIR/brew-change-export.sh"
+	source "$LIB_DIR/brew-change-badge.sh"
+
+	# Handle badge command (prd-004). Always exits 0; see badge_main. Exits
+	# before verify_dependencies: the badge needs only jq, and every jq
+	# failure inside badge_main is already a silent non-event.
+	if [[ "$_PRE_PARSE_HAS_BADGE" == "true" ]]; then
+	    badge_main "$_PRE_PARSE_BADGE_TRIGGER" "$0"
+	    exit $?
+	fi
+
 	source "$LIB_DIR/brew-change-interactive.sh"
 	source "$LIB_DIR/brew-change-breaking.sh"
 	source "$LIB_DIR/brew-change-assessment.sh"
@@ -215,7 +325,6 @@ readonly LIB_DIR
 	source "$LIB_DIR/brew-change-progress.sh"
 	source "$LIB_DIR/brew-change-upgrade.sh"
 	source "$LIB_DIR/brew-change-dashboard-ui.sh"
-	source "$LIB_DIR/brew-change-export.sh"
 
 # Verify dependencies
 if ! verify_dependencies; then
@@ -226,6 +335,13 @@ fi
 if [[ "$_PRE_PARSE_HAS_EXPORT" == "true" ]]; then
     read_assessment_export
     exit $?
+fi
+
+# prd-004: refresh is fully quiet — it feeds a background run whose stderr
+# goes to /dev/null, so the once-per-run auth tip (github lib) must not fire.
+# Pre-set the flag github.sh uses to mark the tip as shown.
+if [[ "$_PRE_PARSE_HAS_REFRESH" == "true" ]]; then
+    GITHUB_AUTH_TIP_SHOWN=1
 fi
 
 # Pre-initialize GitHub auth token so subshells inherit it
@@ -243,6 +359,7 @@ DRY_RUN_MODE="false"
 DASHBOARD_MODE="false"
 PLAIN_MODE="false"
 FRESH_MODE="false"
+REFRESH_MODE="false"
 PACKAGES=()
 
 # Re-parse original arguments for full flag resolution
@@ -290,6 +407,12 @@ while [[ $# -gt 0 ]]; do
             # Already handled in pre-parse; unreachable here
             shift
             ;;
+        badge|init|refresh|after-update|after-upgrade)
+            # prd-004 subcommand tokens: consumed by the pre-parse (badge and
+            # init exit there; refresh is handled after init_github_auth).
+            # Never package names.
+            shift
+            ;;
         --version)
             # Already handled in pre-parse; unreachable here
             shift
@@ -315,6 +438,46 @@ if [[ "$PLAIN_MODE" == "true" || "${BREW_CHANGE_PLAIN:-}" == "1" ]]; then
 elif [[ -t 1 ]]; then
     VIEW_USE_DASHBOARD="true"
 fi
+# Handle refresh command (prd-004): a headless -b-equivalent run that
+# refreshes the export with no interactive surface. Badge spawns it detached
+# under the refresh lock; the lock is held for the whole run. Piped-contract
+# rules already keep the pipeline plain and non-prompting; REFRESH_MODE
+# additionally suppresses every stdout surface. One EXIT trap owns the two
+# always-required finish steps — lock release and the refresh.log entry —
+# for every exit path (success, empty-outdated, hard failure).
+# Positioned AFTER full argument parsing so REFRESH_MODE (initialized with
+# the other mode flags there) lands as "true", not the parse default.
+if [[ "$_PRE_PARSE_HAS_REFRESH" == "true" ]]; then
+    REFRESH_MODE="true"
+    IDENTIFY_BREAKING="true"
+    SHOW_ALL="true"
+    export BREW_CHANGE_CHANGELOG_OUTPUT=0
+    BREW_CHANGE_DEFER_SUMMARY=1
+    if ! refresh_lock_acquire; then
+        # Another refresh is pending/running: nothing to do, no trap yet.
+        exit 0
+    fi
+    __bc_refresh_log="${BREW_CHANGE_REFRESH_LOG:-${HOME}/.brew-change/refresh.log}"
+    __bc_refresh_finish() {
+        local __rc=$?
+        # prd-004: failure (including degraded-kept, rc=2) starts the badge
+        # backoff window; success clears any previous one.
+        if (( __rc == 0 )); then
+            refresh_backoff_clear
+        else
+            refresh_backoff_record
+        fi
+        printf 'refresh rc=%s %s\n' "$__rc" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+            >> "$__bc_refresh_log" 2>/dev/null || true
+        # Size-capped log: keep the most recent 100 lines.
+        tail -n 100 "$__bc_refresh_log" 2>/dev/null > "${__bc_refresh_log}.tmp" \
+            && mv "${__bc_refresh_log}.tmp" "$__bc_refresh_log" 2>/dev/null || true
+        refresh_lock_release
+        trap - EXIT
+    }
+    trap __bc_refresh_finish EXIT
+fi
+
 if [ ${#PACKAGES[@]} -gt 0 ]; then
     # Show changelog for specific package(s)
     export IDENTIFY_BREAKING  # Make breaking flag available to subprocesses
@@ -465,12 +628,16 @@ else
         if [[ "$formulae_empty" == "0" ]]; then
             if casks_empty=$(echo "$outdated_packages" | jq -r '.casks | length' 2>/dev/null); then
                 if [[ "$casks_empty" == "0" ]]; then
+                    # prd-004: refresh writes a fresh empty export instead.
+                    finish_refresh_empty_export
                     echo "No outdated packages found."
                     exit 0
                 fi
             else
                 # If casks check fails, just check formulae
                 if [[ "$formulae_empty" == "0" ]]; then
+                    # prd-004: refresh writes a fresh empty export instead.
+                    finish_refresh_empty_export
                     echo "No outdated packages found."
                     exit 0
                 fi
@@ -504,29 +671,32 @@ else
             total_packages=$((total_packages + casks_count))
         fi
 
-        # First show the outdated packages list like brew outdated -v
-        echo "Outdated packages:"
-        brew outdated -v
+        # prd-004: refresh suppresses this interactive preamble entirely.
+        if [[ "$REFRESH_MODE" != "true" ]]; then
+            # First show the outdated packages list like brew outdated -v
+            echo "Outdated packages:"
+            brew outdated -v
 
-        # Ask for confirmation before showing detailed changelogs
-        # Skip for upgrade mode (-u) or single package — auto-proceed
-        echo ""
-        if [[ $total_packages -eq 1 ]] || [[ "$UPGRADE_MODE" == "true" ]]; then
+            # Ask for confirmation before showing detailed changelogs
+            # Skip for upgrade mode (-u) or single package — auto-proceed
             echo ""
-            echo "Processing changelog for $total_packages outdated package(s)..."
-        else
-            # Check if running interactively
-            if is_interactive_mode; then
-                if ! prompt_for_confirmation "Found $total_packages outdated packages. Would you like to see detailed changelog information? (y/N) "; then
-                    echo "Run 'brew upgrade' to upgrade all packages, or 'brew upgrade <package>' for individual packages."
-                    exit 0
-                fi
+            if [[ $total_packages -eq 1 ]] || [[ "$UPGRADE_MODE" == "true" ]]; then
+                echo ""
+                echo "Processing changelog for $total_packages outdated package(s)..."
             else
-                # Non-interactive mode (piped input): proceed without confirmation
-                echo "Found $total_packages outdated packages. Processing..."
+                # Check if running interactively
+                if is_interactive_mode; then
+                    if ! prompt_for_confirmation "Found $total_packages outdated packages. Would you like to see detailed changelog information? (y/N) "; then
+                        echo "Run 'brew upgrade' to upgrade all packages, or 'brew upgrade <package>' for individual packages."
+                        exit 0
+                    fi
+                else
+                    # Non-interactive mode (piped input): proceed without confirmation
+                    echo "Found $total_packages outdated packages. Processing..."
+                fi
             fi
+            echo ""
         fi
-        echo ""
         # Process packages in parallel
         # Note: outdated_packages is passed as argument to process_packages_parallel, no export needed
         export IDENTIFY_BREAKING  # Make breaking flag available to subprocesses
@@ -603,6 +773,11 @@ else
             fi
         fi
         http_cache_prune || true
+        if [[ "$REFRESH_MODE" == "true" ]]; then
+            # prd-004: belt-and-braces — the completion summary must never
+            # print from a background refresh, even if the renderer starts.
+            BREW_CHANGE_DEFER_SUMMARY=1
+        fi
         if [[ "$UPGRADE_MODE" == "true" ]]; then
             export BREW_CHANGE_HTTP_CACHE_EVENTS="${BREW_CHANGE_HTTP_CACHE_EVENTS:-$UPGRADE_STATUS_DIR/http-cache-events}"
             mkdir -p "$BREW_CHANGE_HTTP_CACHE_EVENTS" 2>/dev/null || true
@@ -669,18 +844,35 @@ else
                 done < <(extract_outdated_package_tokens "$outdated_packages" 2>/dev/null)
 
                 if classify_upgrade_evidence "$UPGRADE_STATUS_DIR" "${inventory_tokens[@]+"${inventory_tokens[@]}"}"; then
+                    # prd-004: a network-dead refresh must not clobber a
+                    # healthy export with forced-unknown records. Keep the
+                    # previous export and exit 2 — the trap logs rc=2 and
+                    # starts the refresh backoff window.
+                    if [[ "$REFRESH_MODE" == "true" ]] \
+                        && refresh_export_degraded "$UPGRADE_STATUS_DIR/assessment.jsonl" \
+                        && badge_export_has_verdicts "${ASSESSMENT_EXPORT_FILE:-}"; then
+                        exit 2
+                    fi
+
                     # Write assessment export for external consumers (tasks-005)
                     write_assessment_export "$UPGRADE_STATUS_DIR/assessment.jsonl" || true
 
-                    verdict_block=$(render_verdict_summary "$UPGRADE_STATUS_DIR/assessment.jsonl")
-                    if [[ -n "$verdict_block" ]]; then
-                        printf '\n%s\n\n' "$verdict_block"
+                    # prd-004: refresh keeps classify + export, skips the print.
+                    if [[ "$REFRESH_MODE" != "true" ]]; then
+                        verdict_block=$(render_verdict_summary "$UPGRADE_STATUS_DIR/assessment.jsonl")
+                        if [[ -n "$verdict_block" ]]; then
+                            printf '\n%s\n\n' "$verdict_block"
+                        fi
                     fi
                 else
                     echo "Warning: verdict summary unavailable for this run" >&2
                 fi
             fi
-            echo "Run 'brew upgrade' to upgrade all packages, or 'brew upgrade <package>' for individual packages."
+            # prd-004: refresh ends silently here; the EXIT trap owns lock
+            # release and the refresh.log entry.
+            if [[ "$REFRESH_MODE" != "true" ]]; then
+                echo "Run 'brew upgrade' to upgrade all packages, or 'brew upgrade <package>' for individual packages."
+            fi
         fi
     elif [ "$SHOW_VERSIONS" = "true" ]; then
         # Show list with versions like brew outdated -v

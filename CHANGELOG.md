@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Badge integration (opt-in): `eval "$(brew-change init zsh)"` defines a `brew`
+  wrapper that prints a one-line verdict from the cached assessment after every
+  `brew update`/`brew upgrade` — counts, breaking packages, assessment age —
+  while passing brew's exit status through untouched. Stale assessments refresh
+  in the background via the new headless `brew-change refresh` command
+  (lock-protected, one-shot; also the future entry point for a LaunchAgent).
+  Failed refreshes back off for 30 minutes
+  (`BREW_CHANGE_REFRESH_BACKOFF`), and a network-dead refresh never
+  overwrites a healthy export with forced-unknown records. `init` pins the
+  emitting binary's absolute path into the wrapper so a PATH lookup cannot
+  resolve an older brew-change that predates the subcommands, and `brew
+  upgrade` prints a read-only verdict above brew's plan where the `y/n`
+  decision happens. See docs/badge-integration.md.
+
 ## [1.20.1] - 2026-09-23
 
 ### Fixed

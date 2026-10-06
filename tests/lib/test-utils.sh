@@ -27,6 +27,12 @@ setup_command_harness() {
     COMMAND_HARNESS_BIN="$COMMAND_HARNESS_ROOT/bin"
     COMMAND_HARNESS_CONFIG="$COMMAND_HARNESS_ROOT/config"
     COMMAND_HARNESS_LOG="$COMMAND_HARNESS_ROOT/argv.log"
+    # Isolate HOME: suites write real state (the assessment export, caches)
+    # and must never touch the user's ~/.brew-change or ~/.cache/brew-change.
+    COMMAND_HARNESS_ORIGINAL_HOME="$HOME"
+    HOME="$COMMAND_HARNESS_ROOT/home"
+    export HOME
+    mkdir -p "$HOME" || return 1
     mkdir -p "$COMMAND_HARNESS_BIN" "$COMMAND_HARNESS_CONFIG" || return 1
     : >"$COMMAND_HARNESS_LOG"
     COMMAND_HARNESS_SENTINEL="harness-$$-$RANDOM"
@@ -165,10 +171,15 @@ teardown_command_harness() {
     else
         unset BREW_CHANGE_TEST_NOW
     fi
+    if [[ -n "${COMMAND_HARNESS_ORIGINAL_HOME:-}" ]]; then
+        HOME="$COMMAND_HARNESS_ORIGINAL_HOME"
+        export HOME
+    fi
     [[ -z "${COMMAND_HARNESS_ROOT:-}" ]] || rm -rf "$COMMAND_HARNESS_ROOT"
     unset COMMAND_HARNESS_ROOT COMMAND_HARNESS_BIN COMMAND_HARNESS_CONFIG COMMAND_HARNESS_LOG COMMAND_HARNESS_SENTINEL
     unset COMMAND_HARNESS_ENV_LOG COMMAND_HARNESS_ENV_CAPTURE_VARS
     unset COMMAND_HARNESS_ORIGINAL_PATH COMMAND_HARNESS_ORIGINAL_NOW_SET COMMAND_HARNESS_ORIGINAL_NOW
+    unset COMMAND_HARNESS_ORIGINAL_HOME
 }
 
 # Return an explicitly injected epoch, falling back to the system clock.
