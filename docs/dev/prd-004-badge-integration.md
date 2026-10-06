@@ -123,3 +123,34 @@ brew() {
 - Concurrent `brew upgrade` sessions produce at most one running refresh.
 - Missing export → hint; malformed/future-schema export → silence; nothing ever errors the shell.
 - Full local test suite green; docs complete.
+
+## Addendum (2026-10-06): live-testing amendments
+
+Real-usage testing after merge surfaced five amendments, each shipped with
+regression coverage (commits 924332b..e94ff16):
+
+1. **Binary pin in `init`** — the emitted wrapper referenced `brew-change`
+   via PATH. With tap v1.20.1 still installed, `eval "$(brew-change init
+   zsh)"` stalled shell startup: the old pre-parse treats unknown words as
+   package names, so `init zsh` ran changelog lookups inside rc evaluation.
+   `init` now emits `__bc_bin=<absolute path of the emitting binary>`.
+2. **Own-PID lock adoption** — the badge pre-acquires the lock and writes
+   the spawned child's pid; the child refused a lock "held by itself" and
+   exited, so refresh never ran. `refresh_lock_acquire` adopts its own pid.
+3. **Degraded-export guard + backoff** — a network-dead refresh (zero
+   `fresh|cached-fresh` retrievals, research-005 vocabulary) kept a healthy
+   export instead of overwriting it with forced-unknown records (rc=2);
+   failed refreshes start a 30-min badge backoff
+   (`BREW_CHANGE_REFRESH_BACKOFF`).
+4. **`before-upgrade` trigger** — the post-upgrade badge lands after the
+   decision point; a read-only verdict now prints above brew's plan where
+   the `y/n` happens.
+5. **Presentation pass** — risk coloring (breaking red / no-signal green /
+   unknown yellow, `NO_COLOR` respected), Homebrew-style `==>` header
+   marker, and duplicate suppression: an after-* verdict identical to the
+   last printed one (same export, <10 min) repeats nothing;
+   `before-upgrade` always prints.
+
+Known accepted trade-off: a declined `brew upgrade` still triggers the
+refresh and suffix — brew exits 0 on decline, and the wrapper deliberately
+does not parse brew output.

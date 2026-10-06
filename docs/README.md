@@ -4,6 +4,7 @@
 
 - **[The Trusted Update Workflow](trusted-update.md)** — upgrade behavior, the `-b` verdict, first run, dashboard defaults, evidence caching & re-entry, accessibility modes
 - **[Assessment Export](assessment-export.md)** — the versioned JSON feed for external tools (schema + consumer contract)
+- **[Badge Integration](badge-integration.md)** — opt-in shell-wrapper verdicts around `brew update` / `brew upgrade` (install, semantics, color & dedupe rules)
 - **[Package Types](package-types.md)** — GitHub, npm, third-party taps, hybrid packages, docs-repository pattern
 - **[Configuration](configuration.md)** — every environment variable in one reference
 - **[Troubleshooting](../README.md#-troubleshooting)** — quick fixes live in the README
@@ -19,6 +20,7 @@
 Active PRDs, task graphs, and ratified decision records (research-NNN):
 
 - [PRD 003 — Trusted Update Workflow](dev/prd-003-trusted-update-workflow.md) and its [task graph](dev/tasks-003-trusted-update-workflow.md)
+- [PRD 004 — Badge Integration](dev/prd-004-badge-integration.md) (shipped; see its live-testing addendum) and its [implementation plan](dev/tasks-006-badge-integration.md)
 - [Tasks 004 — `-b` verdict summary + LLM triage](dev/tasks-004-b-verdict-summary-llm-triage.md) (Task 0/1 shipped; Task 2 parked — see [research-009](dev/research-009-llm-triage.md))
 - [Tasks 005 — Assessment Export Surface](dev/tasks-005-assessment-export-surface.md) (shipped; the export's design record)
 - Decision records: [research-004](dev/research-004-cli-default-compatibility.md) · [research-005](dev/research-005-assessment-record-contract.md) · [research-006](dev/research-006-progress-event-contract.md) · [research-007](dev/research-007-dashboard-actions.md) · [research-008](dev/research-008-evidence-cache-resume.md) · [research-009](dev/research-009-llm-triage.md) · [research-010](dev/research-010-native-app-dd.md)

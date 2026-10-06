@@ -35,8 +35,15 @@ brew-change --version
 # Show help
 brew-change --help
 
-# Opt in: one-line verdict badge after `brew update` / `brew upgrade`
+# Opt in: one-line risk verdict around `brew update` / `brew upgrade`
 eval "$(brew-change init zsh)"   # or: init bash
+#
+# ==> Updating Homebrew...
+# Already up-to-date.
+# ==> brew-change: 10 updates · 2 breaking (node) · 5 no-signal · 4m ago
+#
+# The verdict prints after brew finishes, and again above `brew upgrade`'s
+# [y/n] — so the risk view is on screen exactly where you decide.
 ```
 
 ## 🎯 Who This Is For
@@ -50,6 +57,7 @@ eval "$(brew-change init zsh)"   # or: init bash
 ## ✨ Key Features
 
 - **Smart Package Detection**: GitHub, npm, third-party taps, hybrid packages, and more
+- **Update Badge (opt-in)**: one-line risk verdict around `brew update` / `brew upgrade` — colored by risk, refreshed in the background, never blocks or breaks brew
 - **Parallel Processing**: Handles multiple packages simultaneously (45-50s for 13 packages)
 - **Honest Update Assessment**: Separates packages into attention, no-signal, and unknown instead of claiming an update is safe
 - **Preview Before Mutation**: Shows Homebrew's `upgrade --dry-run` output, warns about dependency/dependent effects, and asks for final confirmation

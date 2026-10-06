@@ -8,6 +8,31 @@ wrapper pattern instead: a `brew()` shell function that runs the real brew,
 prints the badge from cached assessment data, and returns brew's exact exit
 status.
 
+## When you want this
+
+If you run `brew update` and then `brew upgrade` and approve whatever brew
+proposes, you're upgrading blind — a major version jump or a breaking-change
+pattern sails through the prompt. The badge puts the risk view on screen at
+both decision moments:
+
+    ❯ brew update
+    ==> Updating Homebrew...
+    Already up-to-date.
+    ==> brew-change: 10 updates · 2 breaking (node) · 5 no-signal · 4m ago
+
+    ❯ brew upgrade
+    ==> brew-change: 10 updates · 2 breaking (node) · 5 no-signal · 5m ago   ← informs the y/n
+    ==> Downloading bottle manifests
+    ...
+    ==> Do you want to proceed with the upgrade? [y/n]
+    y
+    ...pouring...
+    ==> brew-change: assessment updating…                                    ← refresh re-derives the new state
+
+Skip it if you never type `brew update`/`brew upgrade` yourself, or if your
+upgrade flow is fully scripted — the badge only exists in interactive shells
+that opted in.
+
 ## Requirements
 
 The binary that runs `init` must support the badge subcommands (the release
